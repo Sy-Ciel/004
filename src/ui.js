@@ -10,6 +10,7 @@ import {
 } from './constants.js';
 import { lastFloorId, showChatDebug, showDryRun, showParserPreview } from './debug.js';
 import { resetPanelGeometry } from './panel.js';
+import { initParserPresetUi, refreshParserPresetUi } from './ui-parser-presets.js';
 import { callParser, parseExtraBody } from './parser.js';
 import { enqueue } from './pipeline.js';
 import { renderAll } from './render.js';
@@ -668,6 +669,7 @@ export async function initSettingsUi() {
 
     bindSettings(root);
     bindPickers(root);
+    initParserPresetUi();
     initResolution();
     updateMegapixels();
     validateExtraBody();
@@ -709,4 +711,5 @@ export function syncSettingsUi() {
     });
     renderPickers();
     refreshTargetSelect();
+    refreshParserPresetUi();
 }

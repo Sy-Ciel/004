@@ -1,6 +1,4 @@
 import {
-    DEFAULT_PARSER_SYSTEM,
-    DEFAULT_PARSER_USER,
     DEFAULT_SETTINGS,
     EXTRA_KEY,
     LEGACY_PARSER_SYSTEM,
@@ -8,7 +6,11 @@ import {
     LOG_PREFIX,
     MODULE,
     SETTINGS_VERSION,
+    V3_PARSER_SYSTEM,
+    V3_PARSER_USER,
+    makeId,
 } from './constants.js';
+import { BUILTIN_PARSER_PRESETS } from './parserPresetDefaults.js';
 
 export const ctx = () => SillyTavern.getContext();
 
@@ -34,11 +36,27 @@ function migrateSettings(settings) {
         // 800 tokens was the v1 default and is too small for thinking models (GLM, DeepSeek-R1 …).
         if (Number(settings.parser?.maxTokens) === 800) settings.parser.maxTokens = 2048;
     }
-    if (version < 3 && settings.parser) {
-        // Untouched default templates get the new {{prev_outputs}} block; edited ones are left alone
-        // (buildParserPrompt appends the block when a template lacks it).
-        if (settings.parser.systemPrompt === LEGACY_PARSER_SYSTEM) settings.parser.systemPrompt = DEFAULT_PARSER_SYSTEM;
-        if (settings.parser.userTemplate === LEGACY_PARSER_USER) settings.parser.userTemplate = DEFAULT_PARSER_USER;
+    if (version < 4 && settings.parser) {
+        // Parser prompts moved into presets. Untouched defaults map to the built-in "story" preset;
+        // edited ones become a preset of their own, selected so nothing changes for the user.
+        const { systemPrompt: system, userTemplate: user } = settings.parser;
+        const stockSystem = system === undefined || system === LEGACY_PARSER_SYSTEM || system === V3_PARSER_SYSTEM;
+        const stockUser = user === undefined || user === LEGACY_PARSER_USER || user === V3_PARSER_USER;
+        settings.parserPresets = structuredClone(BUILTIN_PARSER_PRESETS);
+        if (!stockSystem || !stockUser) {
+            const story = BUILTIN_PARSER_PRESETS[0];
+            const custom = {
+                ...structuredClone(story),
+                id: makeId(),
+                name: '我的解析提示词（从旧版本迁移）',
+                system: stockSystem ? story.system : String(system),
+                user: stockUser ? story.user : String(user),
+            };
+            settings.parserPresets.push(custom);
+            settings.parserPresetId = custom.id;
+        }
+        delete settings.parser.systemPrompt;
+        delete settings.parser.userTemplate;
     }
     settings.settingsVersion = SETTINGS_VERSION;
 }
@@ -54,6 +72,15 @@ export function getSettings() {
     fillDefaults(all[MODULE], DEFAULT_SETTINGS);
     if (!Array.isArray(all[MODULE].presets)) {
         all[MODULE].presets = structuredClone(DEFAULT_SETTINGS.presets);
+    }
+    if (!Array.isArray(all[MODULE].parserPresets)) {
+        all[MODULE].parserPresets = [];
+    }
+    // Built-in parser presets are always available (they can be edited and reset, not deleted).
+    for (const builtin of BUILTIN_PARSER_PRESETS) {
+        if (!all[MODULE].parserPresets.some(preset => preset.id === builtin.id)) {
+            all[MODULE].parserPresets.push(structuredClone(builtin));
+        }
     }
     return all[MODULE];
 }

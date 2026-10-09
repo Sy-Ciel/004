@@ -7,7 +7,10 @@ export const TARGET_USER = '__user__';
 export const TARGET_CHAR = '__char__';
 export const TARGET_AUTO = '__auto__';
 
-export const DEFAULT_PARSER_SYSTEM = `你是「角色状态解析器」。你的输出会被直接拼进文生图模型（Krea 2，擅长理解英文自然语言描述）的提示词里。
+import { BUILTIN_PARSER_PRESETS } from './parserPresetDefaults.js';
+
+/** v1.4 defaults, kept only to recognise untouched settings when migrating to parser presets. */
+export const V3_PARSER_SYSTEM = `你是「角色状态解析器」。你的输出会被直接拼进文生图模型（Krea 2，擅长理解英文自然语言描述）的提示词里。
 
 任务：阅读给出的剧情，判断【目标角色】在【当前楼层】结束时刻的视觉状态，输出一个 JSON 对象。
 
@@ -31,7 +34,7 @@ export const DEFAULT_PARSER_SYSTEM = `你是「角色状态解析器」。你的
 输出格式：
 {"skip": false, "target": "目标角色名", "outfit": "", "action": "", "expression": "", "demeanor": "", "scene": "", "camera": "", "lighting": ""}`;
 
-export const DEFAULT_PARSER_USER = `【目标角色】{{target}}
+export const V3_PARSER_USER = `【目标角色】{{target}}
 {{appearance}}
 {{candidates}}
 {{world_info}}
@@ -97,7 +100,7 @@ export function defaultPresets() {
 }
 
 /** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */
-export const SETTINGS_VERSION = 3;
+export const SETTINGS_VERSION = 4;
 
 export const EMPTY_LISTS = { unet: [], clip: [], vae: [], lora: [], sampler: [], scheduler: [] };
 
@@ -137,9 +140,12 @@ export const DEFAULT_SETTINGS = {
         includePersona: false,
         includeCharDescription: false,
         timeoutSec: 90,
-        systemPrompt: DEFAULT_PARSER_SYSTEM,
-        userTemplate: DEFAULT_PARSER_USER,
     },
+
+    /** 'fixed' = preset appearance + AI-written details; 'ai' = the parser writes the whole prompt. */
+    promptMode: 'fixed',
+    parserPresetId: 'story',
+    parserPresets: BUILTIN_PARSER_PRESETS,
 
     targetMode: TARGET_USER,
     presets: defaultPresets(),

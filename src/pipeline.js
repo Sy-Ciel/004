@@ -1,6 +1,7 @@
 import { EXTRA_KEY } from './constants.js';
 import { getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
 import { buildParserPrompt, callParser, parseParserReply, parserLabel } from './parser.js';
+import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution } from './parserPresets.js';
 import { buildImagePrompt, buildNegativePrompt } from './prompt.js';
 import { findPresetById, findPresetByName, resolveTarget, settleAutoTarget } from './targets.js';
 import {
@@ -26,6 +27,28 @@ let rerender = () => {};
 let imageAdded = () => {};
 
 const FORCE_NOTE = '\n\n注意：用户手动要求为本楼出图。即使信息不足也不要输出 skip，请根据上下文合理推断。';
+
+/**
+ * The parser preset's fixed fields always win over what the model wrote, so e.g. a sprite keeps its pose.
+ * @returns {{ parsed: object, forced: string[] }}
+ */
+function applyFixedFields(parsed, parserPreset) {
+    const fixed = parseFixedFields(parserPreset?.fixedFields);
+    return { parsed: { ...parsed, ...fixed }, forced: Object.keys(fixed) };
+}
+
+/** Builds the final prompt for a parse result; shared by real runs and the dry run. */
+function promptFromParse(characterPreset, parsed, parserPrompt, notes) {
+    const { parsed: final, forced } = applyFixedFields(parsed, parserPrompt.preset);
+    if (forced.length) notes.push(`固定内容覆盖了：${forced.join(', ')}`);
+    if (parserPrompt.mode === 'ai' && !final.prompt) {
+        notes.push('解析模型没有返回 prompt 字段，已改用「固定外貌 + AI 补充」的模板拼接');
+    }
+    return {
+        parsed: final,
+        prompt: buildImagePrompt(characterPreset, final, { parserPreset: parserPrompt.preset, mode: parserPrompt.mode }),
+    };
+}
 
 export function setRenderer(fn) {
     rerender = fn;
@@ -174,12 +197,16 @@ async function runJob(message, job, options) {
                 target = settleAutoTarget(target, parsed.target, message);
                 applyTarget(target);
             }
-            data.parsed = parsed;
             if (!target.preset) {
                 data.debug.notes.push(`没有找到「${target.name}」的角色预设，固定外貌为空`);
             }
-            data.prompt = buildImagePrompt(target.preset, parsed);
+            const built = promptFromParse(target.preset, parsed, parserPrompt, data.debug.notes);
+            data.parsed = built.parsed;
+            data.prompt = built.prompt;
             data.negative = buildNegativePrompt(target.preset);
+            data.parserPresetId = parserPrompt.preset.id;
+            data.parserPresetName = parserPrompt.preset.name;
+            data.promptMode = parserPrompt.mode;
         } else if (mode === 'edit') {
             data.prompt = String(options.prompt || '').trim();
             data.debug.notes.push('提示词由用户手动编辑');
@@ -192,8 +219,11 @@ async function runJob(message, job, options) {
         const { comfy } = settings;
         const fixedSeed = Number(comfy.seed);
         const seed = mode !== 'reroll' && fixedSeed >= 0 ? fixedSeed : randomSeed();
-        const width = roundTo16(comfy.width, 832);
-        const height = roundTo16(comfy.height, 1216);
+        // Resolution: the parser preset this floor was parsed with may override the global size.
+        const presetSize = presetResolution(findParserPreset(data.parserPresetId) ?? activeParserPreset());
+        const width = roundTo16(presetSize?.width ?? comfy.width, 832);
+        const height = roundTo16(presetSize?.height ?? comfy.height, 1216);
+        if (presetSize) data.debug.notes.push(`分辨率来自解析预设：${width}×${height}`);
         const values = {
             prompt: data.prompt,
             negative_prompt: data.negative || '',
@@ -285,14 +315,17 @@ export async function dryRun(mesId, targetOverride) {
     let target = resolveTarget(message, targetOverride);
     const parserPrompt = await buildParserPrompt(mesId, target);
     const reply = await callParser(parserPrompt.system, parserPrompt.user);
-    const parsed = parseParserReply(reply);
-    if (target.auto && !parsed.skip) target = settleAutoTarget(target, parsed.target, message);
+    const raw = parseParserReply(reply);
+    if (target.auto && !raw.skip) target = settleAutoTarget(target, raw.target, message);
+    const notes = [...parserPrompt.notes];
+    const built = raw.skip ? { parsed: raw, prompt: '' } : promptFromParse(target.preset, raw, parserPrompt, notes);
     return {
         target,
         parserPrompt,
         reply,
-        parsed,
-        prompt: parsed.skip ? '' : buildImagePrompt(target.preset, parsed),
+        parsed: built.parsed,
+        notes,
+        prompt: built.prompt,
         negative: buildNegativePrompt(target.preset),
     };
 }

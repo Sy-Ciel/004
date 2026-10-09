@@ -4,6 +4,7 @@ import { captureHints, hintsEnabled, pendingHints, removeHint, stripHints, strip
 import { resetPanelForChat, showInPanel } from './src/panel.js';
 import { cancelAllJobs, cancelJob, enqueue, getJob, setImageAddedHandler, setRenderer } from './src/pipeline.js';
 import { onLayoutChange, renderAll, renderMessage } from './src/render.js';
+import { findParserPreset } from './src/parserPresets.js';
 import { findPresetByName, findPresetById, initPersonaTracking } from './src/targets.js';
 import { initSettingsUi, onPersonaChanged, refreshTargetSelect, syncSettingsUi } from './src/ui.js';
 import { ctx, getMessageData, getSettings, log, saveSettings, setMessageData } from './src/utils.js';
@@ -313,6 +314,51 @@ function registerSlashCommands() {
             refreshTargetSelect();
             toastr.success(`配图目标：${wanted}`);
             return mode;
+        },
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'ctimg-preset',
+        helpString: '切换配图风格（解析预设），例如 /ctimg-preset 立绘。不带参数时返回当前预设名。',
+        unnamedArgumentList: [
+            SlashCommandArgument.fromProps({ description: '预设名（可以只写一部分）', typeList: [ARGUMENT_TYPE.STRING], isRequired: false }),
+        ],
+        callback: async (_args, value) => {
+            const settings = getSettings();
+            const wanted = String(value || '').trim();
+            if (!wanted) return findParserPreset(settings.parserPresetId)?.name ?? '';
+            const preset = findParserPreset(wanted);
+            if (!preset) {
+                toastr.warning(`没有名为「${wanted}」的解析预设`);
+                return '';
+            }
+            settings.parserPresetId = preset.id;
+            saveSettings();
+            syncSettingsUi();
+            toastr.success(`配图风格：${preset.name}`);
+            return preset.name;
+        },
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'ctimg-mode',
+        helpString: '提示词生成方式：fixed（固定外貌 + AI 补充）或 ai（AI 写完整提示词）。不带参数时返回当前方式。',
+        unnamedArgumentList: [
+            SlashCommandArgument.fromProps({ description: 'fixed / ai', typeList: [ARGUMENT_TYPE.STRING], isRequired: false }),
+        ],
+        callback: async (_args, value) => {
+            const settings = getSettings();
+            const wanted = String(value || '').trim().toLowerCase();
+            if (!wanted) return settings.promptMode;
+            if (!['fixed', 'ai'].includes(wanted)) {
+                toastr.warning('只能是 fixed 或 ai');
+                return settings.promptMode;
+            }
+            settings.promptMode = wanted;
+            saveSettings();
+            syncSettingsUi();
+            toastr.success(wanted === 'ai' ? '提示词生成方式：AI 写完整提示词' : '提示词生成方式：固定外貌 + AI 补充');
+            return wanted;
         },
     }));
 

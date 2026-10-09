@@ -157,16 +157,49 @@
                 <div class="ctp-row">
                     <div class="menu_button" id="ctp_parser_test">测试解析模型</div>
                 </div>
-                <details class="ctp-details">
-                    <summary>解析提示词（高级）</summary>
-                    <label>System 提示词 <span class="ctp-link" data-reset="parser.systemPrompt">恢复默认</span>
-                        <textarea class="text_pole" rows="12" data-ctp="parser.systemPrompt"></textarea>
+            </div>
+
+            <!-- ============ 配图风格（解析预设） ============ -->
+            <div class="ctp-section">
+                <h4>配图风格（解析预设）</h4>
+                <div class="ctp-row">
+                    <select class="text_pole flex1" id="ctp_pp_select"></select>
+                    <div class="menu_button fa-solid fa-clone" id="ctp_pp_clone" title="复制当前预设为新预设"></div>
+                    <div class="menu_button fa-solid fa-trash-can" id="ctp_pp_delete" title="删除（内置预设不能删）"></div>
+                    <div class="menu_button fa-solid fa-rotate-left" id="ctp_pp_reset" title="恢复内置预设的默认内容"></div>
+                </div>
+                <small class="ctp-hint" id="ctp_pp_desc"></small>
+                <label>提示词生成方式
+                    <select class="text_pole" data-ctp="promptMode">
+                        <option value="fixed">固定外貌 + AI 补充</option>
+                        <option value="ai">AI 写完整提示词</option>
+                    </select>
+                </label>
+                <small class="ctp-hint">「固定外貌 + AI 补充」：角色预设的外貌原样放进提示词，AI 只写服装、动作、表情等，再按「组装模板」拼起来。
+                    「AI 写完整提示词」：把角色预设的外貌（人设）交给解析 AI，由它自己写出整段提示词；LoRA 触发词和画风前缀 / 后缀仍会自动加上。</small>
+                <div id="ctp_pp_editor">
+                    <label>名称 <input type="text" class="text_pole" data-pp="name"></label>
+                    <label>固定内容（每行「字段: 内容」，这些字段每张图都一样）
+                        <textarea class="text_pole ctp-mono" rows="4" data-pp="fixedFields" placeholder="action: standing upright and facing the viewer&#10;scene: plain light grey studio background"></textarea>
                     </label>
-                    <label>User 模板 <span class="ctp-link" data-reset="parser.userTemplate">恢复默认</span>
-                        <textarea class="text_pole" rows="10" data-ctp="parser.userTemplate"></textarea>
-                    </label>
-                    <small class="ctp-hint">可用变量：{{target}} {{appearance}} {{candidates}} {{world_info}} {{last_state}} {{prev_outputs}} {{history}} {{latest}} {{floor}} {{user_hints}}，以及酒馆宏 {{user}} {{char}} 等。模板里没写 {{world_info}} / {{prev_outputs}} / {{user_hints}} 时会自动插入。</small>
-                </details>
+                    <small class="ctp-hint">字段可写英文或中文：outfit 服装 / action 动作 / expression 表情 / demeanor 神态 / scene 场景 / camera 镜头 / lighting 光线。「固定外貌 + AI 补充」时直接覆盖 AI 写的内容；「AI 写完整提示词」时交给 AI 照着写进去。</small>
+                    <label>风格前缀（加在「画风 / 质量前缀」后面）<input type="text" class="text_pole" data-pp="prefix"></label>
+                    <div class="ctp-row">
+                        <label>宽 <input type="number" class="text_pole" step="16" min="0" data-pp="width" data-type="int"></label>
+                        <label>高 <input type="number" class="text_pole" step="16" min="0" data-pp="height" data-type="int"></label>
+                    </div>
+                    <small class="ctp-hint">分辨率填 0 就用 ComfyUI 区的全局分辨率。立绘适合竖图（如 832×1216），小说插画适合横图（如 1216×832）。</small>
+                    <details class="ctp-details">
+                        <summary>解析提示词（高级）</summary>
+                        <label>System 提示词
+                            <textarea class="text_pole" rows="14" data-pp="system"></textarea>
+                        </label>
+                        <label>User 模板
+                            <textarea class="text_pole" rows="10" data-pp="user"></textarea>
+                        </label>
+                        <small class="ctp-hint">System 里的 {{output_rules}} 会按「提示词生成方式」换成外貌规则和 JSON 输出格式。User 模板可用变量：{{target}} {{appearance}} {{candidates}} {{world_info}} {{fixed_fields}} {{last_state}} {{prev_outputs}} {{history}} {{latest}} {{floor}} {{user_hints}}，以及酒馆宏 {{user}} {{char}} 等；没写的块会自动插入。</small>
+                    </details>
+                </div>
             </div>
 
             <!-- ============ 提示词组装 ============ -->

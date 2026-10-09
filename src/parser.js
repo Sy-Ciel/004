@@ -1,6 +1,7 @@
 import { PARSED_FIELDS } from './constants.js';
 import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
+import { activeParserPreset, outputRules, parseFixedFields, promptMode } from './parserPresets.js';
 import { presetForName } from './targets.js';
 import {
     ctx,
@@ -79,21 +80,23 @@ function formatOutputs(records, includePrompt) {
     return `【之前的配图输出（最近 ${records.length} 次，从旧到新，用来保持人物服装和场景连贯）】\n${blocks.join('\n\n')}`;
 }
 
-function referenceBlock(target) {
+function referenceBlock(target, mode) {
     const settings = getSettings();
     const blocks = [];
     if (target.auto) {
         for (const name of target.candidates) {
             const preset = presetForName(name);
             if (preset?.appearance) {
-                blocks.push(`【${name} 的固定外貌（仅供识别，不要输出）】\n${resolveMacros(preset.appearance)}`);
+                const label = mode === 'ai' ? '角色设定（选中此人时必须完整写进 prompt）' : '固定外貌（仅供识别，不要输出）';
+                blocks.push(`【${name} 的${label}】\n${resolveMacros(preset.appearance)}`);
             }
         }
         return blocks.join('\n');
     }
 
     if (target.preset?.appearance) {
-        blocks.push(`【固定外貌（已由用户设定，仅供理解，不要输出）】\n${resolveMacros(target.preset.appearance)}`);
+        const label = mode === 'ai' ? '角色设定（固定外貌，必须完整写进 prompt）' : '固定外貌（已由用户设定，仅供理解，不要输出）';
+        blocks.push(`【${label}】\n${resolveMacros(target.preset.appearance)}`);
     }
     const isUser = target.name && target.name === ctx().name1;
     if (settings.parser.includePersona && isUser) {
@@ -171,12 +174,20 @@ function ensureSlot(template, name, anchors) {
     return `${template}\n\n{{${name}}}`;
 }
 
+function fixedFieldsBlock(preset) {
+    const fields = parseFixedFields(preset?.fixedFields);
+    const lines = Object.entries(fields).map(([field, value]) => `${field}: ${value}`);
+    return lines.length ? `【固定内容（这些字段每张图都一样，必须原样使用，不要改）】\n${lines.join('\n')}` : '';
+}
+
 /**
- * Builds the system + user messages for the parser model.
- * @returns {Promise<{ system: string, user: string, notes: string[] }>}
+ * Builds the system + user messages for the parser model from the active parser preset.
+ * @returns {Promise<{ system: string, user: string, notes: string[], preset: object, mode: 'fixed'|'ai' }>}
  */
 export async function buildParserPrompt(mesId, target) {
     const settings = getSettings();
+    const preset = activeParserPreset();
+    const mode = promptMode();
     const chat = ctx().chat;
     const depth = Math.max(0, Number(settings.parser.contextDepth) || 0);
     const maxChars = Number(settings.parser.maxCharsPerMessage) || 0;
@@ -199,7 +210,9 @@ export async function buildParserPrompt(mesId, target) {
 
     const vars = {
         target: target.auto ? '（由你从候选角色中选择）' : target.name,
-        appearance: referenceBlock(target),
+        appearance: referenceBlock(target, mode),
+        fixed_fields: fixedFieldsBlock(preset),
+        output_rules: outputRules(mode),
         candidates,
         last_state: target.auto ? '（自动模式下不提供）' : formatState(lastState, shownFloors),
         prev_outputs: prevOutputs,
@@ -216,15 +229,24 @@ export async function buildParserPrompt(mesId, target) {
         : '';
 
     // Custom templates from before these variables existed still get the blocks.
-    let userTemplate = String(settings.parser.userTemplate || '');
+    let userTemplate = String(preset.user || '');
+    if (vars.fixed_fields) userTemplate = ensureSlot(userTemplate, 'fixed_fields', ['【上一次状态', '【最近剧情', '【当前楼层']);
     if (prevOutputs) userTemplate = ensureSlot(userTemplate, 'prev_outputs', ['【最近剧情', '【当前楼层']);
     if (worldInfo.text) userTemplate = ensureSlot(userTemplate, 'world_info', ['【上一次状态', '【最近剧情', '【当前楼层']);
     if (vars.user_hints) userTemplate = ensureSlot(userTemplate, 'user_hints', ['请按要求']);
 
+    // A custom system prompt without {{output_rules}} keeps its own output format in "fixed" mode; the
+    // "AI writes the prompt" mode needs the rules that ask for the `prompt` field, so they are appended.
+    let systemTemplate = String(preset.system || '');
+    if (mode === 'ai' && !systemTemplate.includes('{{output_rules}}')) systemTemplate += '\n\n{{output_rules}}';
+
     return {
-        system: fillTemplate(settings.parser.systemPrompt, vars),
+        system: fillTemplate(systemTemplate, vars).replace(/\n{3,}/g, '\n\n'),
         user: fillTemplate(userTemplate, vars).replace(/\n{3,}/g, '\n\n'),
+        preset,
+        mode,
         notes: [
+            `解析预设：${preset.name} · ${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}`,
             worldInfo.note,
             records.length ? `参考了之前 ${records.length} 次配图输出` : '',
             hints.length ? `用户画图指令 ${hints.reduce((sum, item) => sum + item.hints.length, 0)} 条` : '',
@@ -463,7 +485,7 @@ export function parseParserOutput(raw) {
         // Salvage fields from broken or truncated JSON, or from "key: value" lines. A quoted value only counts
         // when its closing quote is present, so a reply cut off mid-value does not leak half a phrase.
         object = {};
-        for (const key of ['skip', 'reason', 'target', ...PARSED_FIELDS]) {
+        for (const key of ['skip', 'reason', 'target', 'prompt', ...PARSED_FIELDS]) {
             const quoted = text.match(new RegExp(`["']?${key}["']?\\s*[:：]\\s*"([^"\\n]*)"`, 'i'));
             const line = text.match(new RegExp(`^\\s*${key}\\s*[:：]\\s*([^"{}\\n]+)$`, 'im'));
             if (quoted) object[key] = quoted[1];
@@ -484,7 +506,9 @@ export function parseParserOutput(raw) {
     for (const field of PARSED_FIELDS) {
         result[field] = normalizeValue(object[field]);
     }
-    if (!result.skip && PARSED_FIELDS.every(field => !result[field])) {
+    // Only present in the "AI writes the whole prompt" mode
+    result.prompt = normalizeValue(object.prompt);
+    if (!result.skip && !result.prompt && PARSED_FIELDS.every(field => !result[field])) {
         throw new Error('解析结果里没有任何画面字段');
     }
     return result;

@@ -76,6 +76,7 @@ export async function showFloorDebug(mesId) {
         ['目标角色', data.target],
         ['使用预设', data.fixed?.preset || '（无）'],
         ['解析模型', data.parser],
+        ['解析预设', data.parserPresetName ? `${data.parserPresetName} · ${data.promptMode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}` : ''],
         ['解析用时', data.parserMs ? `${data.parserMs} ms` : ''],
         ['结束原因', data.parserFinish],
         ['出图用时', data.comfyMs ? `${data.comfyMs} ms` : ''],
@@ -86,6 +87,7 @@ export async function showFloorDebug(mesId) {
         ${block('反向提示词', image?.negative ?? data.negative)}
         <h4>① 固定部分（角色预设）</h4>
         ${table([['外貌', data.fixed?.appearance || '（空）'], ['触发词', data.fixed?.trigger]])}
+        ${data.parsed?.prompt ? block('AI 写的完整提示词（prompt 字段）', data.parsed.prompt) : ''}
         <h4>② AI 解析部分${data.error && data.parsed ? '（以下是最近一次成功的解析，本次失败的输出见下方「原始输出」）' : ''}</h4>
         ${table(parsedRows) || '<p class="ctp-muted">无</p>'}
         ${data.parser ? block('解析模型原始输出', data.parserRaw || '（空）', { open: !!data.error }) : ''}
@@ -185,8 +187,9 @@ export async function showDryRun() {
         const result = await dryRun(mesId);
         await showPopup(`
             <h3>试运行解析 · #${mesId}（不出图）</h3>
-            ${table([['目标', result.target.name || '?'], ['预设', result.target.preset?.name || '（无）'], ['跳过', result.parsed.skip ? `是：${result.parsed.reason}` : '否'], ['结束原因', result.reply.finish]])}
+            ${table([['目标', result.target.name || '?'], ['预设', result.target.preset?.name || '（无）'], ['跳过', result.parsed.skip ? `是：${result.parsed.reason}` : '否'], ['结束原因', result.reply.finish], ['说明', result.notes.join('；')]])}
             ${block('最终正向提示词', result.prompt)}
+            ${result.parsed.prompt ? block('AI 写的完整提示词（prompt 字段）', result.parsed.prompt, { open: false }) : ''}
             ${block('反向提示词', result.negative)}
             ${table(PARSED_FIELDS.map(field => [`${FIELD_LABELS[field]} (${field})`, result.parsed[field]]))}
             ${block('解析模型原始输出', result.reply.content || '（空）')}
