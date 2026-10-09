@@ -85,6 +85,7 @@ export function defaultPresets() {
             lora: '',
             loraStrength: 0.8,
             negative: '',
+            personas: [],
         },
     ];
 }
@@ -103,6 +104,9 @@ export const DEFAULT_SETTINGS = {
     regenOnContinue: false,
     debug: false,
     imagePosition: 'below',
+    imagePositionNarrow: 'below',
+    sideWidth: 40,
+    sideTextWrap: false,
     imageMaxWidth: 480,
     maxVersions: 10,
 

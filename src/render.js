@@ -5,13 +5,48 @@ function messageElement(mesId) {
     return $(`#chat .mes[mesid="${mesId}"]`);
 }
 
-function placeWrap(element, wrap) {
+/** Same breakpoint SillyTavern uses for its mobile layout. */
+const narrowScreen = window.matchMedia('(max-width: 1000px)');
+
+export function onLayoutChange(callback) {
+    narrowScreen.addEventListener('change', callback);
+}
+
+/** left / right are desktop layouts; on narrow screens they fall back to above / below. */
+function effectivePosition() {
+    const settings = getSettings();
+    const position = settings.imagePosition;
+    if ((position === 'left' || position === 'right') && narrowScreen.matches) {
+        return settings.imagePositionNarrow === 'above' ? 'above' : 'below';
+    }
+    return position;
+}
+
+function placeWrap(element, wrap, position) {
     const text = element.find('.mes_text').first();
     if (!text.length) return;
-    if (getSettings().imagePosition === 'above') {
+    // Side images float, so they must come before the text they sit next to.
+    if (position !== 'below') {
         if (wrap.next()[0] !== text[0]) wrap.insertBefore(text);
     } else if (wrap.prev()[0] !== text[0]) {
         wrap.insertAfter(text);
+    }
+}
+
+/** Floats the block beside the text (left/right). Only used once there is an image to show. */
+function applySideLayout(element, wrap, side) {
+    const settings = getSettings();
+    const block = element.find('.mes_block').first();
+    wrap.toggleClass('ctp-side', !!side)
+        .toggleClass('ctp-side-left', side === 'left')
+        .toggleClass('ctp-side-right', side === 'right');
+    block.toggleClass('ctp-has-side', !!side)
+        .toggleClass('ctp-text-wrap', !!side && !!settings.sideTextWrap);
+    if (side) {
+        const percent = Math.min(80, Math.max(10, Number(settings.sideWidth) || 40));
+        wrap.css({ '--ctp-side-width': `${percent}%`, '--ctp-side-max': `${Number(settings.imageMaxWidth) || 480}px` });
+    } else {
+        wrap.css({ '--ctp-side-width': '', '--ctp-side-max': '' });
     }
 }
 
@@ -36,7 +71,7 @@ function imageHtml(data, debug) {
         ? `<span class="ctp-meta">${escapeHtml(data.target || '')} · seed ${escapeHtml(image.seed ?? '')} · ${image.width}×${image.height}</span>`
         : '';
     return `<div class="ctp-figure">
-        <img class="ctp-img ctp-act" data-act="zoom" src="${escapeHtml(image.src)}" alt="" loading="lazy" style="max-width: min(100%, ${Number(getSettings().imageMaxWidth) || 480}px)">
+        <img class="ctp-img ctp-act" data-act="zoom" src="${escapeHtml(image.src)}" alt="" loading="lazy" style="--ctp-img-max: ${Number(getSettings().imageMaxWidth) || 480}px">
     </div>
     <div class="ctp-toolbar">
         ${nav}
@@ -75,13 +110,16 @@ export function renderMessage(mesId) {
     const showSkip = data?.skipped && settings.debug;
     if (!message || (!showJob && !hasImages && !showError && !showSkip)) {
         wrap.remove();
+        element.find('.mes_block').removeClass('ctp-has-side ctp-text-wrap');
         return;
     }
 
     if (!wrap.length) {
         wrap = $('<div class="ctp-wrap"></div>');
     }
-    placeWrap(element, wrap);
+    const position = effectivePosition();
+    placeWrap(element, wrap, position);
+    applySideLayout(element, wrap, hasImages && (position === 'left' || position === 'right') ? position : null);
 
     const parts = [];
     if (showJob) parts.push(statusHtml(job));

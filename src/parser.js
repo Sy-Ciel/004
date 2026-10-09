@@ -1,5 +1,5 @@
 import { PARSED_FIELDS } from './constants.js';
-import { findPresetByName } from './targets.js';
+import { presetForName } from './targets.js';
 import {
     ctx,
     fillTemplate,
@@ -42,7 +42,7 @@ function referenceBlock(target) {
     const blocks = [];
     if (target.auto) {
         for (const name of target.candidates) {
-            const preset = findPresetByName(name);
+            const preset = presetForName(name);
             if (preset?.appearance) {
                 blocks.push(`【${name} 的固定外貌（仅供识别，不要输出）】\n${resolveMacros(preset.appearance)}`);
             }

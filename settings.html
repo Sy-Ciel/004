@@ -22,9 +22,24 @@
                         <select class="text_pole" data-ctp="imagePosition">
                             <option value="below">正文下方</option>
                             <option value="above">正文上方</option>
+                            <option value="left">正文左侧（电脑版）</option>
+                            <option value="right">正文右侧（电脑版）</option>
                         </select>
                     </label>
                     <label>图片最大宽度(px) <input type="number" class="text_pole" min="120" step="10" data-ctp="imageMaxWidth" data-type="int"></label>
+                </div>
+                <div id="ctp_side_options">
+                    <div class="ctp-row">
+                        <label>左右布局图片宽度(%) <input type="number" class="text_pole" min="10" max="80" step="5" data-ctp="sideWidth" data-type="int"></label>
+                        <label>窄屏 / 手机上改为
+                            <select class="text_pole" data-ctp="imagePositionNarrow">
+                                <option value="below">正文下方</option>
+                                <option value="above">正文上方</option>
+                            </select>
+                        </label>
+                    </div>
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="sideTextWrap"> 文字环绕图片（关闭则图片和正文分成两栏）</label>
+                    <small class="ctp-hint">左右布局时图片宽度取「百分比」和「最大宽度」中较小的一个。窗口窄于 1000px（酒馆的手机布局）时自动改用上面选的位置。</small>
                 </div>
                 <small class="ctp-hint">图片和提示词只保存在消息的扩展数据里并单独渲染，不写进正文，正文 AI 看不到。</small>
             </div>
@@ -50,6 +65,10 @@
                 <div id="ctp_preset_editor">
                     <label>名字（可用 {{user}} / {{char}}）<input type="text" class="text_pole" data-preset="name"></label>
                     <label>别名（逗号分隔，用于匹配剧情里的称呼）<input type="text" class="text_pole" data-preset="aliases"></label>
+                    <div class="ctp-persona-block">
+                        <div>绑定用户人设（切换到勾选的人设时，{{user}} 自动使用这个预设）</div>
+                        <div id="ctp_preset_personas" class="ctp-persona-list"></div>
+                    </div>
                     <label>固定外貌（英文，写发型、发色、瞳色、五官、体型等，不写服装动作）
                         <textarea class="text_pole" rows="4" data-preset="appearance"></textarea>
                     </label>

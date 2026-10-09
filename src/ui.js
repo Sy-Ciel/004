@@ -12,7 +12,7 @@ import { lastFloorId, showChatDebug, showDryRun, showParserPreview } from './deb
 import { callParser, parseExtraBody } from './parser.js';
 import { enqueue } from './pipeline.js';
 import { renderAll } from './render.js';
-import { presetName } from './targets.js';
+import { currentPersona, findUserPreset, personaList, presetName } from './targets.js';
 import { ctx, errorMessage, escapeHtml, getSettings, roundTo16, saveSettings, truncate } from './utils.js';
 
 const SETTINGS_URL = new URL('../settings.html', import.meta.url);
@@ -137,7 +137,8 @@ function validateExtraBody() {
 }
 
 function onSettingChanged(path) {
-    if (path === 'debug' || path === 'imagePosition' || path === 'imageMaxWidth') renderAll();
+    if (['debug', 'imagePosition', 'imagePositionNarrow', 'sideWidth', 'sideTextWrap', 'imageMaxWidth'].includes(path)) renderAll();
+    if (path === 'imagePosition') updateSideOptionsVisibility();
     if (path === 'parser.source') updateSourceVisibility();
     if (path === 'parser.extraBody') validateExtraBody();
     if (path === 'comfy.workflowSource') updateWorkflowVisibility();
@@ -197,6 +198,11 @@ function updateSourceVisibility() {
     if (source === 'profile') refreshProfiles();
 }
 
+function updateSideOptionsVisibility() {
+    const position = getSettings().imagePosition;
+    $('#ctp_side_options').toggle(position === 'left' || position === 'right');
+}
+
 function updateWorkflowVisibility() {
     $('#ctp_workflow_custom').toggle(getSettings().comfy.workflowSource === 'custom');
 }
@@ -230,15 +236,35 @@ function initResolution() {
 
 /* ---------------- target & presets ---------------- */
 
+function personaName(id) {
+    return personaList().find(persona => persona.id === id)?.name ?? id;
+}
+
 function presetLabel(preset) {
     const resolved = presetName(preset);
-    return resolved && resolved !== preset.name ? `${preset.name} → ${resolved}` : (preset.name || '（未命名）');
+    const base = resolved && resolved !== preset.name ? `${preset.name} → ${resolved}` : (preset.name || '（未命名）');
+    const bound = Array.isArray(preset.personas) && preset.personas.length
+        ? `［人设：${preset.personas.map(personaName).join('、')}］`
+        : '';
+    return base + bound;
+}
+
+/** How a preset is named in messages: macro names like {{user}} are shown as written, not resolved. */
+function displayName(preset) {
+    const raw = String(preset?.name || '');
+    return `预设「${raw.includes('{{') ? raw : (presetName(preset) || raw)}」`;
+}
+
+/** Name shown for the preset {{user}} currently resolves to. */
+function userPresetName() {
+    const preset = findUserPreset();
+    return preset ? displayName(preset) : '无预设';
 }
 
 export function refreshTargetSelect() {
     const settings = getSettings();
     const options = [
-        `<option value="${TARGET_USER}">{{user}}（${escapeHtml(ctx().name1 || '用户')}）</option>`,
+        `<option value="${TARGET_USER}">{{user}}（${escapeHtml(ctx().name1 || '用户')} → ${escapeHtml(userPresetName())}）</option>`,
         `<option value="${TARGET_CHAR}">{{char}}（当前发言角色）</option>`,
         `<option value="${TARGET_AUTO}">自动判断（解析模型挑选）</option>`,
         ...settings.presets.map(preset => `<option value="${escapeHtml(preset.id)}">预设：${escapeHtml(presetLabel(preset))}</option>`),
@@ -276,6 +302,71 @@ function loadPresetEditor() {
         writeInput(element, preset[element.dataset.preset]);
     });
     document.querySelectorAll('#ctp_preset_editor [data-preset-picker]').forEach(renderPicker);
+    renderPersonaBindings();
+}
+
+/** Checkbox per user persona; a persona can be bound to one preset only. */
+function renderPersonaBindings() {
+    const preset = currentPreset();
+    const container = $('#ctp_preset_personas');
+    if (!preset) return container.empty();
+    const personas = personaList();
+    if (!personas.length) {
+        container.html('<small class="ctp-hint">酒馆里还没有用户人设</small>');
+        return;
+    }
+    const active = currentPersona();
+    const owners = new Map();
+    for (const other of getSettings().presets) {
+        for (const id of other.personas || []) owners.set(id, other);
+    }
+    container.html(personas.map(persona => {
+        const owner = owners.get(persona.id);
+        const elsewhere = owner && owner.id !== preset.id ? `<small>（已绑定到「${escapeHtml(presetName(owner) || owner.name)}」）</small>` : '';
+        return `<label class="checkbox_label" title="${escapeHtml(persona.id)}">
+            <input type="checkbox" data-persona="${escapeHtml(persona.id)}" ${(preset.personas || []).includes(persona.id) ? 'checked' : ''}>
+            <span>${escapeHtml(persona.name)}${persona.id === active ? ' <b>（当前）</b>' : ''} ${elsewhere}</span>
+        </label>`;
+    }).join(''));
+}
+
+function onPersonaToggle(event) {
+    const preset = currentPreset();
+    const id = event.target.dataset.persona;
+    if (!preset || !id) return;
+    const settings = getSettings();
+    if (event.target.checked) {
+        for (const other of settings.presets) {
+            if (other !== preset && other.personas?.includes(id)) {
+                other.personas = other.personas.filter(item => item !== id);
+                toastr.info(`人设已从预设「${presetName(other) || other.name}」改绑到当前预设`);
+            }
+        }
+        preset.personas = [...new Set([...(preset.personas || []), id])];
+    } else {
+        preset.personas = (preset.personas || []).filter(item => item !== id);
+    }
+    saveSettings();
+    renderPersonaBindings();
+    $('#ctp_preset_select option').each(function () {
+        const item = settings.presets.find(p => p.id === this.value);
+        if (item) $(this).text(presetLabel(item));
+    });
+    refreshTargetSelect();
+}
+
+let lastUserPresetId;
+
+/** Called after a persona switch: refresh labels and say which preset {{user}} now uses. */
+export function onPersonaChanged() {
+    // Labels and the checklist show persona names / the active persona.
+    refreshPresetSelect();
+    const preset = findUserPreset();
+    const id = preset?.id ?? null;
+    if (lastUserPresetId !== undefined && id !== lastUserPresetId && getSettings().enabled) {
+        toastr.info(`{{user}}（${ctx().name1}）→ ${preset ? displayName(preset) : '无预设（没有绑定或同名的预设）'}`, 'ComfyUI 角色配图');
+    }
+    lastUserPresetId = id;
 }
 
 function newPreset(base = {}) {
@@ -288,6 +379,7 @@ function newPreset(base = {}) {
         lora: '',
         loraStrength: 0.8,
         negative: '',
+        personas: [],
         ...base,
     };
 }
@@ -296,12 +388,17 @@ function sanitizePreset(raw) {
     const preset = newPreset();
     for (const key of Object.keys(preset)) {
         if (key === 'id') continue;
-        if (raw?.[key] !== undefined) preset[key] = key === 'loraStrength' ? Number(raw[key]) || 0 : String(raw[key]);
+        if (raw?.[key] === undefined) continue;
+        if (key === 'loraStrength') preset[key] = Number(raw[key]) || 0;
+        else if (key === 'personas') preset[key] = Array.isArray(raw[key]) ? raw[key].map(String) : [];
+        else preset[key] = String(raw[key]);
     }
     return preset;
 }
 
 function initPresets() {
+    $('#ctp_preset_personas').on('change', 'input[data-persona]', onPersonaToggle);
+    lastUserPresetId = findUserPreset()?.id ?? null;
     $('#ctp_target').on('change', function () {
         getSettings().targetMode = String($(this).val());
         saveSettings();
@@ -572,6 +669,7 @@ export async function initSettingsUi() {
     refreshPresetSelect();
     updateSourceVisibility();
     updateWorkflowVisibility();
+    updateSideOptionsVisibility();
     $('#ctp_workflow_ui_link').attr('href', UI_WORKFLOW_URL.href);
 
     $('#ctp_profile').on('change', function () {

@@ -1,9 +1,9 @@
 import { EXTRA_KEY, LOG_PREFIX, TARGET_AUTO, TARGET_CHAR, TARGET_USER } from './src/constants.js';
 import { lastFloorId, showFloorDebug } from './src/debug.js';
 import { cancelAllJobs, cancelJob, enqueue, getJob, setRenderer } from './src/pipeline.js';
-import { renderAll, renderMessage } from './src/render.js';
-import { findPresetByName, findPresetById } from './src/targets.js';
-import { initSettingsUi, refreshTargetSelect, syncSettingsUi } from './src/ui.js';
+import { onLayoutChange, renderAll, renderMessage } from './src/render.js';
+import { findPresetByName, findPresetById, initPersonaTracking } from './src/targets.js';
+import { initSettingsUi, onPersonaChanged, refreshTargetSelect, syncSettingsUi } from './src/ui.js';
 import { ctx, getMessageData, getSettings, log, saveSettings, setMessageData } from './src/utils.js';
 
 let lastStoppedAt = 0;
@@ -218,7 +218,8 @@ function registerEvents() {
         renderAllSoon();
         refreshTargetSelect();
     });
-    if (eventTypes.PERSONA_CHANGED) eventSource.on(eventTypes.PERSONA_CHANGED, refreshTargetSelect);
+    // Registered after initPersonaTracking's own listener, so the new persona is already known here.
+    if (eventTypes.PERSONA_CHANGED) eventSource.on(eventTypes.PERSONA_CHANGED, onPersonaChanged);
 
     // Whole-chat re-renders (branch, reload) don't always emit per-message events.
     const chatElement = document.getElementById('chat');
@@ -229,6 +230,8 @@ function registerEvents() {
             }
         }).observe(chatElement, { childList: true });
     }
+
+    onLayoutChange(renderAll);
 
     $(document).on('click', '.ctp-wrap .ctp-act', onAction);
     $(document).on('click', '.ctp_mes_gen', onMessageButton);
@@ -314,6 +317,7 @@ jQuery(async () => {
     try {
         getSettings();
         setRenderer(renderMessage);
+        await initPersonaTracking();
         await initSettingsUi();
         injectMessageButtons();
         injectWandButton();

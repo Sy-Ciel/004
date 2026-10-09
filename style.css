@@ -9,9 +9,49 @@
 .ctp-figure img.ctp-img {
     display: block;
     height: auto;
+    max-width: min(100%, var(--ctp-img-max, 480px));
     border-radius: 10px;
     cursor: zoom-in;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+/* ---------- left / right of the text (desktop) ---------- */
+.ctp-wrap.ctp-side {
+    width: min(var(--ctp-side-width, 40%), var(--ctp-side-max, 480px));
+    margin-top: 5px;
+    margin-bottom: 8px;
+}
+
+.ctp-wrap.ctp-side-left {
+    float: left;
+    margin-right: 14px;
+}
+
+.ctp-wrap.ctp-side-right {
+    float: right;
+    margin-left: 14px;
+    margin-right: var(--mes-right-spacing, 0px);
+}
+
+.ctp-wrap.ctp-side .ctp-figure img.ctp-img {
+    width: 100%;
+    max-width: 100%;
+}
+
+/* Two-column mode: the text becomes its own formatting context, so it stays beside the image instead of flowing under it. */
+.mes_block.ctp-has-side:not(.ctp-text-wrap) > .mes_text {
+    display: flow-root;
+}
+
+/* Media, files and anything after the text start below the image. */
+.mes_block.ctp-has-side > .mes_text ~ * {
+    clear: both;
+}
+
+.mes_block.ctp-has-side::after {
+    content: '';
+    display: block;
+    clear: both;
 }
 
 .ctp-toolbar,
@@ -235,4 +275,19 @@
 .ctp-settings .ctp-warn {
     color: var(--warning, #e8a33d);
     opacity: 1;
+}
+
+.ctp-settings .ctp-persona-block {
+    margin: 4px 0;
+}
+
+.ctp-settings .ctp-persona-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 12em;
+    overflow-y: auto;
+    padding: 2px 4px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
 }
