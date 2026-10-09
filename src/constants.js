@@ -22,10 +22,11 @@ export const DEFAULT_PARSER_SYSTEM = `你是「角色状态解析器」。你的
    - scene：所处场景与背景细节、时间、天气
    - camera：景别与构图（如 medium shot、full body shot、close-up，以及机位角度）
    - lighting：光线与色调
-4. 剧情没写明的部分，参考【上一次状态】保持连贯（尤其是服装：没有换装情节就保持不变），再合理补全。
+4. 剧情没写明的部分，参考【上一次状态】和【之前的配图输出】保持连贯（尤其是服装：没有换装情节就保持不变），再合理补全。之前的输出只用来保持连贯，不要照抄与当前剧情不符的内容。
 5. 所有字段值使用英文，写成具体、可视化的短语或短句；不要比喻、不要抽象形容、不要出现人名、不要要求画面里出现文字或标志。
-6. 如果当前楼层里目标角色不在场，或者没有任何可以画面化的内容，输出 {"skip": true, "reason": "原因"}。
-7. 只输出 JSON 本身，不要解释，不要 markdown 代码块。
+6. 如果当前楼层里目标角色不在场，或者没有任何可以画面化的内容，输出 {"skip": true, "reason": "原因"}；有【用户画图指令】时不要输出 skip。
+7. 【用户画图指令】是用户直接指定的画面内容，优先级最高：必须体现在对应字段里（翻译成英文，可以补全细节），不能被剧情覆盖或忽略。
+8. 只输出 JSON 本身，不要解释，不要 markdown 代码块。
 
 输出格式：
 {"skip": false, "target": "目标角色名", "outfit": "", "action": "", "expression": "", "demeanor": "", "scene": "", "camera": "", "lighting": ""}`;
@@ -33,14 +34,19 @@ export const DEFAULT_PARSER_SYSTEM = `你是「角色状态解析器」。你的
 export const DEFAULT_PARSER_USER = `【目标角色】{{target}}
 {{appearance}}
 {{candidates}}
+{{world_info}}
 【上一次状态】
 {{last_state}}
+
+{{prev_outputs}}
 
 【最近剧情】
 {{history}}
 
 【当前楼层 #{{floor}}】
 {{latest}}
+
+{{user_hints}}
 
 请按要求只输出 JSON。`;
 
@@ -91,7 +97,7 @@ export function defaultPresets() {
 }
 
 /** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */
-export const SETTINGS_VERSION = 2;
+export const SETTINGS_VERSION = 3;
 
 export const EMPTY_LISTS = { unet: [], clip: [], vae: [], lora: [], sampler: [], scheduler: [] };
 
@@ -103,6 +109,7 @@ export const DEFAULT_SETTINGS = {
     includeFirstMessage: false,
     regenOnContinue: false,
     debug: false,
+    hintsEnabled: true,
     imagePosition: 'below',
     imagePositionNarrow: 'below',
     sideWidth: 40,
@@ -122,6 +129,10 @@ export const DEFAULT_SETTINGS = {
         extraBody: '',
         models: [],
         contextDepth: 4,
+        historyFloors: 3,
+        historyIncludePrompt: true,
+        worldInfo: 'off',
+        worldInfoMaxChars: 6000,
         maxCharsPerMessage: 3000,
         includePersona: false,
         includeCharDescription: false,
@@ -162,3 +173,42 @@ export const DEFAULT_SETTINGS = {
         lists: EMPTY_LISTS,
     },
 };
+
+
+/** Defaults up to v1.3, kept to recognise untouched templates when migrating. */
+export const LEGACY_PARSER_SYSTEM = `你是「角色状态解析器」。你的输出会被直接拼进文生图模型（Krea 2，擅长理解英文自然语言描述）的提示词里。
+
+任务：阅读给出的剧情，判断【目标角色】在【当前楼层】结束时刻的视觉状态，输出一个 JSON 对象。
+
+规则：
+1. 画面中只有目标角色一个人。不要描写任何其他人物，也不要让其他人物的身体部位入镜。
+2. 目标角色的固定外貌（发型、发色、瞳色、五官、肤色、体型等）已由用户预设，不要描写、也不要改动这些内容。
+3. 你需要推断并描写：
+   - outfit：此刻的穿着（款式、颜色、材质、配饰、穿着状态），要具体
+   - action：身体姿势与动作、手部动作、与道具或环境的互动
+   - expression：面部表情（眉眼、嘴角、视线方向）
+   - demeanor：神态与气质、情绪、肢体语言给人的感觉
+   - scene：所处场景与背景细节、时间、天气
+   - camera：景别与构图（如 medium shot、full body shot、close-up，以及机位角度）
+   - lighting：光线与色调
+4. 剧情没写明的部分，参考【上一次状态】保持连贯（尤其是服装：没有换装情节就保持不变），再合理补全。
+5. 所有字段值使用英文，写成具体、可视化的短语或短句；不要比喻、不要抽象形容、不要出现人名、不要要求画面里出现文字或标志。
+6. 如果当前楼层里目标角色不在场，或者没有任何可以画面化的内容，输出 {"skip": true, "reason": "原因"}。
+7. 只输出 JSON 本身，不要解释，不要 markdown 代码块。
+
+输出格式：
+{"skip": false, "target": "目标角色名", "outfit": "", "action": "", "expression": "", "demeanor": "", "scene": "", "camera": "", "lighting": ""}`;
+
+export const LEGACY_PARSER_USER = `【目标角色】{{target}}
+{{appearance}}
+{{candidates}}
+【上一次状态】
+{{last_state}}
+
+【最近剧情】
+{{history}}
+
+【当前楼层 #{{floor}}】
+{{latest}}
+
+请按要求只输出 JSON。`;

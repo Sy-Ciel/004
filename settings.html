@@ -17,6 +17,8 @@
                 </div>
                 <label class="checkbox_label"><input type="checkbox" data-ctp="includeFirstMessage"> 开场白也自动配图</label>
                 <label class="checkbox_label"><input type="checkbox" data-ctp="regenOnContinue"> 「继续」后重新生成（否则已有图片的楼层不再生成）</label>
+                <label class="checkbox_label"><input type="checkbox" data-ctp="hintsEnabled"> 启用画图指令 <code>[[ ]]</code> / <code>【【 】】</code></label>
+                <small class="ctp-hint">在消息里写 <code>她穿上了鞋子 [[red high-heeled shoes with ankle straps]]</code>：发送时括号里的内容会从正文里拿掉（正文 AI 看不到），存成这条消息的「画图指令」，只交给配图解析模型，并且优先级最高。消息下方会显示指令，点 ✕ 可删除；编辑消息时也能加。</small>
                 <div class="ctp-row">
                     <label>图片位置
                         <select class="text_pole" data-ctp="imagePosition">
@@ -133,6 +135,23 @@
                     <label>读取前几楼剧情 <input type="number" class="text_pole" min="0" step="1" data-ctp="parser.contextDepth" data-type="int"></label>
                     <label>每楼最多字数 <input type="number" class="text_pole" min="0" step="100" data-ctp="parser.maxCharsPerMessage" data-type="int"></label>
                 </div>
+                <div class="ctp-row">
+                    <label>参考之前几次配图输出 <input type="number" class="text_pole" min="0" max="20" step="1" data-ctp="parser.historyFloors" data-type="int"></label>
+                </div>
+                <label class="checkbox_label"><input type="checkbox" data-ctp="parser.historyIncludePrompt"> 同时附上当时的最终提示词</label>
+                <small class="ctp-hint">把之前几层楼的解析结果（服装、动作、场景……）和最终提示词交给解析模型，让人物保持连贯；0 = 不参考。
+                    这些记录存在消息的扩展数据里，不在正文里，只发给解析模型，正文 AI 读不到。</small>
+                <div class="ctp-row">
+                    <label class="flex1">世界书
+                        <select class="text_pole" data-ctp="parser.worldInfo">
+                            <option value="off">不读取</option>
+                            <option value="active">读取当前触发的条目（按剧情关键词扫描，推荐）</option>
+                            <option value="all">读取所有启用的条目（可能很长）</option>
+                        </select>
+                    </label>
+                    <label class="ctp-narrow">最多字数 <input type="number" class="text_pole" min="500" step="500" data-ctp="parser.worldInfoMaxChars" data-type="int"></label>
+                </div>
+                <small class="ctp-hint">读取当前聊天生效的世界书（全局、角色、聊天、人设绑定的）。「触发的条目」和正文生成时的扫描规则一样，但只是试扫描，不会影响正文的粘性/冷却等计时。</small>
                 <label class="checkbox_label"><input type="checkbox" data-ctp="parser.includePersona"> 画 {{user}} 时附带人设描述</label>
                 <label class="checkbox_label"><input type="checkbox" data-ctp="parser.includeCharDescription"> 画角色时附带角色卡描述</label>
                 <div class="ctp-row">
@@ -146,7 +165,7 @@
                     <label>User 模板 <span class="ctp-link" data-reset="parser.userTemplate">恢复默认</span>
                         <textarea class="text_pole" rows="10" data-ctp="parser.userTemplate"></textarea>
                     </label>
-                    <small class="ctp-hint">可用变量：{{target}} {{appearance}} {{candidates}} {{last_state}} {{history}} {{latest}} {{floor}}，以及酒馆宏 {{user}} {{char}} 等。</small>
+                    <small class="ctp-hint">可用变量：{{target}} {{appearance}} {{candidates}} {{world_info}} {{last_state}} {{prev_outputs}} {{history}} {{latest}} {{floor}} {{user_hints}}，以及酒馆宏 {{user}} {{char}} 等。模板里没写 {{world_info}} / {{prev_outputs}} / {{user_hints}} 时会自动插入。</small>
                 </details>
             </div>
 

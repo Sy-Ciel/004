@@ -1,4 +1,14 @@
-import { DEFAULT_SETTINGS, EXTRA_KEY, LOG_PREFIX, MODULE, SETTINGS_VERSION } from './constants.js';
+import {
+    DEFAULT_PARSER_SYSTEM,
+    DEFAULT_PARSER_USER,
+    DEFAULT_SETTINGS,
+    EXTRA_KEY,
+    LEGACY_PARSER_SYSTEM,
+    LEGACY_PARSER_USER,
+    LOG_PREFIX,
+    MODULE,
+    SETTINGS_VERSION,
+} from './constants.js';
 
 export const ctx = () => SillyTavern.getContext();
 
@@ -23,6 +33,12 @@ function migrateSettings(settings) {
     if (version < 2) {
         // 800 tokens was the v1 default and is too small for thinking models (GLM, DeepSeek-R1 …).
         if (Number(settings.parser?.maxTokens) === 800) settings.parser.maxTokens = 2048;
+    }
+    if (version < 3 && settings.parser) {
+        // Untouched default templates get the new {{prev_outputs}} block; edited ones are left alone
+        // (buildParserPrompt appends the block when a template lacks it).
+        if (settings.parser.systemPrompt === LEGACY_PARSER_SYSTEM) settings.parser.systemPrompt = DEFAULT_PARSER_SYSTEM;
+        if (settings.parser.userTemplate === LEGACY_PARSER_USER) settings.parser.userTemplate = DEFAULT_PARSER_USER;
     }
     settings.settingsVersion = SETTINGS_VERSION;
 }
@@ -167,17 +183,22 @@ export function getMessageData(message) {
  * `swipe_info` when swiping, so the swipe copy has to be updated too or the image disappears on swipe back.
  */
 export function setMessageData(message, swipeId, data) {
+    setExtraValue(message, swipeId, EXTRA_KEY, data);
+}
+
+/** Sets (or with a null value removes) one extra key on a message and on its swipe copy. */
+export function setExtraValue(message, swipeId, key, value) {
     const currentSwipe = message.swipe_id ?? 0;
     if (currentSwipe === swipeId) {
         message.extra ??= {};
-        if (data) message.extra[EXTRA_KEY] = data;
-        else delete message.extra[EXTRA_KEY];
+        if (value) message.extra[key] = value;
+        else delete message.extra[key];
     }
     const info = Array.isArray(message.swipe_info) ? message.swipe_info[swipeId] : null;
     if (info && typeof info === 'object') {
         info.extra ??= {};
-        if (data) info.extra[EXTRA_KEY] = structuredClone(data);
-        else delete info.extra[EXTRA_KEY];
+        if (value) info.extra[key] = structuredClone(value);
+        else delete info.extra[key];
     }
 }
 

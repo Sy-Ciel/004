@@ -1,13 +1,17 @@
 import { PARSED_FIELDS } from './constants.js';
+import { pendingHints } from './hints.js';
+import { currentIndex } from './markup.js';
 import { presetForName } from './targets.js';
 import {
     ctx,
+    errorMessage,
     fillTemplate,
     getMessageData,
     getSettings,
     plainText,
     resolveMacros,
     truncate,
+    warn,
     withTimeout,
 } from './utils.js';
 
@@ -29,12 +33,50 @@ export function findLastState(mesId, targetName) {
     return null;
 }
 
-function formatState(state) {
+function formatState(state, shownFloors) {
     if (!state) return '（无）';
+    if (shownFloors.has(state.floor)) return `（见下方之前的配图输出 #${state.floor}）`;
     const lines = PARSED_FIELDS
         .filter(field => state.parsed[field])
         .map(field => `${field}: ${state.parsed[field]}`);
     return lines.length ? `（来自 #${state.floor}）\n${lines.join('\n')}` : '（无）';
+}
+
+/**
+ * Earlier floors' results (parsed fields + final prompt), newest `count` of them, oldest first.
+ * They live in the messages' extension data, never in the message text, so only the parser sees them.
+ */
+export function previousOutputs(mesId, count) {
+    const chat = ctx().chat;
+    const records = [];
+    for (let i = mesId - 1; i >= 0 && records.length < count; i--) {
+        const data = getMessageData(chat[i]);
+        if (!data?.parsed) continue;
+        // A floor whose latest parse was skipped and that never got an image has nothing worth repeating.
+        if (data.skipped && !data.images?.length) continue;
+        records.unshift({ floor: i, data });
+    }
+    return records;
+}
+
+function formatOutputs(records, includePrompt) {
+    if (!records.length) return '';
+    const blocks = records.map(({ floor, data }) => {
+        const lines = [`#${floor} · 目标：${data.target || '?'}`];
+        for (const field of PARSED_FIELDS) {
+            if (data.parsed[field]) lines.push(`${field}: ${data.parsed[field]}`);
+        }
+        if (includePrompt) {
+            const image = data.images?.[currentIndex(data)];
+            const prompt = image?.prompt || data.prompt;
+            if (prompt) {
+                const edited = image?.prompt && data.prompt && image.prompt !== data.prompt ? '（用户选中的版本）' : '';
+                lines.push(`最终提示词${edited}: ${truncate(prompt, 1500)}`);
+            }
+        }
+        return lines.join('\n');
+    });
+    return `【之前的配图输出（最近 ${records.length} 次，从旧到新，用来保持人物服装和场景连贯）】\n${blocks.join('\n\n')}`;
 }
 
 function referenceBlock(target) {
@@ -69,11 +111,71 @@ function referenceBlock(target) {
     return blocks.join('\n');
 }
 
+/** Entries the current story activates, via SillyTavern's own scan in dry-run mode (no events, no timed effects). */
+async function activatedWorldInfo(mesId) {
+    const context = ctx();
+    if (typeof context.getWorldInfoPrompt !== 'function') throw new Error('当前酒馆版本没有世界书扫描接口');
+    // Same input shape as SillyTavern's generation: "name: text", newest first.
+    const scan = context.chat.slice(0, mesId + 1)
+        .filter(message => message && !message.is_system)
+        .map(message => `${message.name}: ${message.mes}`)
+        .reverse();
+    const result = await context.getWorldInfoPrompt(scan, context.maxContext, true);
+    const depth = (result.worldInfoDepth || []).flatMap(item => item?.entries || []);
+    return [result.worldInfoBefore, result.worldInfoAfter, ...(result.anBefore || []), ...(result.anAfter || []), ...depth]
+        .map(text => String(text || '').trim())
+        .filter(Boolean)
+        .join('\n\n');
+}
+
+/** Every enabled entry of the lorebooks active for this chat (global, character, chat, persona). */
+async function allWorldInfo() {
+    const worldInfo = await import('../../../../world-info.js');
+    const entries = await worldInfo.getSortedEntries();
+    return entries
+        .filter(entry => !entry.disable && String(entry.content || '').trim())
+        .map(entry => {
+            const title = entry.comment || (Array.isArray(entry.key) ? entry.key.join(', ') : '');
+            const content = resolveMacros(entry.content);
+            return title ? `[${title}]\n${content}` : content;
+        })
+        .join('\n\n');
+}
+
+/** Optional world-info block for the parser. Failures only drop the block; they never stop a generation. */
+export async function worldInfoBlock(mesId) {
+    const { parser } = getSettings();
+    if (!parser.worldInfo || parser.worldInfo === 'off') return { text: '', note: '' };
+    try {
+        const raw = parser.worldInfo === 'all' ? await allWorldInfo() : await activatedWorldInfo(mesId);
+        if (!raw.trim()) return { text: '', note: '世界书：没有可用的条目' };
+        const max = Math.max(500, Number(parser.worldInfoMaxChars) || 6000);
+        const cut = raw.length > max ? `（已截断到 ${max} 字）` : '';
+        return {
+            text: `【世界书（参考设定，用来理解人物、服装、场景；不要输出）】\n${truncate(raw, max)}`,
+            note: `世界书：${raw.length} 字${cut}`,
+        };
+    } catch (error) {
+        warn('world info', error);
+        return { text: '', note: `世界书读取失败：${errorMessage(error)}` };
+    }
+}
+
+/** Puts `{{name}}` in front of `anchor` (or at the end) when a custom template predates the variable. */
+function ensureSlot(template, name, anchors) {
+    if (template.includes(`{{${name}}}`)) return template;
+    for (const anchor of anchors) {
+        const index = template.indexOf(anchor);
+        if (index >= 0) return `${template.slice(0, index)}{{${name}}}\n\n${template.slice(index)}`;
+    }
+    return `${template}\n\n{{${name}}}`;
+}
+
 /**
  * Builds the system + user messages for the parser model.
- * @returns {{ system: string, user: string }}
+ * @returns {Promise<{ system: string, user: string, notes: string[] }>}
  */
-export function buildParserPrompt(mesId, target) {
+export async function buildParserPrompt(mesId, target) {
     const settings = getSettings();
     const chat = ctx().chat;
     const depth = Math.max(0, Number(settings.parser.contextDepth) || 0);
@@ -86,6 +188,10 @@ export function buildParserPrompt(mesId, target) {
         history.unshift(formatMessage(message, maxChars));
     }
 
+    const historyCount = Math.max(0, Math.min(20, Number(settings.parser.historyFloors) || 0));
+    const records = previousOutputs(mesId, historyCount);
+    const prevOutputs = formatOutputs(records, settings.parser.historyIncludePrompt !== false);
+    const shownFloors = new Set(records.map(record => record.floor));
     const lastState = settings.continuity && !target.auto ? findLastState(mesId, target.name) : null;
     const candidates = target.auto
         ? `【候选角色】请从以下角色中选出当前楼层最适合作为画面主角的一位（通常是动作、情绪描写最集中的人），把名字原样填入 target：\n${target.candidates.map(name => `- ${name}`).join('\n')}`
@@ -95,15 +201,34 @@ export function buildParserPrompt(mesId, target) {
         target: target.auto ? '（由你从候选角色中选择）' : target.name,
         appearance: referenceBlock(target),
         candidates,
-        last_state: target.auto ? '（自动模式下不提供）' : formatState(lastState),
+        last_state: target.auto ? '（自动模式下不提供）' : formatState(lastState, shownFloors),
+        prev_outputs: prevOutputs,
         history: history.length ? history.join('\n\n') : '（无）',
         latest: formatMessage(chat[mesId], maxChars),
         floor: String(mesId),
     };
 
+    const worldInfo = await worldInfoBlock(mesId);
+    vars.world_info = worldInfo.text;
+    const hints = pendingHints(mesId);
+    vars.user_hints = hints.length
+        ? `【用户画图指令（用户在消息里用 [[ ]] 写给你的画面要求，优先级最高，必须体现在对应字段里）】\n${hints.flatMap(item => item.hints.map(hint => `- #${item.floor} ${item.name}: ${hint}`)).join('\n')}`
+        : '';
+
+    // Custom templates from before these variables existed still get the blocks.
+    let userTemplate = String(settings.parser.userTemplate || '');
+    if (prevOutputs) userTemplate = ensureSlot(userTemplate, 'prev_outputs', ['【最近剧情', '【当前楼层']);
+    if (worldInfo.text) userTemplate = ensureSlot(userTemplate, 'world_info', ['【上一次状态', '【最近剧情', '【当前楼层']);
+    if (vars.user_hints) userTemplate = ensureSlot(userTemplate, 'user_hints', ['请按要求']);
+
     return {
         system: fillTemplate(settings.parser.systemPrompt, vars),
-        user: fillTemplate(settings.parser.userTemplate, vars).replace(/\n{3,}/g, '\n\n'),
+        user: fillTemplate(userTemplate, vars).replace(/\n{3,}/g, '\n\n'),
+        notes: [
+            worldInfo.note,
+            records.length ? `参考了之前 ${records.length} 次配图输出` : '',
+            hints.length ? `用户画图指令 ${hints.reduce((sum, item) => sum + item.hints.length, 0)} 条` : '',
+        ].filter(Boolean),
     };
 }
 

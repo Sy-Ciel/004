@@ -165,10 +165,10 @@ export async function showParserPreview() {
         return;
     }
     const target = resolveTarget(ctx().chat[mesId]);
-    const prompt = buildParserPrompt(mesId, target);
+    const prompt = await buildParserPrompt(mesId, target);
     await showPopup(`
         <h3>解析模型输入预览 · #${mesId}（不会发送请求）</h3>
-        ${table([['目标', target.auto ? `自动（候选：${target.candidates.join('、')}）` : target.name], ['预设', target.preset ? target.preset.name : '（无）']])}
+        ${table([['目标', target.auto ? `自动（候选：${target.candidates.join('、')}）` : target.name], ['预设', target.preset ? target.preset.name : '（无）'], ['说明', prompt.notes.join('；')]])}
         ${block('System', prompt.system)}
         ${block('User', prompt.user)}
     `);

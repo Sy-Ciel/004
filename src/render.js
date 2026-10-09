@@ -1,3 +1,4 @@
+import { renderHints } from './hints.js';
 import { layoutMode } from './layout.js';
 import { currentIndex, statusHtml, toolbarHtml } from './markup.js';
 import { getPanelMesId, schedulePanelRefresh } from './panel.js';
@@ -71,6 +72,7 @@ export function renderMessage(mesId) {
     if (!element.length) return;
     const message = ctx().chat[mesId];
     const settings = getSettings();
+    renderHints(element, message);
     const data = getMessageData(message);
     const job = getJob(message);
     const showJob = job && job.swipeId === (message?.swipe_id ?? 0);

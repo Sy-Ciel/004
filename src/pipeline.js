@@ -140,8 +140,9 @@ async function runJob(message, job, options) {
             };
             // Recorded before the request so a failed floor still shows who it was for.
             applyTarget(target);
-            const parserPrompt = buildParserPrompt(mesId, target);
+            const parserPrompt = await buildParserPrompt(mesId, target);
             if (options.force) parserPrompt.user += FORCE_NOTE;
+            data.debug.notes.push(...parserPrompt.notes);
             // Kept on failure for diagnosis; dropped after a success unless debug mode is on.
             data.debug.parserSystem = parserPrompt.system;
             data.debug.parserUser = parserPrompt.user;
@@ -282,7 +283,7 @@ export async function dryRun(mesId, targetOverride) {
     const message = ctx().chat[mesId];
     if (!message) throw new Error(`没有 #${mesId} 楼`);
     let target = resolveTarget(message, targetOverride);
-    const parserPrompt = buildParserPrompt(mesId, target);
+    const parserPrompt = await buildParserPrompt(mesId, target);
     const reply = await callParser(parserPrompt.system, parserPrompt.user);
     const parsed = parseParserReply(reply);
     if (target.auto && !parsed.skip) target = settleAutoTarget(target, parsed.target, message);

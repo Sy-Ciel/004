@@ -1,5 +1,6 @@
 import { EXTRA_KEY, LOG_PREFIX, TARGET_AUTO, TARGET_CHAR, TARGET_USER } from './src/constants.js';
 import { lastFloorId, showFloorDebug } from './src/debug.js';
+import { captureHints, hintsEnabled, pendingHints, removeHint, stripHints, stripOutgoingChat } from './src/hints.js';
 import { resetPanelForChat, showInPanel } from './src/panel.js';
 import { cancelAllJobs, cancelJob, enqueue, getJob, setImageAddedHandler, setRenderer } from './src/pipeline.js';
 import { onLayoutChange, renderAll, renderMessage } from './src/render.js';
@@ -49,8 +50,9 @@ function maybeAutoGenerate(mesId, type) {
     const existing = getMessageData(message);
     if (existing && !(type === 'continue' && settings.regenOnContinue)) return;
 
+    // Drawing instructions always get a picture, even between "every N floors".
     const everyN = Math.max(1, Number(settings.everyN) || 1);
-    if (everyN > 1 && aiFloorNumber(mesId) % everyN !== 0) return;
+    if (everyN > 1 && aiFloorNumber(mesId) % everyN !== 0 && !pendingHints(mesId).length) return;
 
     log(`自动配图 #${mesId} (${type ?? 'normal'})`);
     enqueue(mesId, { mode: 'reparse' });
@@ -145,6 +147,11 @@ function onAction(event) {
         case 'clear': clearState(mesId); break;
         case 'zoom': zoom(mesId); break;
         case 'panel': showInPanel(mesId); break;
+        case 'hint-remove':
+            removeHint(ctx().chat[mesId], Number(button.dataset.index));
+            renderMessage(mesId);
+            ctx().saveChat();
+            break;
     }
 }
 
@@ -211,6 +218,18 @@ function registerEvents() {
         maybeAutoGenerate(Number(mesId), type);
     });
     eventSource.on(eventTypes.USER_MESSAGE_RENDERED, mesId => renderMessage(Number(mesId)));
+
+    // [[drawing instructions]]: cut out of the text before the prompt is built, kept for the image parser only.
+    eventSource.on(eventTypes.MESSAGE_SENT, mesId => {
+        if (captureHints(Number(mesId))) ctx().saveChat();
+    });
+    eventSource.on(eventTypes.MESSAGE_EDITED, mesId => {
+        if (captureHints(Number(mesId))) ctx().saveChat();
+    });
+    eventSource.on(eventTypes.CHAT_COMPLETION_PROMPT_READY, data => stripOutgoingChat(data?.chat));
+    eventSource.on(eventTypes.GENERATE_AFTER_COMBINE_PROMPTS, data => {
+        if (hintsEnabled() && typeof data?.prompt === 'string') data.prompt = stripHints(data.prompt);
+    });
     eventSource.on(eventTypes.MESSAGE_SWIPED, mesId => onSwiped(Number(mesId)));
     eventSource.on(eventTypes.MESSAGE_UPDATED, mesId => renderMessage(Number(mesId)));
     eventSource.on(eventTypes.MESSAGE_EDITED, mesId => renderMessage(Number(mesId)));
@@ -238,7 +257,7 @@ function registerEvents() {
 
     onLayoutChange(renderAll);
 
-    $(document).on('click', '.ctp-wrap .ctp-act, #ctp_panel .ctp-act', onAction);
+    $(document).on('click', '.ctp-wrap .ctp-act, #ctp_panel .ctp-act, .ctp-hints .ctp-act', onAction);
     $(document).on('click', '.ctp_mes_gen', onMessageButton);
 }
 

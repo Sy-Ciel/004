@@ -412,3 +412,33 @@
 .ctp-panel-dragging {
     opacity: 0.85;
 }
+
+/* ---------- [[drawing instructions]] badge ---------- */
+.ctp-hints {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 4px 0;
+    font-size: 0.82em;
+    opacity: 0.8;
+}
+
+.ctp-hint-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--black30a);
+    border: 1px dashed var(--SmartThemeQuoteColor);
+}
+
+.ctp-hint-item .ctp-act {
+    cursor: pointer;
+    opacity: 0.6;
+}
+
+.ctp-hint-item .ctp-act:hover {
+    opacity: 1;
+}
