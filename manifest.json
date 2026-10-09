@@ -1,0 +1,12 @@
+{
+    "display_name": "ComfyUI 角色配图 (Krea 2)",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "sy-ciel",
+    "version": "1.0.0",
+    "homePage": "https://github.com/sy-ciel/004",
+    "auto_update": true
+}

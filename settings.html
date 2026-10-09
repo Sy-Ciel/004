@@ -1,0 +1,223 @@
+<div class="ctp-settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>ComfyUI 角色配图 (Krea 2)</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+
+            <!-- ============ 基本 ============ -->
+            <div class="ctp-section">
+                <h4>基本</h4>
+                <label class="checkbox_label"><input type="checkbox" data-ctp="enabled"> 启用扩展</label>
+                <label class="checkbox_label"><input type="checkbox" data-ctp="autoGenerate"> AI 回复结束后自动配图</label>
+                <div class="ctp-row">
+                    <label>每隔几楼生成一次 <input type="number" class="text_pole" min="1" step="1" data-ctp="everyN" data-type="int"></label>
+                    <label>每楼最多保留版本 <input type="number" class="text_pole" min="1" step="1" data-ctp="maxVersions" data-type="int"></label>
+                </div>
+                <label class="checkbox_label"><input type="checkbox" data-ctp="includeFirstMessage"> 开场白也自动配图</label>
+                <label class="checkbox_label"><input type="checkbox" data-ctp="regenOnContinue"> 「继续」后重新生成（否则已有图片的楼层不再生成）</label>
+                <div class="ctp-row">
+                    <label>图片位置
+                        <select class="text_pole" data-ctp="imagePosition">
+                            <option value="below">正文下方</option>
+                            <option value="above">正文上方</option>
+                        </select>
+                    </label>
+                    <label>图片最大宽度(px) <input type="number" class="text_pole" min="120" step="10" data-ctp="imageMaxWidth" data-type="int"></label>
+                </div>
+                <small class="ctp-hint">图片和提示词只保存在消息的扩展数据里并单独渲染，不写进正文，正文 AI 看不到。</small>
+            </div>
+
+            <!-- ============ 画谁 ============ -->
+            <div class="ctp-section">
+                <h4>画谁（只画一个人）</h4>
+                <label>目标角色
+                    <select class="text_pole" id="ctp_target"></select>
+                </label>
+                <small class="ctp-hint">「自动」= 让解析模型从 {{user}}、当前角色和所有预设里挑本楼的主角。</small>
+
+                <h4>角色预设（固定部分：发型 / 面部 / 体型 / LoRA）</h4>
+                <div class="ctp-row">
+                    <select class="text_pole flex1" id="ctp_preset_select"></select>
+                    <div class="menu_button fa-solid fa-plus" id="ctp_preset_add" title="新建"></div>
+                    <div class="menu_button fa-solid fa-clone" id="ctp_preset_clone" title="复制"></div>
+                    <div class="menu_button fa-solid fa-trash-can" id="ctp_preset_delete" title="删除"></div>
+                    <div class="menu_button fa-solid fa-file-export" id="ctp_preset_export" title="导出全部"></div>
+                    <div class="menu_button fa-solid fa-file-import" id="ctp_preset_import" title="导入"></div>
+                    <input type="file" id="ctp_preset_file" accept=".json,application/json" hidden>
+                </div>
+                <div id="ctp_preset_editor">
+                    <label>名字（可用 {{user}} / {{char}}）<input type="text" class="text_pole" data-preset="name"></label>
+                    <label>别名（逗号分隔，用于匹配剧情里的称呼）<input type="text" class="text_pole" data-preset="aliases"></label>
+                    <label>固定外貌（英文，写发型、发色、瞳色、五官、体型等，不写服装动作）
+                        <textarea class="text_pole" rows="4" data-preset="appearance"></textarea>
+                    </label>
+                    <label>LoRA 触发词（放在提示词最前）<input type="text" class="text_pole" data-preset="trigger"></label>
+                    <div class="ctp-row">
+                        <label class="flex1">角色 LoRA 文件名 <input type="text" class="text_pole" list="ctp_list_lora" data-preset="lora" placeholder="留空 = 不用"></label>
+                        <label>强度 <input type="number" class="text_pole" step="0.05" data-preset="loraStrength" data-type="float"></label>
+                    </div>
+                    <label>额外反向提示词 <input type="text" class="text_pole" data-preset="negative"></label>
+                </div>
+                <label class="checkbox_label"><input type="checkbox" data-ctp="continuity"> 状态延续（把同一角色上一张图的服装/场景交给解析模型参考）</label>
+            </div>
+
+            <!-- ============ 解析模型 ============ -->
+            <div class="ctp-section">
+                <h4>解析模型（额外模型，读取剧情 → 写服装 / 动作 / 表情 / 神态）</h4>
+                <label>来源
+                    <select class="text_pole" data-ctp="parser.source" id="ctp_parser_source">
+                        <option value="custom">独立 API（OpenAI 兼容，经酒馆后端转发）</option>
+                        <option value="profile">酒馆连接配置（Connection Profile）</option>
+                        <option value="main">酒馆当前 API（和正文共用）</option>
+                    </select>
+                </label>
+                <div class="ctp-source" data-source="custom">
+                    <label>API 地址（到 /v1 为止）<input type="text" class="text_pole" data-ctp="parser.customUrl" placeholder="https://api.deepseek.com/v1"></label>
+                    <label>API Key <input type="password" class="text_pole" data-ctp="parser.customKey" autocomplete="off"></label>
+                    <div class="ctp-row">
+                        <label class="flex1">模型 <input type="text" class="text_pole" list="ctp_list_parser_models" data-ctp="parser.customModel"></label>
+                        <div class="menu_button" id="ctp_parser_models">获取模型</div>
+                    </div>
+                    <small class="ctp-hint">Key 保存在酒馆扩展设置里（settings.json），请求时作为请求头经酒馆后端转发。</small>
+                </div>
+                <div class="ctp-source" data-source="profile">
+                    <div class="ctp-row">
+                        <select class="text_pole flex1" id="ctp_profile"></select>
+                        <div class="menu_button fa-solid fa-rotate" id="ctp_profile_refresh" title="刷新"></div>
+                    </div>
+                </div>
+                <div class="ctp-source" data-source="main">
+                    <small class="ctp-hint">直接用正文正在用的 API 和模型，会额外占用一次请求。</small>
+                </div>
+                <div class="ctp-row">
+                    <label>温度 <input type="number" class="text_pole" step="0.05" min="0" max="2" data-ctp="parser.temperature" data-type="float"></label>
+                    <label>最大输出 <input type="number" class="text_pole" step="50" min="100" data-ctp="parser.maxTokens" data-type="int"></label>
+                    <label>超时(秒) <input type="number" class="text_pole" step="5" min="0" data-ctp="parser.timeoutSec" data-type="int"></label>
+                </div>
+                <div class="ctp-row">
+                    <label>读取前几楼剧情 <input type="number" class="text_pole" min="0" step="1" data-ctp="parser.contextDepth" data-type="int"></label>
+                    <label>每楼最多字数 <input type="number" class="text_pole" min="0" step="100" data-ctp="parser.maxCharsPerMessage" data-type="int"></label>
+                </div>
+                <label class="checkbox_label"><input type="checkbox" data-ctp="parser.includePersona"> 画 {{user}} 时附带人设描述</label>
+                <label class="checkbox_label"><input type="checkbox" data-ctp="parser.includeCharDescription"> 画角色时附带角色卡描述</label>
+                <div class="ctp-row">
+                    <div class="menu_button" id="ctp_parser_test">测试解析模型</div>
+                </div>
+                <details class="ctp-details">
+                    <summary>解析提示词（高级）</summary>
+                    <label>System 提示词 <span class="ctp-link" data-reset="parser.systemPrompt">恢复默认</span>
+                        <textarea class="text_pole" rows="12" data-ctp="parser.systemPrompt"></textarea>
+                    </label>
+                    <label>User 模板 <span class="ctp-link" data-reset="parser.userTemplate">恢复默认</span>
+                        <textarea class="text_pole" rows="10" data-ctp="parser.userTemplate"></textarea>
+                    </label>
+                    <small class="ctp-hint">可用变量：{{target}} {{appearance}} {{candidates}} {{last_state}} {{history}} {{latest}} {{floor}}，以及酒馆宏 {{user}} {{char}} 等。</small>
+                </details>
+            </div>
+
+            <!-- ============ 提示词组装 ============ -->
+            <div class="ctp-section">
+                <h4>提示词组装</h4>
+                <label>画风 / 质量前缀 {{prefix}} <input type="text" class="text_pole" data-ctp="prefix" placeholder="例：A cinematic photograph, shot on 35mm film."></label>
+                <label>后缀 {{suffix}} <input type="text" class="text_pole" data-ctp="suffix" placeholder="例：high detail, natural skin texture"></label>
+                <label>反向提示词 <input type="text" class="text_pole" data-ctp="negativePrompt" placeholder="内置 Krea 2 Turbo 工作流用 CFG 1，不使用反向提示词"></label>
+                <details class="ctp-details">
+                    <summary>组装模板（高级）</summary>
+                    <label>模板 <span class="ctp-link" data-reset="promptTemplate">恢复默认</span>
+                        <textarea class="text_pole" rows="9" data-ctp="promptTemplate"></textarea>
+                    </label>
+                    <small class="ctp-hint">变量：{{trigger}} {{prefix}} {{suffix}} {{appearance}}（固定）＋ {{outfit}} {{action}} {{expression}} {{demeanor}} {{scene}} {{camera}} {{lighting}}（AI）。某一行的变量全为空时整行会被省略。</small>
+                </details>
+            </div>
+
+            <!-- ============ ComfyUI ============ -->
+            <div class="ctp-section">
+                <h4>ComfyUI</h4>
+                <div class="ctp-row">
+                    <label class="flex1">地址 <input type="text" class="text_pole" data-ctp="comfy.url" placeholder="http://127.0.0.1:8188"></label>
+                    <div class="menu_button" id="ctp_comfy_test">测试连接</div>
+                </div>
+                <label>连接方式
+                    <select class="text_pole" data-ctp="comfy.mode">
+                        <option value="proxy">酒馆后端代理（推荐，无需 CORS）</option>
+                        <option value="direct">浏览器直连（需 --enable-cors-header，可看节点级报错）</option>
+                    </select>
+                </label>
+                <label>工作流
+                    <select class="text_pole" data-ctp="comfy.workflowSource" id="ctp_workflow_source">
+                        <option value="builtin">内置：Krea 2 Turbo 文生图 + LoRA</option>
+                        <option value="custom">自定义（粘贴 API 格式 JSON）</option>
+                    </select>
+                </label>
+                <div id="ctp_workflow_custom">
+                    <textarea class="text_pole ctp-mono" rows="10" data-ctp="comfy.workflow" placeholder="在 ComfyUI 中 工作流 → 导出(API)，粘贴到这里"></textarea>
+                    <div class="ctp-row">
+                        <div class="menu_button" id="ctp_workflow_load_builtin">载入内置工作流</div>
+                        <div class="menu_button" id="ctp_workflow_validate">校验</div>
+                    </div>
+                    <small class="ctp-hint">占位符：%prompt% %negative_prompt% %width% %height% %seed% %steps% %cfg% %sampler% %scheduler% %unet% %clip% %vae% %lora% %lora_strength% %char_lora% %char_lora_strength% %filename_prefix%。LoRA 名为空的 LoRA 节点会被自动旁路；没有 %prompt% 时会尝试自动找到提示词 / 种子 / 分辨率节点注入。</small>
+                </div>
+                <a class="ctp-link" id="ctp_workflow_ui_link" target="_blank" download>下载 UI 版工作流（拖进 ComfyUI 检查模型）</a>
+
+                <h4>分辨率</h4>
+                <div class="ctp-row">
+                    <select class="text_pole flex1" id="ctp_resolution"></select>
+                    <label>宽 <input type="number" class="text_pole" step="16" min="256" data-ctp="comfy.width" data-type="int" id="ctp_width"></label>
+                    <label>高 <input type="number" class="text_pole" step="16" min="256" data-ctp="comfy.height" data-type="int" id="ctp_height"></label>
+                </div>
+                <small class="ctp-hint">会自动对齐到 16 的倍数。Krea 2 Turbo 适合约 1–2 MP。</small>
+
+                <h4>采样</h4>
+                <div class="ctp-row">
+                    <label>步数 <input type="number" class="text_pole" min="1" data-ctp="comfy.steps" data-type="int"></label>
+                    <label>CFG <input type="number" class="text_pole" step="0.1" min="0" data-ctp="comfy.cfg" data-type="float"></label>
+                    <label>种子(-1 随机) <input type="number" class="text_pole" data-ctp="comfy.seed" data-type="int"></label>
+                </div>
+                <div class="ctp-row">
+                    <label class="flex1">采样器 <input type="text" class="text_pole" list="ctp_list_sampler" data-ctp="comfy.sampler"></label>
+                    <label class="flex1">调度器 <input type="text" class="text_pole" list="ctp_list_scheduler" data-ctp="comfy.scheduler"></label>
+                </div>
+
+                <h4>模型</h4>
+                <div class="ctp-row">
+                    <div class="menu_button" id="ctp_comfy_models">从 ComfyUI 读取列表</div>
+                </div>
+                <label>扩散模型 (diffusion_models) <input type="text" class="text_pole" list="ctp_list_unet" data-ctp="comfy.unet"></label>
+                <label>文本编码器 (text_encoders) <input type="text" class="text_pole" list="ctp_list_clip" data-ctp="comfy.clip"></label>
+                <label>VAE <input type="text" class="text_pole" list="ctp_list_vae" data-ctp="comfy.vae"></label>
+                <div class="ctp-row">
+                    <label class="flex1">全局 / 风格 LoRA <input type="text" class="text_pole" list="ctp_list_lora" data-ctp="comfy.lora" placeholder="留空 = 不用"></label>
+                    <label>强度 <input type="number" class="text_pole" step="0.05" data-ctp="comfy.loraStrength" data-type="float"></label>
+                </div>
+                <div class="ctp-row">
+                    <label class="flex1">文件名前缀 <input type="text" class="text_pole" data-ctp="comfy.filenamePrefix"></label>
+                    <label>超时(秒) <input type="number" class="text_pole" min="0" step="10" data-ctp="comfy.timeoutSec" data-type="int"></label>
+                </div>
+            </div>
+
+            <!-- ============ 调试 ============ -->
+            <div class="ctp-section">
+                <h4>调试</h4>
+                <label class="checkbox_label"><input type="checkbox" data-ctp="debug"> 调试模式（图片下显示每楼提示词，并记录解析输入与最终工作流）</label>
+                <div class="ctp-row ctp-wrap-row">
+                    <div class="menu_button" id="ctp_debug_chat">查看各楼层提示词</div>
+                    <div class="menu_button" id="ctp_debug_preview">预览解析输入</div>
+                    <div class="menu_button" id="ctp_debug_dry">试运行解析（不出图）</div>
+                    <div class="menu_button" id="ctp_generate_last">为最新楼层生成</div>
+                    <div class="menu_button redWarningBG" id="ctp_clear_chat">清除本聊天配图数据</div>
+                </div>
+                <small class="ctp-hint">斜杠命令：/ctimg [target=名字] [at=楼层] [prompt=提示词] · /ctimg-target 名字|user|char|auto · /ctimg-debug on|off</small>
+            </div>
+
+            <datalist id="ctp_list_parser_models"></datalist>
+            <datalist id="ctp_list_unet"></datalist>
+            <datalist id="ctp_list_clip"></datalist>
+            <datalist id="ctp_list_vae"></datalist>
+            <datalist id="ctp_list_lora"></datalist>
+            <datalist id="ctp_list_sampler"></datalist>
+            <datalist id="ctp_list_scheduler"></datalist>
+        </div>
+    </div>
+</div>

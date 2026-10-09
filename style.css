@@ -1,0 +1,221 @@
+/* ---------- image block inside a chat message ---------- */
+.ctp-wrap {
+    margin: 6px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ctp-figure img.ctp-img {
+    display: block;
+    height: auto;
+    border-radius: 10px;
+    cursor: zoom-in;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.ctp-toolbar,
+.ctp-status,
+.ctp-error,
+.ctp-skip {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 0.85em;
+}
+
+.ctp-toolbar {
+    opacity: 0.55;
+    transition: opacity 0.2s;
+}
+
+.ctp-wrap:hover .ctp-toolbar {
+    opacity: 1;
+}
+
+.ctp-toolbar .ctp-act {
+    cursor: pointer;
+    padding: 2px;
+}
+
+.ctp-toolbar .ctp-act:hover {
+    color: var(--SmartThemeQuoteColor);
+}
+
+.ctp-count,
+.ctp-meta {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.8;
+}
+
+.ctp-meta {
+    margin-left: 6px;
+}
+
+.ctp-status {
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: var(--black30a);
+}
+
+.ctp-error {
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(200, 50, 50, 0.15);
+}
+
+.ctp-skip {
+    opacity: 0.7;
+}
+
+.ctp-link {
+    cursor: pointer;
+    text-decoration: underline;
+    opacity: 0.85;
+}
+
+.ctp-link:hover {
+    opacity: 1;
+}
+
+.ctp-inline-debug {
+    font-size: 0.8em;
+    opacity: 0.85;
+}
+
+.ctp-inline-debug summary {
+    cursor: pointer;
+}
+
+.ctp-inline-debug pre,
+.ctp-debug pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 4px 0;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: var(--black30a);
+    font-family: var(--monoFontFamily, monospace);
+    text-align: left;
+}
+
+/* ---------- popups ---------- */
+.ctp-debug {
+    text-align: left;
+}
+
+.ctp-debug h3,
+.ctp-debug h4 {
+    margin: 10px 0 4px;
+}
+
+.ctp-debug-block summary {
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.ctp-copy {
+    cursor: pointer;
+    margin-left: 6px;
+    opacity: 0.7;
+}
+
+.ctp-debug-table,
+.ctp-floor-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+}
+
+.ctp-debug-table th,
+.ctp-debug-table td,
+.ctp-floor-table th,
+.ctp-floor-table td {
+    border-bottom: 1px solid var(--SmartThemeBorderColor);
+    padding: 3px 6px;
+    vertical-align: top;
+    text-align: left;
+}
+
+.ctp-debug-table th {
+    width: 9em;
+    white-space: nowrap;
+    opacity: 0.8;
+}
+
+.ctp-prompt-cell {
+    font-size: 0.85em;
+    word-break: break-word;
+}
+
+.ctp-muted {
+    opacity: 0.65;
+    font-size: 0.85em;
+}
+
+.ctp-zoom img {
+    max-width: 100%;
+    max-height: 80vh;
+    object-fit: contain;
+}
+
+/* ---------- settings panel ---------- */
+.ctp-settings .ctp-section {
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor);
+}
+
+.ctp-settings h4 {
+    margin: 8px 0 4px;
+}
+
+.ctp-settings label {
+    display: block;
+    margin: 4px 0;
+}
+
+.ctp-settings label.checkbox_label {
+    display: flex;
+}
+
+.ctp-settings .ctp-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+}
+
+.ctp-settings .ctp-row > label {
+    flex: 1;
+}
+
+.ctp-settings .ctp-row .menu_button {
+    white-space: nowrap;
+    margin-bottom: 4px;
+}
+
+.ctp-settings .ctp-wrap-row {
+    flex-wrap: wrap;
+}
+
+.ctp-settings textarea {
+    width: 100%;
+    resize: vertical;
+}
+
+.ctp-settings .ctp-mono {
+    font-family: var(--monoFontFamily, monospace);
+    font-size: 0.85em;
+}
+
+.ctp-settings .ctp-hint {
+    display: block;
+    opacity: 0.7;
+    margin: 2px 0 4px;
+}
+
+.ctp-settings .ctp-details summary {
+    cursor: pointer;
+    margin: 4px 0;
+}
