@@ -1,6 +1,6 @@
 import { EXTRA_KEY, LOG_PREFIX, TARGET_AUTO, TARGET_CHAR, TARGET_USER } from './src/constants.js';
 import { lastFloorId, showFloorDebug } from './src/debug.js';
-import { cancelAllJobs, cancelJob, enqueue, setRenderer } from './src/pipeline.js';
+import { cancelAllJobs, cancelJob, enqueue, getJob, setRenderer } from './src/pipeline.js';
 import { renderAll, renderMessage } from './src/render.js';
 import { findPresetByName, findPresetById } from './src/targets.js';
 import { initSettingsUi, refreshTargetSelect, syncSettingsUi } from './src/ui.js';
@@ -19,18 +19,34 @@ function aiFloorNumber(mesId) {
     return count;
 }
 
+/** Greeting floors: AI messages with no user message before them (covers alternate and group greetings). */
+function isGreetingFloor(mesId) {
+    const chat = ctx().chat;
+    for (let i = 0; i < mesId; i++) {
+        if (chat[i]?.is_user) return false;
+    }
+    return true;
+}
+
 function maybeAutoGenerate(mesId, type) {
     const settings = getSettings();
     if (!settings.enabled || !settings.autoGenerate) return;
-    const message = ctx().chat[mesId];
+    const chat = ctx().chat;
+    const message = chat[mesId];
     if (!message || message.is_user || message.is_system || !String(message.mes || '').trim()) return;
     if (['impersonate', 'quiet'].includes(type)) return;
-    if (type === 'first_message' && !settings.includeFirstMessage) return;
+    // A finished reply is always the newest floor. Other extensions / card scripts may re-emit the rendered
+    // event for older floors (or rewrite the greeting); those must not start generations.
+    if (mesId !== chat.length - 1) return;
+    if (!settings.includeFirstMessage && (type === 'first_message' || isGreetingFloor(mesId))) return;
     // A stopped/aborted stream also emits the rendered event; don't draw half a message.
     if (Date.now() - lastStoppedAt < 2000) return;
+    if (getJob(message)) return;
 
+    // Any earlier result (image, error or skip) means this floor was already handled; only an explicit
+    // "continue" with the regenerate option asks for a new version.
     const existing = getMessageData(message);
-    if (existing?.images?.length && !(type === 'continue' && settings.regenOnContinue)) return;
+    if (existing && !(type === 'continue' && settings.regenOnContinue)) return;
 
     const everyN = Math.max(1, Number(settings.everyN) || 1);
     if (everyN > 1 && aiFloorNumber(mesId) % everyN !== 0) return;

@@ -55,8 +55,8 @@
                     </label>
                     <label>LoRA 触发词（放在提示词最前）<input type="text" class="text_pole" data-preset="trigger"></label>
                     <div class="ctp-row">
-                        <label class="flex1">角色 LoRA 文件名 <input type="text" class="text_pole" list="ctp_list_lora" data-preset="lora" placeholder="留空 = 不用"></label>
-                        <label>强度 <input type="number" class="text_pole" step="0.05" data-preset="loraStrength" data-type="float"></label>
+                        <label class="flex1">角色 LoRA <select class="text_pole" data-preset-picker="lora" data-list="lora" data-none="1"></select></label>
+                        <label class="ctp-narrow">强度 <input type="number" class="text_pole" step="0.05" data-preset="loraStrength" data-type="float"></label>
                     </div>
                     <label>额外反向提示词 <input type="text" class="text_pole" data-preset="negative"></label>
                 </div>
@@ -77,9 +77,13 @@
                     <label>API 地址（到 /v1 为止）<input type="text" class="text_pole" data-ctp="parser.customUrl" placeholder="https://api.deepseek.com/v1"></label>
                     <label>API Key <input type="password" class="text_pole" data-ctp="parser.customKey" autocomplete="off"></label>
                     <div class="ctp-row">
-                        <label class="flex1">模型 <input type="text" class="text_pole" list="ctp_list_parser_models" data-ctp="parser.customModel"></label>
+                        <label class="flex1">模型 <select class="text_pole" data-picker="parser.customModel" data-list="parserModels"></select></label>
                         <div class="menu_button" id="ctp_parser_models">获取模型</div>
                     </div>
+                    <label>附加请求参数（JSON，可选）
+                        <textarea class="text_pole ctp-mono" rows="2" data-ctp="parser.extraBody" id="ctp_extra_body" placeholder='例：GLM 关闭思考 {"thinking": {"type": "disabled"}}'></textarea>
+                    </label>
+                    <small class="ctp-hint" id="ctp_extra_body_hint">会合并进请求体。思考模型（GLM、DeepSeek-R1 等）容易把输出额度用在思考上导致返回空内容，可以在这里关闭思考。</small>
                     <small class="ctp-hint">Key 保存在酒馆扩展设置里（settings.json），请求时作为请求头经酒馆后端转发。</small>
                 </div>
                 <div class="ctp-source" data-source="profile">
@@ -145,6 +149,10 @@
                         <option value="direct">浏览器直连（需 --enable-cors-header，可看节点级报错）</option>
                     </select>
                 </label>
+                <label>浏览器直连地址（可选）
+                    <input type="text" class="text_pole" data-ctp="comfy.browserUrl" placeholder="留空 = 同上。用手机访问酒馆时填电脑的局域网地址，如 http://192.168.1.10:8188">
+                </label>
+                <small class="ctp-hint">读取 LoRA / 文本编码器列表和「浏览器直连」模式都由浏览器直接访问 ComfyUI：ComfyUI 需加启动参数 <code>--listen --enable-cors-header</code>，且这个地址要能从浏览器所在设备访问到（手机上的 127.0.0.1 是手机自己）。</small>
                 <label>工作流
                     <select class="text_pole" data-ctp="comfy.workflowSource" id="ctp_workflow_source">
                         <option value="builtin">内置：Krea 2 Turbo 文生图 + LoRA</option>
@@ -167,7 +175,7 @@
                     <label>宽 <input type="number" class="text_pole" step="16" min="256" data-ctp="comfy.width" data-type="int" id="ctp_width"></label>
                     <label>高 <input type="number" class="text_pole" step="16" min="256" data-ctp="comfy.height" data-type="int" id="ctp_height"></label>
                 </div>
-                <small class="ctp-hint">会自动对齐到 16 的倍数。Krea 2 Turbo 适合约 1–2 MP。</small>
+                <small class="ctp-hint" id="ctp_mp">会自动对齐到 16 的倍数。Krea 2 Turbo 适合约 1–2 MP。</small>
 
                 <h4>采样</h4>
                 <div class="ctp-row">
@@ -176,20 +184,21 @@
                     <label>种子(-1 随机) <input type="number" class="text_pole" data-ctp="comfy.seed" data-type="int"></label>
                 </div>
                 <div class="ctp-row">
-                    <label class="flex1">采样器 <input type="text" class="text_pole" list="ctp_list_sampler" data-ctp="comfy.sampler"></label>
-                    <label class="flex1">调度器 <input type="text" class="text_pole" list="ctp_list_scheduler" data-ctp="comfy.scheduler"></label>
+                    <label class="flex1">采样器 <select class="text_pole" data-picker="comfy.sampler" data-list="sampler"></select></label>
+                    <label class="flex1">调度器 <select class="text_pole" data-picker="comfy.scheduler" data-list="scheduler"></select></label>
                 </div>
 
                 <h4>模型</h4>
                 <div class="ctp-row">
                     <div class="menu_button" id="ctp_comfy_models">从 ComfyUI 读取列表</div>
                 </div>
-                <label>扩散模型 (diffusion_models) <input type="text" class="text_pole" list="ctp_list_unet" data-ctp="comfy.unet"></label>
-                <label>文本编码器 (text_encoders) <input type="text" class="text_pole" list="ctp_list_clip" data-ctp="comfy.clip"></label>
-                <label>VAE <input type="text" class="text_pole" list="ctp_list_vae" data-ctp="comfy.vae"></label>
+                <small class="ctp-hint" id="ctp_lists_status"></small>
+                <label>扩散模型 (diffusion_models) <select class="text_pole" data-picker="comfy.unet" data-list="unet"></select></label>
+                <label>文本编码器 (text_encoders) <select class="text_pole" data-picker="comfy.clip" data-list="clip"></select></label>
+                <label>VAE <select class="text_pole" data-picker="comfy.vae" data-list="vae"></select></label>
                 <div class="ctp-row">
-                    <label class="flex1">全局 / 风格 LoRA <input type="text" class="text_pole" list="ctp_list_lora" data-ctp="comfy.lora" placeholder="留空 = 不用"></label>
-                    <label>强度 <input type="number" class="text_pole" step="0.05" data-ctp="comfy.loraStrength" data-type="float"></label>
+                    <label class="flex1">全局 / 风格 LoRA <select class="text_pole" data-picker="comfy.lora" data-list="lora" data-none="1"></select></label>
+                    <label class="ctp-narrow">强度 <input type="number" class="text_pole" step="0.05" data-ctp="comfy.loraStrength" data-type="float"></label>
                 </div>
                 <div class="ctp-row">
                     <label class="flex1">文件名前缀 <input type="text" class="text_pole" data-ctp="comfy.filenamePrefix"></label>
@@ -211,13 +220,6 @@
                 <small class="ctp-hint">斜杠命令：/ctimg [target=名字] [at=楼层] [prompt=提示词] · /ctimg-target 名字|user|char|auto · /ctimg-debug on|off</small>
             </div>
 
-            <datalist id="ctp_list_parser_models"></datalist>
-            <datalist id="ctp_list_unet"></datalist>
-            <datalist id="ctp_list_clip"></datalist>
-            <datalist id="ctp_list_vae"></datalist>
-            <datalist id="ctp_list_lora"></datalist>
-            <datalist id="ctp_list_sampler"></datalist>
-            <datalist id="ctp_list_scheduler"></datalist>
         </div>
     </div>
 </div>

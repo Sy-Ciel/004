@@ -89,7 +89,13 @@ export function defaultPresets() {
     ];
 }
 
+/** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */
+export const SETTINGS_VERSION = 2;
+
+export const EMPTY_LISTS = { unet: [], clip: [], vae: [], lora: [], sampler: [], scheduler: [] };
+
 export const DEFAULT_SETTINGS = {
+    settingsVersion: SETTINGS_VERSION,
     enabled: true,
     autoGenerate: true,
     everyN: 1,
@@ -107,7 +113,9 @@ export const DEFAULT_SETTINGS = {
         customModel: 'deepseek-chat',
         profileId: '',
         temperature: 0.6,
-        maxTokens: 800,
+        maxTokens: 2048,
+        extraBody: '',
+        models: [],
         contextDepth: 4,
         maxCharsPerMessage: 3000,
         includePersona: false,
@@ -128,6 +136,7 @@ export const DEFAULT_SETTINGS = {
 
     comfy: {
         url: 'http://127.0.0.1:8188',
+        browserUrl: '',
         mode: 'proxy',
         workflowSource: 'builtin',
         workflow: '',
@@ -145,5 +154,6 @@ export const DEFAULT_SETTINGS = {
         loraStrength: 0.8,
         filenamePrefix: 'ST_portrait',
         timeoutSec: 300,
+        lists: EMPTY_LISTS,
     },
 };

@@ -1,4 +1,5 @@
-import { ctx, getSettings, sleep, truncate, withTimeout } from './utils.js';
+import { EMPTY_LISTS } from './constants.js';
+import { ctx, errorMessage, getSettings, sleep, truncate, withTimeout } from './utils.js';
 
 const BUILTIN_WORKFLOW_URL = new URL('../workflows/krea2_turbo_t2i_lora_api.json', import.meta.url);
 let builtinWorkflowCache = null;
@@ -177,10 +178,17 @@ export function prepareWorkflow(templateText, values) {
     return { workflow, notes };
 }
 
+/** ComfyUI address as seen from the SillyTavern server (proxy mode). */
 function comfyBase() {
     const url = getSettings().comfy.url.trim().replace(/\/+$/, '');
     if (!url) throw new Error('未填写 ComfyUI 地址');
     return url;
+}
+
+/** ComfyUI address as seen from this browser (direct mode, model lists). Defaults to the main address. */
+function browserBase() {
+    const url = getSettings().comfy.browserUrl.trim().replace(/\/+$/, '');
+    return url || comfyBase();
 }
 
 function formatComfyError(text) {
@@ -233,7 +241,7 @@ async function generateViaProxy(workflow, signal) {
 }
 
 async function generateDirect(workflow, signal, onStatus) {
-    const base = comfyBase();
+    const base = browserBase();
     const response = await fetch(`${base}/prompt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -295,7 +303,7 @@ export async function runWorkflow(workflow, parentSignal, onStatus) {
     } catch (error) {
         if (signal.aborted && signal.reason instanceof Error) throw signal.reason;
         if (error instanceof TypeError && comfy.mode === 'direct') {
-            throw new Error(`无法连接 ComfyUI（${error.message}）。直连模式需要用 --enable-cors-header 启动 ComfyUI，或者改用「酒馆后端代理」模式`);
+            throw new Error(`浏览器无法连接 ComfyUI ${browserBase()}（${error.message}）。直连模式需要 ComfyUI 加 --listen --enable-cors-header 启动、地址能从浏览器访问到，或者改用「酒馆后端代理」模式`);
         }
         throw error;
     } finally {
@@ -306,7 +314,7 @@ export async function runWorkflow(workflow, parentSignal, onStatus) {
 export async function testConnection() {
     const { comfy } = getSettings();
     if (comfy.mode === 'direct') {
-        const response = await fetch(`${comfyBase()}/system_stats`);
+        const response = await fetch(`${browserBase()}/system_stats`, { signal: AbortSignal.timeout(8000) });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const stats = await response.json();
         return `ComfyUI ${stats?.system?.comfyui_version ?? ''}`.trim();
@@ -321,7 +329,7 @@ export async function testConnection() {
 }
 
 async function objectInfo(nodeType) {
-    const response = await fetch(`${comfyBase()}/object_info/${nodeType}`);
+    const response = await fetch(`${browserBase()}/object_info/${nodeType}`, { signal: AbortSignal.timeout(8000) });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const json = await response.json();
     return json?.[nodeType]?.input?.required ?? {};
@@ -337,41 +345,65 @@ async function proxyList(endpoint) {
     return await response.json();
 }
 
+const strings = value => (Array.isArray(value) ? value.filter(item => typeof item === 'string') : []);
+
+/** Lists SillyTavern's server can read for us: diffusion models, VAEs, samplers, schedulers. */
+async function listsViaProxy() {
+    const [models, vae, sampler, scheduler] = await Promise.allSettled([
+        proxyList('models'), proxyList('vaes'), proxyList('samplers'), proxyList('schedulers'),
+    ]);
+    const value = result => (result.status === 'fulfilled' ? result.value : null);
+    const unet = (value(models) || [])
+        .filter(model => /^(UNet|GGUF):/.test(String(model?.text)))
+        .map(model => model.value);
+    const failed = [models, vae, sampler, scheduler].find(result => result.status === 'rejected');
+    return {
+        lists: { unet: strings(unet), vae: strings(value(vae)), sampler: strings(value(sampler)), scheduler: strings(value(scheduler)) },
+        error: failed ? failed.reason : null,
+    };
+}
+
+/** Complete lists from ComfyUI's object_info. Needs CORS and an address reachable from the browser. */
+async function listsDirect() {
+    const [unet, clip, vae, lora, sampler] = await Promise.all([
+        objectInfo('UNETLoader'), objectInfo('CLIPLoader'), objectInfo('VAELoader'), objectInfo('LoraLoaderModelOnly'), objectInfo('KSampler'),
+    ]);
+    return {
+        unet: strings(unet.unet_name?.[0]),
+        clip: strings(clip.clip_name?.[0]),
+        vae: strings(vae.vae_name?.[0]),
+        lora: strings(lora.lora_name?.[0]),
+        sampler: strings(sampler.sampler_name?.[0]),
+        scheduler: strings(sampler.scheduler?.[0]),
+    };
+}
+
 /**
- * Reads model / sampler lists from ComfyUI. Direct requests give everything (when CORS allows);
- * the SillyTavern proxy only exposes diffusion models, VAEs, samplers and schedulers.
+ * Reads model / sampler lists. The SillyTavern proxy works wherever generation works but has no route for
+ * LoRAs or text encoders; those come from a direct object_info request when the browser can reach ComfyUI.
+ * @returns {Promise<{ lists: typeof EMPTY_LISTS, notes: string[], direct: boolean }>}
  */
 export async function fetchModelLists() {
-    const lists = { unet: [], clip: [], vae: [], lora: [], sampler: [], scheduler: [] };
-    const errors = [];
-    try {
-        const [unet, clip, vae, lora, sampler] = await Promise.all([
-            objectInfo('UNETLoader'), objectInfo('CLIPLoader'), objectInfo('VAELoader'), objectInfo('LoraLoaderModelOnly'), objectInfo('KSampler'),
-        ]);
-        lists.unet = unet.unet_name?.[0] ?? [];
-        lists.clip = clip.clip_name?.[0] ?? [];
-        lists.vae = vae.vae_name?.[0] ?? [];
-        lists.lora = lora.lora_name?.[0] ?? [];
-        lists.sampler = sampler.sampler_name?.[0] ?? [];
-        lists.scheduler = sampler.scheduler?.[0] ?? [];
-        return { lists, errors };
-    } catch (error) {
-        errors.push(`直连 object_info 失败: ${error.message}`);
+    const lists = structuredClone(EMPTY_LISTS);
+    const notes = [];
+    const [proxy, direct] = await Promise.allSettled([listsViaProxy(), listsDirect()]);
+
+    if (proxy.status === 'fulfilled') {
+        Object.assign(lists, proxy.value.lists);
+        if (proxy.value.error) notes.push(`经酒馆后端读取部分失败：${errorMessage(proxy.value.error)}`);
+    } else {
+        notes.push(`经酒馆后端读取失败：${errorMessage(proxy.reason)}`);
     }
-    const attempts = {
-        unet: async () => (await proxyList('models')).filter(m => String(m.text).startsWith('UNet:') || String(m.text).startsWith('GGUF:')).map(m => m.value),
-        vae: async () => await proxyList('vaes'),
-        sampler: async () => await proxyList('samplers'),
-        scheduler: async () => await proxyList('schedulers'),
-    };
-    for (const [key, attempt] of Object.entries(attempts)) {
-        try {
-            lists[key] = await attempt();
-        } catch (error) {
-            errors.push(`代理读取 ${key} 失败: ${error.message}`);
+
+    if (direct.status === 'fulfilled') {
+        for (const [key, values] of Object.entries(direct.value)) {
+            if (values.length) lists[key] = values;
         }
+    } else {
+        const reason = direct.reason?.name === 'TimeoutError' ? '超时' : errorMessage(direct.reason);
+        notes.push(`LoRA 和文本编码器列表要由浏览器直接访问 ComfyUI（${browserBase()}）才能读取，这次失败了：${reason}。可以填「浏览器直连地址」并给 ComfyUI 加 --listen --enable-cors-header，或者用下拉框里的「手动输入」。`);
     }
-    return { lists, errors };
+    return { lists, notes, direct: direct.status === 'fulfilled' };
 }
 
 /** Saves the image under SillyTavern's user/images so the chat file only keeps a short path. */

@@ -111,27 +111,63 @@ function authHeaders(key) {
     return key ? JSON.stringify({ Authorization: `Bearer ${key}` }) : undefined;
 }
 
+/** Extra JSON merged into the request body, e.g. {"thinking": {"type": "disabled"}} for GLM. */
+export function parseExtraBody() {
+    const text = String(getSettings().parser.extraBody || '').trim();
+    if (!text) return null;
+    let value;
+    try {
+        value = JSON.parse(text);
+    } catch (error) {
+        throw new Error(`「附加请求参数」不是合法 JSON：${error.message}`);
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error('「附加请求参数」必须是 JSON 对象，例如 {"thinking": {"type": "disabled"}}');
+    }
+    return value;
+}
+
+/** Pulls content / reasoning / finish_reason out of an OpenAI-style chat completion response. */
+function readCompletion(json) {
+    const choice = json?.choices?.[0] ?? {};
+    const message = choice.message ?? {};
+    const content = Array.isArray(message.content)
+        ? message.content.map(part => part?.text ?? '').join('')
+        : String(message.content ?? choice.text ?? '');
+    const reasoning = String(message.reasoning_content ?? message.reasoning ?? '');
+    return { content, reasoning, finish: choice.finish_reason ?? '' };
+}
+
+/**
+ * @typedef {{ content: string, reasoning: string, finish: string }} ParserReply
+ */
+
+/** @returns {Promise<ParserReply>} */
 async function callCustom(system, user, signal) {
     const { parser } = getSettings();
     const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
     const url = parser.customUrl.trim().replace(/\/+$/, '');
     if (!url) throw new Error('未填写解析模型的 API 地址');
     if (!parser.customModel.trim()) throw new Error('未填写解析模型名称');
+    const extraBody = parseExtraBody();
+    const maxTokens = Number(parser.maxTokens) || 2048;
 
     const service = ctx().ChatCompletionService;
     if (service?.processRequest) {
         // Routed through the SillyTavern server: no CORS problems, key is sent only as a request header.
-        const result = await service.processRequest({
+        // extractData=false so finish_reason and reasoning_content are available for diagnostics.
+        const json = await service.processRequest({
             stream: false,
             messages,
             model: parser.customModel.trim(),
             chat_completion_source: 'custom',
             custom_url: url,
             custom_include_headers: authHeaders(parser.customKey.trim()),
-            max_tokens: Number(parser.maxTokens) || 800,
+            custom_include_body: extraBody ? JSON.stringify(extraBody) : undefined,
+            max_tokens: maxTokens,
             temperature: Number(parser.temperature),
-        }, {}, true, signal);
-        return typeof result === 'string' ? result : result?.content ?? '';
+        }, {}, false, signal);
+        return readCompletion(json);
     }
 
     const response = await fetch(`${url}/chat/completions`, {
@@ -143,19 +179,20 @@ async function callCustom(system, user, signal) {
         body: JSON.stringify({
             model: parser.customModel.trim(),
             messages,
-            max_tokens: Number(parser.maxTokens) || 800,
+            max_tokens: maxTokens,
             temperature: Number(parser.temperature),
             stream: false,
+            ...extraBody,
         }),
         signal,
     });
     if (!response.ok) {
         throw new Error(`解析模型返回 ${response.status}: ${truncate(await response.text(), 500)}`);
     }
-    const json = await response.json();
-    return json?.choices?.[0]?.message?.content ?? '';
+    return readCompletion(await response.json());
 }
 
+/** @returns {Promise<ParserReply>} */
 async function callProfile(system, user, signal) {
     const { parser } = getSettings();
     const service = ctx().ConnectionManagerRequestService;
@@ -165,24 +202,28 @@ async function callProfile(system, user, signal) {
     const result = await service.sendRequest(
         parser.profileId,
         messages,
-        Number(parser.maxTokens) || 800,
+        Number(parser.maxTokens) || 2048,
         { stream: false, signal, extractData: true, includePreset: true, includeInstruct: true },
         { temperature: Number(parser.temperature) },
     );
-    return typeof result === 'string' ? result : result?.content ?? '';
+    if (typeof result === 'string') return { content: result, reasoning: '', finish: '' };
+    return { content: String(result?.content ?? ''), reasoning: String(result?.reasoning ?? ''), finish: '' };
 }
 
+/** @returns {Promise<ParserReply>} */
 async function callMain(system, user, signal) {
     const { parser } = getSettings();
     const { generateRaw } = ctx();
+    const maxTokens = Number(parser.maxTokens) || 2048;
     const request = generateRaw.length > 1
         // Older SillyTavern: positional arguments
-        ? generateRaw(user, null, false, false, system, Number(parser.maxTokens) || 800)
-        : generateRaw({ prompt: user, systemPrompt: system, responseLength: Number(parser.maxTokens) || 800 });
+        ? generateRaw(user, null, false, false, system, maxTokens)
+        : generateRaw({ prompt: user, systemPrompt: system, responseLength: maxTokens });
     const aborted = new Promise((_, reject) => {
         signal.addEventListener('abort', () => reject(signal.reason ?? new DOMException('Aborted', 'AbortError')), { once: true });
     });
-    return await Promise.race([request, aborted]);
+    const content = await Promise.race([request, aborted]);
+    return { content: String(content ?? ''), reasoning: '', finish: '' };
 }
 
 export function parserLabel() {
@@ -201,7 +242,7 @@ export function parserLabel() {
 
 /**
  * Calls the parser model.
- * @returns {Promise<string>} Raw text returned by the model
+ * @returns {Promise<ParserReply>}
  */
 export async function callParser(system, user, parentSignal) {
     const { parser } = getSettings();
@@ -221,6 +262,35 @@ export async function callParser(system, user, parentSignal) {
     } finally {
         dispose();
     }
+}
+
+const THINKING_HINT = '如果是思考模型（GLM、DeepSeek-R1、Qwen3 等），通常是思考过程把「最大输出」用完了：调大「最大输出」，或在「附加请求参数」里关闭思考（GLM 填 {"thinking": {"type": "disabled"}}）';
+
+/**
+ * Parses a parser reply. Falls back to the reasoning text when a thinking model put its answer there,
+ * and explains empty / truncated replies instead of a generic JSON error.
+ */
+export function parseParserReply(reply) {
+    const sources = [reply?.content, reply?.reasoning].filter(text => String(text ?? '').trim());
+    const finish = reply?.finish ? `（finish_reason=${reply.finish}）` : '';
+    if (!sources.length) {
+        throw new Error(`解析模型返回了空内容${finish}。${THINKING_HINT}`);
+    }
+    let lastError = null;
+    for (const text of sources) {
+        try {
+            return parseParserOutput(text);
+        } catch (error) {
+            lastError = error;
+        }
+    }
+    if (!String(reply.content ?? '').trim()) {
+        throw new Error(`解析模型返回了空内容${finish}（只有思考过程，里面也没有 JSON）。${THINKING_HINT}`);
+    }
+    if (reply.finish === 'length') {
+        throw new Error(`解析模型的输出被截断了${finish}，没有完整的 JSON。${THINKING_HINT}`);
+    }
+    throw lastError;
 }
 
 function repairJson(text) {
@@ -265,11 +335,17 @@ export function parseParserOutput(raw) {
     }
 
     if (!object) {
+        // Salvage fields from broken or truncated JSON, or from "key: value" lines. A quoted value only counts
+        // when its closing quote is present, so a reply cut off mid-value does not leak half a phrase.
         object = {};
         for (const key of ['skip', 'reason', 'target', ...PARSED_FIELDS]) {
-            const match = text.match(new RegExp(`["']?${key}["']?\\s*[:：]\\s*["']?([^"'\\n}]+)`, 'i'));
-            if (match) object[key] = match[1];
+            const quoted = text.match(new RegExp(`["']?${key}["']?\\s*[:：]\\s*"([^"\\n]*)"`, 'i'));
+            const line = text.match(new RegExp(`^\\s*${key}\\s*[:：]\\s*([^"{}\\n]+)$`, 'im'));
+            if (quoted) object[key] = quoted[1];
+            else if (line) object[key] = line[1];
         }
+        const skip = text.match(/["']?skip["']?\s*[:：]\s*(true|false)/i);
+        if (skip) object.skip = skip[1].toLowerCase() === 'true';
         if (!Object.keys(object).length) {
             throw new Error('解析模型没有返回可识别的 JSON');
         }

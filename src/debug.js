@@ -77,6 +77,7 @@ export async function showFloorDebug(mesId) {
         ['使用预设', data.fixed?.preset || '（无）'],
         ['解析模型', data.parser],
         ['解析用时', data.parserMs ? `${data.parserMs} ms` : ''],
+        ['结束原因', data.parserFinish],
         ['出图用时', data.comfyMs ? `${data.comfyMs} ms` : ''],
         ['图片版本', data.images?.length ? `${index + 1} / ${data.images.length}` : '无'],
     ])}
@@ -85,12 +86,13 @@ export async function showFloorDebug(mesId) {
         ${block('反向提示词', image?.negative ?? data.negative)}
         <h4>① 固定部分（角色预设）</h4>
         ${table([['外貌', data.fixed?.appearance || '（空）'], ['触发词', data.fixed?.trigger]])}
-        <h4>② AI 解析部分</h4>
+        <h4>② AI 解析部分${data.error && data.parsed ? '（以下是最近一次成功的解析，本次失败的输出见下方「原始输出」）' : ''}</h4>
         ${table(parsedRows) || '<p class="ctp-muted">无</p>'}
-        ${block('解析模型原始输出', data.parserRaw, { open: false })}
+        ${data.parser ? block('解析模型原始输出', data.parserRaw || '（空）', { open: !!data.error }) : ''}
+        ${block('解析模型思考内容', data.parserReasoning, { open: false })}
         ${data.debug?.parserSystem ? block('解析模型 · System 提示词', data.debug.parserSystem, { open: false }) : ''}
         ${data.debug?.parserUser ? block('解析模型 · 输入（剧情上下文）', data.debug.parserUser, { open: false }) : ''}
-        ${!data.debug?.parserUser ? '<p class="ctp-muted">提示：开启「调试模式」后生成的楼层会额外记录解析模型的完整输入和最终工作流。</p>' : ''}
+        ${!data.debug?.parserUser ? '<p class="ctp-muted">提示：开启「调试模式」后生成的楼层会额外记录解析模型的完整输入和最终工作流（失败的楼层总会记录输入）。</p>' : ''}
         <h4>③ ComfyUI 参数</h4>
         ${table([
         ['工作流', params.workflow],
@@ -183,11 +185,12 @@ export async function showDryRun() {
         const result = await dryRun(mesId);
         await showPopup(`
             <h3>试运行解析 · #${mesId}（不出图）</h3>
-            ${table([['目标', result.target.name || '?'], ['预设', result.target.preset?.name || '（无）'], ['跳过', result.parsed.skip ? `是：${result.parsed.reason}` : '否']])}
+            ${table([['目标', result.target.name || '?'], ['预设', result.target.preset?.name || '（无）'], ['跳过', result.parsed.skip ? `是：${result.parsed.reason}` : '否'], ['结束原因', result.reply.finish]])}
             ${block('最终正向提示词', result.prompt)}
             ${block('反向提示词', result.negative)}
             ${table(PARSED_FIELDS.map(field => [`${FIELD_LABELS[field]} (${field})`, result.parsed[field]]))}
-            ${block('解析模型原始输出', result.raw)}
+            ${block('解析模型原始输出', result.reply.content || '（空）')}
+            ${block('解析模型思考内容', result.reply.reasoning, { open: false })}
             ${block('System', result.parserPrompt.system, { open: false })}
             ${block('User', result.parserPrompt.user, { open: false })}
         `);

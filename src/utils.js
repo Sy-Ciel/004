@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, EXTRA_KEY, LOG_PREFIX, MODULE } from './constants.js';
+import { DEFAULT_SETTINGS, EXTRA_KEY, LOG_PREFIX, MODULE, SETTINGS_VERSION } from './constants.js';
 
 export const ctx = () => SillyTavern.getContext();
 
@@ -18,10 +18,22 @@ function fillDefaults(target, defaults) {
     return target;
 }
 
+function migrateSettings(settings) {
+    const version = Number(settings.settingsVersion) || 1;
+    if (version < 2) {
+        // 800 tokens was the v1 default and is too small for thinking models (GLM, DeepSeek-R1 …).
+        if (Number(settings.parser?.maxTokens) === 800) settings.parser.maxTokens = 2048;
+    }
+    settings.settingsVersion = SETTINGS_VERSION;
+}
+
 export function getSettings() {
     const all = ctx().extensionSettings;
     if (!isPlainObject(all[MODULE])) {
-        all[MODULE] = {};
+        all[MODULE] = { settingsVersion: SETTINGS_VERSION };
+    }
+    if (all[MODULE].settingsVersion !== SETTINGS_VERSION) {
+        migrateSettings(all[MODULE]);
     }
     fillDefaults(all[MODULE], DEFAULT_SETTINGS);
     if (!Array.isArray(all[MODULE].presets)) {

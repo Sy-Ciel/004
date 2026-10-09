@@ -72,11 +72,12 @@ export function autoCandidates(message) {
 /** Maps the name returned by the parser in auto mode back onto a candidate/preset. */
 export function settleAutoTarget(target, parsedName, message) {
     const wanted = String(parsedName || '').trim();
+    const settled = { ...target, auto: false };
     const preset = findPresetByName(wanted);
-    if (preset) return { ...target, name: presetName(preset), preset };
+    if (preset) return { ...settled, name: presetName(preset), preset };
     const candidate = target.candidates.find(name => name.toLowerCase() === wanted.toLowerCase());
-    if (candidate) return { ...target, name: candidate, preset: null };
+    if (candidate) return { ...settled, name: candidate, preset: null };
     // Unknown name: fall back to the speaking character so we still draw a single, known person.
     const fallback = speakerName(message);
-    return { ...target, name: fallback, preset: findPresetByName(fallback) };
+    return { ...settled, name: fallback, preset: findPresetByName(fallback) };
 }

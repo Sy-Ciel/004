@@ -9,7 +9,7 @@ import {
     makeId,
 } from './constants.js';
 import { lastFloorId, showChatDebug, showDryRun, showParserPreview } from './debug.js';
-import { callParser } from './parser.js';
+import { callParser, parseExtraBody } from './parser.js';
 import { enqueue } from './pipeline.js';
 import { renderAll } from './render.js';
 import { presetName } from './targets.js';
@@ -50,17 +50,101 @@ function writeInput(element, value) {
     else element.value = value ?? '';
 }
 
-function fillDatalist(id, values) {
-    const list = document.getElementById(id);
-    if (!list) return;
-    list.innerHTML = (values || []).map(value => `<option value="${escapeHtml(value)}"></option>`).join('');
+/* ---------------- pickers (select + manual input, work on mobile unlike <datalist>) ---------------- */
+
+const MANUAL = '__ctp_manual__';
+
+function pickerItems(listName) {
+    const settings = getSettings();
+    if (listName === 'parserModels') return settings.parser.models || [];
+    return settings.comfy.lists?.[listName] || [];
+}
+
+function readPicker(select) {
+    if (select.dataset.picker) return String(getPath(getSettings(), select.dataset.picker) ?? '');
+    return String(currentPreset()?.[select.dataset.presetPicker] ?? '');
+}
+
+function writePicker(select, value) {
+    if (select.dataset.picker) {
+        setPath(getSettings(), select.dataset.picker, value);
+    } else {
+        const preset = currentPreset();
+        if (!preset) return;
+        preset[select.dataset.presetPicker] = value;
+    }
+    saveSettings();
+}
+
+function renderPicker(select) {
+    const value = readPicker(select);
+    const items = pickerItems(select.dataset.list);
+    const options = [];
+    if (select.dataset.none) options.push(['', '（不使用）']);
+    else if (!value) options.push(['', items.length ? '（请选择）' : '（列表为空，点「读取列表」或手动输入）']);
+    if (value && !items.includes(value)) {
+        options.push([value, items.length ? `${value}（当前值，不在列表里）` : value]);
+    }
+    for (const item of items) options.push([item, item]);
+    options.push([MANUAL, '✏️ 手动输入…']);
+    select.innerHTML = options.map(([v, label]) => `<option value="${escapeHtml(v)}">${escapeHtml(label)}</option>`).join('');
+    select.value = value;
+}
+
+function renderPickers() {
+    document.querySelectorAll('.ctp-settings [data-picker], .ctp-settings [data-preset-picker]').forEach(renderPicker);
+}
+
+function bindPickers(root) {
+    root.querySelectorAll('[data-picker], [data-preset-picker]').forEach(select => {
+        select.addEventListener('change', async () => {
+            if (select.value !== MANUAL) {
+                writePicker(select, select.value);
+                return;
+            }
+            const { callGenericPopup, POPUP_TYPE } = ctx();
+            const typed = await callGenericPopup('手动输入（ComfyUI 里的文件名，含子文件夹路径和扩展名）', POPUP_TYPE.INPUT, readPicker(select));
+            if (typeof typed === 'string') writePicker(select, typed.trim());
+            renderPicker(select);
+        });
+        renderPicker(select);
+    });
+}
+
+function listsSummary() {
+    const lists = getSettings().comfy.lists || {};
+    const count = key => (lists[key]?.length ? lists[key].length : '—');
+    return `已缓存列表：扩散模型 ${count('unet')} · 文本编码器 ${count('clip')} · VAE ${count('vae')} · LoRA ${count('lora')} · 采样器 ${count('sampler')}`;
+}
+
+function updateMegapixels() {
+    const { width, height } = getSettings().comfy;
+    const mp = (Number(width) * Number(height)) / 1e6;
+    const element = $('#ctp_mp');
+    const base = `${width}×${height} ≈ ${mp.toFixed(2)} MP。会自动对齐到 16 的倍数，Krea 2 Turbo 适合约 1–2 MP。`;
+    element.text(mp > 4.2 ? `${base} 当前远超推荐范围，容易出现重复人物、多余肢体，也更慢。` : base);
+    element.toggleClass('ctp-warn', mp > 4.2);
+}
+
+function validateExtraBody() {
+    const hint = $('#ctp_extra_body_hint');
+    try {
+        parseExtraBody();
+        hint.removeClass('ctp-warn').text('会合并进请求体。思考模型（GLM、DeepSeek-R1 等）容易把输出额度用在思考上导致返回空内容，可以在这里关闭思考。');
+    } catch (error) {
+        hint.addClass('ctp-warn').text(error.message);
+    }
 }
 
 function onSettingChanged(path) {
     if (path === 'debug' || path === 'imagePosition' || path === 'imageMaxWidth') renderAll();
     if (path === 'parser.source') updateSourceVisibility();
+    if (path === 'parser.extraBody') validateExtraBody();
     if (path === 'comfy.workflowSource') updateWorkflowVisibility();
-    if (path === 'comfy.width' || path === 'comfy.height') syncResolutionSelect();
+    if (path === 'comfy.width' || path === 'comfy.height') {
+        syncResolutionSelect();
+        updateMegapixels();
+    }
 }
 
 function bindSettings(root) {
@@ -100,6 +184,7 @@ function bindSettings(root) {
             getSettings().comfy[key] = rounded;
             saveSettings();
             syncResolutionSelect();
+            updateMegapixels();
         });
     }
 }
@@ -138,6 +223,7 @@ function initResolution() {
         $('#ctp_width').val(preset.w);
         $('#ctp_height').val(preset.h);
         saveSettings();
+        updateMegapixels();
     });
     syncResolutionSelect();
 }
@@ -189,6 +275,7 @@ function loadPresetEditor() {
     document.querySelectorAll('#ctp_preset_editor [data-preset]').forEach(element => {
         writeInput(element, preset[element.dataset.preset]);
     });
+    document.querySelectorAll('#ctp_preset_editor [data-preset-picker]').forEach(renderPicker);
 }
 
 function newPreset(base = {}) {
@@ -355,9 +442,14 @@ async function fetchParserModels() {
             // ignore
         }
     }
-    fillDatalist('ctp_list_parser_models', ids);
-    if (ids.length) toastr.success(`读取到 ${ids.length} 个模型，点模型输入框可选择`);
-    else toastr.warning('没有读取到模型列表，可以直接手动填写模型名');
+    if (ids.length) {
+        getSettings().parser.models = [...new Set(ids)].sort();
+        saveSettings();
+        renderPickers();
+        toastr.success(`读取到 ${ids.length} 个模型，在「模型」下拉框里选择`);
+    } else {
+        toastr.warning('没有读取到模型列表，可以在下拉框里选「手动输入」');
+    }
 }
 
 async function testParser() {
@@ -366,7 +458,11 @@ async function testParser() {
     try {
         const reply = await callParser('You are a JSON API. Reply with JSON only.', 'Reply exactly with {"ok": true}');
         const ms = Math.round(performance.now() - started);
-        toastr.success(`${ms} ms：${truncate(reply, 120)}`, '解析模型可用');
+        if (!reply.content.trim()) {
+            toastr.warning(`${ms} ms：正文为空${reply.finish ? `（finish_reason=${reply.finish}）` : ''}${reply.reasoning ? '，只有思考内容' : ''}。思考模型请调大「最大输出」或在「附加请求参数」里关闭思考。`, '解析模型返回了空内容', { timeOut: 10000 });
+        } else {
+            toastr.success(`${ms} ms：${truncate(reply.content, 120)}`, '解析模型可用');
+        }
     } catch (error) {
         toastr.error(errorMessage(error), '解析模型请求失败');
     }
@@ -379,27 +475,32 @@ async function testComfy() {
         toastr.success(await testConnection());
     } catch (error) {
         toastr.error(errorMessage(error), '连接失败');
+        return;
     }
+    await loadComfyLists({ quiet: true });
 }
 
-async function loadComfyLists() {
-    toastr.info('正在读取 ComfyUI 模型列表…');
+async function loadComfyLists({ quiet = false } = {}) {
+    if (!quiet) toastr.info('正在读取 ComfyUI 模型列表…');
+    const status = $('#ctp_lists_status');
+    status.removeClass('ctp-warn').text('读取中…');
     try {
-        const { lists, errors } = await fetchModelLists();
-        fillDatalist('ctp_list_unet', lists.unet);
-        fillDatalist('ctp_list_clip', lists.clip);
-        fillDatalist('ctp_list_vae', lists.vae);
-        fillDatalist('ctp_list_lora', lists.lora);
-        fillDatalist('ctp_list_sampler', lists.sampler);
-        fillDatalist('ctp_list_scheduler', lists.scheduler);
-        const summary = `模型 ${lists.unet.length} · 编码器 ${lists.clip.length} · VAE ${lists.vae.length} · LoRA ${lists.lora.length}`;
-        if (errors.length && !lists.lora.length) {
-            toastr.warning(`${summary}\nLoRA/编码器列表需要浏览器直连（--enable-cors-header），也可以直接手填文件名`, '部分列表读取失败');
-        } else {
-            toastr.success(summary, '已读取，点输入框可选择');
+        const { lists, notes } = await fetchModelLists();
+        const settings = getSettings();
+        // Keep previously cached entries for lists this attempt could not read.
+        for (const [key, values] of Object.entries(lists)) {
+            if (values.length) settings.comfy.lists[key] = values;
+        }
+        saveSettings();
+        renderPickers();
+        status.text([listsSummary(), ...notes].join('\n')).toggleClass('ctp-warn', notes.length > 0);
+        if (!quiet) {
+            if (notes.length) toastr.warning(notes.join('\n'), '部分列表没读到', { timeOut: 12000 });
+            else toastr.success(listsSummary(), '已读取，在下拉框里选择');
         }
     } catch (error) {
-        toastr.error(errorMessage(error), '读取失败');
+        status.addClass('ctp-warn').text(errorMessage(error));
+        if (!quiet) toastr.error(errorMessage(error), '读取失败');
     }
 }
 
@@ -462,7 +563,11 @@ export async function initSettingsUi() {
     container.appendChild(root);
 
     bindSettings(root);
+    bindPickers(root);
     initResolution();
+    updateMegapixels();
+    validateExtraBody();
+    $('#ctp_lists_status').text(listsSummary());
     initPresets();
     refreshPresetSelect();
     updateSourceVisibility();
@@ -477,7 +582,7 @@ export async function initSettingsUi() {
     $('#ctp_parser_models').on('click', fetchParserModels);
     $('#ctp_parser_test').on('click', testParser);
     $('#ctp_comfy_test').on('click', testComfy);
-    $('#ctp_comfy_models').on('click', loadComfyLists);
+    $('#ctp_comfy_models').on('click', () => loadComfyLists());
     $('#ctp_workflow_validate').on('click', validateWorkflow);
     $('#ctp_workflow_load_builtin').on('click', loadBuiltinIntoEditor);
     $('#ctp_debug_chat').on('click', showChatDebug);
@@ -497,5 +602,6 @@ export function syncSettingsUi() {
     document.querySelectorAll('.ctp-settings [data-ctp]').forEach(element => {
         writeInput(element, getPath(settings, element.dataset.ctp));
     });
+    renderPickers();
     refreshTargetSelect();
 }

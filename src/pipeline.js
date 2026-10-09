@@ -1,6 +1,6 @@
 import { EXTRA_KEY } from './constants.js';
 import { getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
-import { buildParserPrompt, callParser, parseParserOutput, parserLabel } from './parser.js';
+import { buildParserPrompt, callParser, parseParserReply, parserLabel } from './parser.js';
 import { buildImagePrompt, buildNegativePrompt } from './prompt.js';
 import { findPresetById, findPresetByName, resolveTarget, settleAutoTarget } from './targets.js';
 import {
@@ -123,42 +123,51 @@ async function runJob(message, job, options) {
         if (mode === 'reparse' || !data.prompt) {
             setStage(job, message, 'parsing', '正在解析角色状态…');
             let target = resolveTarget(message, options.target);
+            const applyTarget = resolved => {
+                data.target = resolved.auto ? '' : resolved.name;
+                data.presetId = resolved.preset?.id ?? null;
+                data.fixed = {
+                    appearance: resolveMacros(resolved.preset?.appearance || ''),
+                    trigger: resolveMacros(resolved.preset?.trigger || ''),
+                    preset: resolved.preset ? resolveMacros(resolved.preset.name) : '',
+                };
+            };
+            // Recorded before the request so a failed floor still shows who it was for.
+            applyTarget(target);
             const parserPrompt = buildParserPrompt(mesId, target);
             if (options.force) parserPrompt.user += FORCE_NOTE;
+            // Kept on failure for diagnosis; dropped after a success unless debug mode is on.
+            data.debug.parserSystem = parserPrompt.system;
+            data.debug.parserUser = parserPrompt.user;
+            data.parser = parserLabel();
+            data.parserRaw = '';
+            data.parserReasoning = '';
+            data.parserFinish = '';
 
             const started = performance.now();
-            const raw = await callParser(parserPrompt.system, parserPrompt.user, signal);
+            const reply = await callParser(parserPrompt.system, parserPrompt.user, signal);
             data.parserMs = Math.round(performance.now() - started);
-            data.parser = parserLabel();
-            data.parserRaw = truncate(raw, 6000);
-            if (settings.debug) {
-                data.debug.parserSystem = parserPrompt.system;
-                data.debug.parserUser = parserPrompt.user;
-            } else {
+            data.parserRaw = truncate(reply.content, 6000);
+            data.parserReasoning = truncate(reply.reasoning, 4000);
+            data.parserFinish = reply.finish || '';
+            log(`#${mesId} 解析输出`, reply);
+
+            const parsed = parseParserReply(reply);
+            if (!settings.debug) {
                 delete data.debug.parserSystem;
                 delete data.debug.parserUser;
             }
-            log(`#${mesId} 解析输出`, raw);
-
-            const parsed = parseParserOutput(raw);
             if (parsed.skip && !options.force) {
                 data.skipped = parsed.reason || '解析模型判断本楼无需出图';
-                data.target = target.auto ? '' : target.name;
                 commit(message, job.swipeId, data);
                 log(`#${mesId} 跳过:`, data.skipped);
                 return;
             }
             if (target.auto) {
                 target = settleAutoTarget(target, parsed.target, message);
+                applyTarget(target);
             }
             data.parsed = parsed;
-            data.target = target.name;
-            data.presetId = target.preset?.id ?? null;
-            data.fixed = {
-                appearance: resolveMacros(target.preset?.appearance || ''),
-                trigger: resolveMacros(target.preset?.trigger || ''),
-                preset: target.preset ? resolveMacros(target.preset.name) : '',
-            };
             if (!target.preset) {
                 data.debug.notes.push(`没有找到「${target.name}」的角色预设，固定外貌为空`);
             }
@@ -266,13 +275,13 @@ export async function dryRun(mesId, targetOverride) {
     if (!message) throw new Error(`没有 #${mesId} 楼`);
     let target = resolveTarget(message, targetOverride);
     const parserPrompt = buildParserPrompt(mesId, target);
-    const raw = await callParser(parserPrompt.system, parserPrompt.user);
-    const parsed = parseParserOutput(raw);
+    const reply = await callParser(parserPrompt.system, parserPrompt.user);
+    const parsed = parseParserReply(reply);
     if (target.auto && !parsed.skip) target = settleAutoTarget(target, parsed.target, message);
     return {
         target,
         parserPrompt,
-        raw,
+        reply,
         parsed,
         prompt: parsed.skip ? '' : buildImagePrompt(target.preset, parsed),
         negative: buildNegativePrompt(target.preset),

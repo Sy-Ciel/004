@@ -219,3 +219,20 @@
     cursor: pointer;
     margin: 4px 0;
 }
+
+.ctp-settings .ctp-narrow {
+    flex: 0 0 6em;
+}
+
+.ctp-settings select {
+    width: 100%;
+}
+
+.ctp-settings #ctp_lists_status {
+    white-space: pre-line;
+}
+
+.ctp-settings .ctp-warn {
+    color: var(--warning, #e8a33d);
+    opacity: 1;
+}
