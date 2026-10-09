@@ -22,24 +22,34 @@
                         <select class="text_pole" data-ctp="imagePosition">
                             <option value="below">正文下方</option>
                             <option value="above">正文上方</option>
-                            <option value="left">正文左侧（电脑版）</option>
-                            <option value="right">正文右侧（电脑版）</option>
+                            <option value="left">左侧空白处 · 可移动面板（电脑版）</option>
+                            <option value="right">右侧空白处 · 可移动面板（电脑版）</option>
+                            <option value="inline-left">正文内左侧 · 图文并排（电脑版）</option>
+                            <option value="inline-right">正文内右侧 · 图文并排（电脑版）</option>
                         </select>
                     </label>
                     <label>图片最大宽度(px) <input type="number" class="text_pole" min="120" step="10" data-ctp="imageMaxWidth" data-type="int"></label>
                 </div>
+                <div id="ctp_panel_options">
+                    <small class="ctp-hint">图片显示在聊天栏旁边的空白处（宽度随酒馆「聊天宽度」变化）的浮动面板里，聊天里只留一个配图条，点它就在面板里显示那一楼的图。
+                        拖动面板标题栏移动，拖右下角调整大小，⤢ 放大，▥ 重置到侧边空白处；位置和大小会记住。
+                        ⌖「跟随阅读位置」开着时，滚动聊天面板会切到正在看的楼层的图；生成新图时总会显示新图。</small>
+                </div>
                 <div id="ctp_side_options">
                     <div class="ctp-row">
-                        <label>左右布局图片宽度(%) <input type="number" class="text_pole" min="10" max="80" step="5" data-ctp="sideWidth" data-type="int"></label>
-                        <label>窄屏 / 手机上改为
-                            <select class="text_pole" data-ctp="imagePositionNarrow">
-                                <option value="below">正文下方</option>
-                                <option value="above">正文上方</option>
-                            </select>
-                        </label>
+                        <label>图文并排时图片宽度(%) <input type="number" class="text_pole" min="10" max="80" step="5" data-ctp="sideWidth" data-type="int"></label>
                     </div>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="sideTextWrap"> 文字环绕图片（关闭则图片和正文分成两栏）</label>
-                    <small class="ctp-hint">左右布局时图片宽度取「百分比」和「最大宽度」中较小的一个。窗口窄于 1000px（酒馆的手机布局）时自动改用上面选的位置。</small>
+                    <small class="ctp-hint">图片宽度取「百分比」和「图片最大宽度」中较小的一个。</small>
+                </div>
+                <div id="ctp_narrow_options">
+                    <label>窄屏 / 手机上改为
+                        <select class="text_pole" data-ctp="imagePositionNarrow">
+                            <option value="below">正文下方</option>
+                            <option value="above">正文上方</option>
+                        </select>
+                    </label>
+                    <small class="ctp-hint">窗口窄于 1000px（酒馆的手机布局）时没有侧边空白，自动改用这里选的位置。</small>
                 </div>
                 <small class="ctp-hint">图片和提示词只保存在消息的扩展数据里并单独渲染，不写进正文，正文 AI 看不到。</small>
             </div>

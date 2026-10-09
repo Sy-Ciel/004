@@ -1,39 +1,27 @@
+import { layoutMode } from './layout.js';
+import { currentIndex, statusHtml, toolbarHtml } from './markup.js';
+import { getPanelMesId, schedulePanelRefresh } from './panel.js';
 import { getJob } from './pipeline.js';
 import { ctx, escapeHtml, getMessageData, getSettings } from './utils.js';
+
+export { onLayoutChange } from './layout.js';
 
 function messageElement(mesId) {
     return $(`#chat .mes[mesid="${mesId}"]`);
 }
 
-/** Same breakpoint SillyTavern uses for its mobile layout. */
-const narrowScreen = window.matchMedia('(max-width: 1000px)');
-
-export function onLayoutChange(callback) {
-    narrowScreen.addEventListener('change', callback);
-}
-
-/** left / right are desktop layouts; on narrow screens they fall back to above / below. */
-function effectivePosition() {
-    const settings = getSettings();
-    const position = settings.imagePosition;
-    if ((position === 'left' || position === 'right') && narrowScreen.matches) {
-        return settings.imagePositionNarrow === 'above' ? 'above' : 'below';
-    }
-    return position;
-}
-
-function placeWrap(element, wrap, position) {
+function placeWrap(element, wrap, kind) {
     const text = element.find('.mes_text').first();
     if (!text.length) return;
-    // Side images float, so they must come before the text they sit next to.
-    if (position !== 'below') {
+    // Floated images must come before the text they sit next to.
+    if (kind === 'above' || kind === 'inline') {
         if (wrap.next()[0] !== text[0]) wrap.insertBefore(text);
     } else if (wrap.prev()[0] !== text[0]) {
         wrap.insertAfter(text);
     }
 }
 
-/** Floats the block beside the text (left/right). Only used once there is an image to show. */
+/** Floats the block beside the text inside the message. Only used once there is an image to show. */
 function applySideLayout(element, wrap, side) {
     const settings = getSettings();
     const block = element.find('.mes_block').first();
@@ -50,43 +38,26 @@ function applySideLayout(element, wrap, side) {
     }
 }
 
-function statusHtml(job) {
-    const icon = job.stage === 'parsing' ? 'fa-magnifying-glass' : job.stage === 'drawing' ? 'fa-paintbrush' : 'fa-hourglass-half';
-    return `<div class="ctp-status">
-        <i class="fa-solid ${icon} fa-beat-fade"></i>
-        <span>${escapeHtml(job.text)}</span>
-        <span class="ctp-link ctp-act" data-act="cancel">取消</span>
-    </div>`;
-}
-
 function imageHtml(data, debug) {
-    const index = Math.min(Math.max(0, data.index ?? 0), data.images.length - 1);
-    const image = data.images[index];
-    const nav = data.images.length > 1
-        ? `<i class="fa-solid fa-chevron-left ctp-act" data-act="prev" title="上一张"></i>
-           <span class="ctp-count">${index + 1}/${data.images.length}</span>
-           <i class="fa-solid fa-chevron-right ctp-act" data-act="next" title="下一张"></i>`
-        : '';
-    const meta = debug
-        ? `<span class="ctp-meta">${escapeHtml(data.target || '')} · seed ${escapeHtml(image.seed ?? '')} · ${image.width}×${image.height}</span>`
-        : '';
+    const image = data.images[currentIndex(data)];
     return `<div class="ctp-figure">
         <img class="ctp-img ctp-act" data-act="zoom" src="${escapeHtml(image.src)}" alt="" loading="lazy" style="--ctp-img-max: ${Number(getSettings().imageMaxWidth) || 480}px">
     </div>
-    <div class="ctp-toolbar">
-        ${nav}
-        <i class="fa-solid fa-dice ctp-act" data-act="reroll" title="同一提示词换种子重画"></i>
-        <i class="fa-solid fa-rotate ctp-act" data-act="reparse" title="重新解析状态并生成"></i>
-        <i class="fa-solid fa-pen-to-square ctp-act" data-act="edit" title="编辑提示词后生成"></i>
-        ${debug ? '<i class="fa-solid fa-bug ctp-act" data-act="debug" title="调试信息"></i>' : ''}
-        <i class="fa-solid fa-trash-can ctp-act" data-act="delete" title="删除这张图"></i>
-        ${meta}
+    ${toolbarHtml(data, debug)}`;
+}
+
+/** In panel mode the message only keeps a compact bar; clicking it shows this floor in the panel. */
+function chipHtml(data) {
+    const count = data.images.length;
+    return `<div class="ctp-chip ctp-act" data-act="panel" title="在侧边面板中显示这一楼的图">
+        <i class="fa-solid fa-image"></i>
+        <span>配图${count > 1 ? ` · ${count} 张` : ''}</span>
+        <span class="ctp-chip-state"></span>
     </div>`;
 }
 
 function inlineDebugHtml(data, mesId) {
-    const index = Math.min(Math.max(0, data.index ?? 0), Math.max(0, (data.images?.length ?? 1) - 1));
-    const prompt = data.images?.[index]?.prompt || data.prompt;
+    const prompt = data.images?.[currentIndex(data)]?.prompt || data.prompt;
     if (!prompt) return '';
     return `<details class="ctp-inline-debug">
         <summary>#${mesId} 提示词 · 目标：${escapeHtml(data.target || '?')}</summary>
@@ -111,19 +82,20 @@ export function renderMessage(mesId) {
     if (!message || (!showJob && !hasImages && !showError && !showSkip)) {
         wrap.remove();
         element.find('.mes_block').removeClass('ctp-has-side ctp-text-wrap');
+        schedulePanelRefresh();
         return;
     }
 
     if (!wrap.length) {
         wrap = $('<div class="ctp-wrap"></div>');
     }
-    const position = effectivePosition();
-    placeWrap(element, wrap, position);
-    applySideLayout(element, wrap, hasImages && (position === 'left' || position === 'right') ? position : null);
+    const mode = layoutMode();
+    placeWrap(element, wrap, mode.kind);
+    applySideLayout(element, wrap, hasImages && mode.kind === 'inline' ? mode.side : null);
 
     const parts = [];
     if (showJob) parts.push(statusHtml(job));
-    if (hasImages) parts.push(imageHtml(data, settings.debug));
+    if (hasImages) parts.push(mode.kind === 'panel' ? chipHtml(data) : imageHtml(data, settings.debug));
     if (showError) {
         parts.push(`<div class="ctp-error">
             <i class="fa-solid fa-triangle-exclamation"></i>
@@ -148,6 +120,8 @@ export function renderMessage(mesId) {
         wrap.data('html', html);
         wrap.html(html);
     }
+    wrap.find('.ctp-chip').toggleClass('ctp-chip-active', getPanelMesId() === mesId);
+    schedulePanelRefresh();
 }
 
 export function renderAll() {
@@ -155,4 +129,5 @@ export function renderAll() {
         const mesId = Number($(this).attr('mesid'));
         if (Number.isInteger(mesId)) renderMessage(mesId);
     });
+    schedulePanelRefresh();
 }

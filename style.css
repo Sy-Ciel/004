@@ -291,3 +291,124 @@
     border: 1px solid var(--SmartThemeBorderColor);
     border-radius: 6px;
 }
+
+/* ---------- chip shown in the message when the side panel is used ---------- */
+.ctp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    align-self: flex-start;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.85em;
+    cursor: pointer;
+    background: var(--black30a);
+    border: 1px solid transparent;
+    opacity: 0.8;
+}
+
+.ctp-chip:hover {
+    opacity: 1;
+}
+
+.ctp-chip.ctp-chip-active {
+    opacity: 1;
+    border-color: var(--SmartThemeQuoteColor);
+}
+
+.ctp-chip.ctp-chip-active .ctp-chip-state::before {
+    content: '· 正在面板中显示';
+}
+
+/* ---------- floating side panel ---------- */
+.ctp-panel {
+    position: fixed;
+    z-index: 35;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px;
+    box-sizing: border-box;
+    border-radius: 12px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    background-color: var(--SmartThemeBlurTintColor);
+    backdrop-filter: blur(var(--SmartThemeBlurStrength));
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+    color: var(--SmartThemeBodyColor);
+    overflow: hidden;
+    resize: both;
+    min-width: 180px;
+    min-height: 120px;
+}
+
+.ctp-panel[hidden] {
+    display: none;
+}
+
+.ctp-panel.ctp-panel-max {
+    resize: none;
+}
+
+.ctp-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 2px 4px 4px;
+    cursor: move;
+    user-select: none;
+    touch-action: none;
+    font-size: 0.9em;
+}
+
+.ctp-panel-title {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ctp-panel-spacer {
+    flex: 1;
+}
+
+.ctp-panel-btn {
+    cursor: pointer;
+    opacity: 0.6;
+}
+
+.ctp-panel-btn:hover,
+.ctp-panel-btn.ctp-on {
+    opacity: 1;
+}
+
+.ctp-panel-btn.ctp-on {
+    color: var(--SmartThemeQuoteColor);
+}
+
+.ctp-panel-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Scales up and down with the panel, keeping the aspect ratio. */
+.ctp-panel-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    cursor: zoom-in;
+}
+
+.ctp-panel .ctp-toolbar {
+    opacity: 0.75;
+}
+
+.ctp-panel:hover .ctp-toolbar {
+    opacity: 1;
+}
+
+.ctp-panel-dragging {
+    opacity: 0.85;
+}

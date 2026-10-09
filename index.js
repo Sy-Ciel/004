@@ -1,6 +1,7 @@
 import { EXTRA_KEY, LOG_PREFIX, TARGET_AUTO, TARGET_CHAR, TARGET_USER } from './src/constants.js';
 import { lastFloorId, showFloorDebug } from './src/debug.js';
-import { cancelAllJobs, cancelJob, enqueue, getJob, setRenderer } from './src/pipeline.js';
+import { resetPanelForChat, showInPanel } from './src/panel.js';
+import { cancelAllJobs, cancelJob, enqueue, getJob, setImageAddedHandler, setRenderer } from './src/pipeline.js';
 import { onLayoutChange, renderAll, renderMessage } from './src/render.js';
 import { findPresetByName, findPresetById, initPersonaTracking } from './src/targets.js';
 import { initSettingsUi, onPersonaChanged, refreshTargetSelect, syncSettingsUi } from './src/ui.js';
@@ -125,7 +126,9 @@ function zoom(mesId) {
 
 function onAction(event) {
     const button = event.currentTarget;
-    const mesId = Number($(button).closest('.mes').attr('mesid'));
+    // Buttons live either inside a chat message or in the side panel (which carries data-mesid).
+    const owner = button.closest('[data-mesid]') ?? button.closest('.mes');
+    const mesId = Number(owner?.dataset.mesid ?? owner?.getAttribute('mesid'));
     if (!Number.isInteger(mesId)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -141,6 +144,7 @@ function onAction(event) {
         case 'delete': deleteImage(mesId); break;
         case 'clear': clearState(mesId); break;
         case 'zoom': zoom(mesId); break;
+        case 'panel': showInPanel(mesId); break;
     }
 }
 
@@ -215,6 +219,7 @@ function registerEvents() {
     eventSource.on(eventTypes.GENERATION_STOPPED, () => { lastStoppedAt = Date.now(); });
     eventSource.on(eventTypes.CHAT_CHANGED, () => {
         cancelAllJobs();
+        resetPanelForChat();
         renderAllSoon();
         refreshTargetSelect();
     });
@@ -233,7 +238,7 @@ function registerEvents() {
 
     onLayoutChange(renderAll);
 
-    $(document).on('click', '.ctp-wrap .ctp-act', onAction);
+    $(document).on('click', '.ctp-wrap .ctp-act, #ctp_panel .ctp-act', onAction);
     $(document).on('click', '.ctp_mes_gen', onMessageButton);
 }
 
@@ -317,6 +322,7 @@ jQuery(async () => {
     try {
         getSettings();
         setRenderer(renderMessage);
+        setImageAddedHandler(showInPanel);
         await initPersonaTracking();
         await initSettingsUi();
         injectMessageButtons();

@@ -23,11 +23,17 @@ const jobs = new WeakMap();
 const activeJobs = new Set();
 let queue = Promise.resolve();
 let rerender = () => {};
+let imageAdded = () => {};
 
 const FORCE_NOTE = '\n\n注意：用户手动要求为本楼出图。即使信息不足也不要输出 skip，请根据上下文合理推断。';
 
 export function setRenderer(fn) {
     rerender = fn;
+}
+
+/** Called with the floor index after a new image was stored (the side panel shows it). */
+export function setImageAddedHandler(fn) {
+    imageAdded = fn;
 }
 
 export function getJob(message) {
@@ -251,7 +257,9 @@ async function runJob(message, job, options) {
         const maxVersions = Math.max(1, Number(settings.maxVersions) || 10);
         while (data.images.length > maxVersions) data.images.shift();
         data.index = data.images.length - 1;
-        commit(message, job.swipeId, data);
+        if (commit(message, job.swipeId, data) && (message.swipe_id ?? 0) === job.swipeId) {
+            imageAdded(ctx().chat.indexOf(message));
+        }
         log(`#${mesId} 完成`, data);
     } catch (error) {
         if (isAbortError(error)) {

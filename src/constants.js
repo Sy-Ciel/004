@@ -107,6 +107,7 @@ export const DEFAULT_SETTINGS = {
     imagePositionNarrow: 'below',
     sideWidth: 40,
     sideTextWrap: false,
+    panel: { follow: true, geometry: null },
     imageMaxWidth: 480,
     maxVersions: 10,
 

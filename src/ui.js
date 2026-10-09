@@ -9,6 +9,7 @@ import {
     makeId,
 } from './constants.js';
 import { lastFloorId, showChatDebug, showDryRun, showParserPreview } from './debug.js';
+import { resetPanelGeometry } from './panel.js';
 import { callParser, parseExtraBody } from './parser.js';
 import { enqueue } from './pipeline.js';
 import { renderAll } from './render.js';
@@ -138,7 +139,11 @@ function validateExtraBody() {
 
 function onSettingChanged(path) {
     if (['debug', 'imagePosition', 'imagePositionNarrow', 'sideWidth', 'sideTextWrap', 'imageMaxWidth'].includes(path)) renderAll();
-    if (path === 'imagePosition') updateSideOptionsVisibility();
+    if (path === 'imagePosition') {
+        updateSideOptionsVisibility();
+        // A remembered panel position belongs to the old side.
+        resetPanelGeometry();
+    }
     if (path === 'parser.source') updateSourceVisibility();
     if (path === 'parser.extraBody') validateExtraBody();
     if (path === 'comfy.workflowSource') updateWorkflowVisibility();
@@ -200,7 +205,9 @@ function updateSourceVisibility() {
 
 function updateSideOptionsVisibility() {
     const position = getSettings().imagePosition;
-    $('#ctp_side_options').toggle(position === 'left' || position === 'right');
+    $('#ctp_panel_options').toggle(position === 'left' || position === 'right');
+    $('#ctp_side_options').toggle(position === 'inline-left' || position === 'inline-right');
+    $('#ctp_narrow_options').toggle(!['above', 'below'].includes(position));
 }
 
 function updateWorkflowVisibility() {
