@@ -4,7 +4,7 @@ import { buildParserPrompt, parserLabel, requestParse } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution } from './parserPresets.js';
 import { buildImagePrompt, buildNegativePrompt } from './prompt.js';
 import { effectiveComfy, renderProfileFor } from './renderProfiles.js';
-import { findPresetById, findPresetByName, resolveTarget, settleAutoTarget } from './targets.js';
+import { findPresetById, presetForName, resolveTarget, settleAutoTarget } from './targets.js';
 import {
     ctx,
     errorMessage,
@@ -222,7 +222,9 @@ async function runJob(message, job, options) {
         if (!data.prompt) throw new Error('最终提示词为空');
 
         setStage(job, message, 'drawing', 'ComfyUI 生成中…');
-        const preset = findPresetById(data.presetId) ?? findPresetByName(data.target);
+        // presetId null = the target had no preset (e.g. a persona without one). Matching by name here would pick up
+        // the {{user}} preset, whose name resolves to any persona. Only floors from older versions lack the id.
+        const preset = data.presetId === null ? null : findPresetById(data.presetId) ?? presetForName(data.target);
         // The character's render profile swaps in its own model / LoRA / sampling settings.
         const profile = renderProfileFor(preset);
         const comfy = effectiveComfy(profile);

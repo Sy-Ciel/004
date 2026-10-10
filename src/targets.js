@@ -63,21 +63,38 @@ export function findPersonaPreset(avatar = currentPersona()) {
     return getSettings().presets.find(preset => boundPersonas(preset).includes(avatar)) ?? null;
 }
 
-/**
- * Preset used for {{user}}: the one bound to the active persona, otherwise an unbound preset matching the
- * persona name (a preset bound to other personas never applies to this one).
- */
-export function findUserPreset() {
-    const bound = findPersonaPreset();
-    if (bound) return bound;
-    const needle = String(ctx().name1 || '').trim().toLowerCase();
-    if (!needle) return null;
-    return getSettings().presets.find(preset => !boundPersonas(preset).length && presetNames(preset).includes(needle)) ?? null;
+/** The preset chosen for personas that have none of their own (setting "没有配置的人设使用"), if it exists. */
+export function fallbackUserPreset() {
+    const id = getSettings().userFallbackPresetId;
+    return id ? findPresetById(id) : null;
 }
 
-/** A preset that describes "whoever the user currently is": bound to personas, or literally named {{user}}. */
+/**
+ * Preset used for {{user}} and why: the one bound to the active persona; otherwise an unbound preset matching
+ * the persona name (a preset bound to other personas never matches by name); otherwise the fallback preset.
+ * @returns {{ preset: object|null, via: 'bound'|'name'|'fallback'|'none' }}
+ */
+export function resolveUserPreset() {
+    const bound = findPersonaPreset();
+    if (bound) return { preset: bound, via: 'bound' };
+    const needle = String(ctx().name1 || '').trim().toLowerCase();
+    const named = needle
+        ? getSettings().presets.find(preset => !boundPersonas(preset).length && presetNames(preset).includes(needle))
+        : null;
+    if (named) return { preset: named, via: 'name' };
+    const fallback = fallbackUserPreset();
+    return fallback ? { preset: fallback, via: 'fallback' } : { preset: null, via: 'none' };
+}
+
+export function findUserPreset() {
+    return resolveUserPreset().preset;
+}
+
+/** A preset that describes "whoever the user currently is": bound to personas, named {{user}}, or the fallback. */
 function isUserPreset(preset) {
-    return boundPersonas(preset).length > 0 || String(preset?.name || '').trim().toLowerCase() === '{{user}}';
+    return boundPersonas(preset).length > 0
+        || String(preset?.name || '').trim().toLowerCase() === '{{user}}'
+        || (!!preset?.id && preset.id === getSettings().userFallbackPresetId);
 }
 
 /** Character presets whose name or an alias appears in the text ({{user}} presets are found via the persona). */
@@ -121,9 +138,10 @@ export function resolveTarget(message, override) {
 
     const byId = findPresetById(mode);
     if (byId) {
-        // A user preset follows persona switches: with persona A → B, B's bound preset takes over.
+        // A user preset follows persona switches: with persona A → B, B's bound preset takes over, and a persona
+        // without one gets the fallback preset (or none).
         if (isUserPreset(byId)) {
-            return { auto: false, name: ctx().name1, preset: findUserPreset() ?? byId, candidates: [] };
+            return { auto: false, name: ctx().name1, preset: findUserPreset(), candidates: [] };
         }
         return { auto: false, name: presetName(byId), preset: byId, candidates: [] };
     }

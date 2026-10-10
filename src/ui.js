@@ -17,7 +17,7 @@ import { renderProfileFor, sanitizeRenderProfile } from './renderProfiles.js';
 import { callParser, parseExtraBody } from './parser.js';
 import { enqueue } from './pipeline.js';
 import { renderAll } from './render.js';
-import { currentPersona, findUserPreset, personaList, presetName } from './targets.js';
+import { currentPersona, findUserPreset, personaList, presetName, resolveUserPreset } from './targets.js';
 import { ctx, errorMessage, escapeHtml, getSettings, roundTo16, saveSettings, truncate } from './utils.js';
 
 const SETTINGS_URL = new URL('../settings.html', import.meta.url);
@@ -166,7 +166,8 @@ function presetLabel(preset) {
     const bound = Array.isArray(preset.personas) && preset.personas.length
         ? `［人设：${preset.personas.map(personaName).join('、')}］`
         : '';
-    return base + bound;
+    const fallback = preset.id === getSettings().userFallbackPresetId ? '［未配置人设的默认］' : '';
+    return base + bound + fallback;
 }
 
 /** How a preset is named in messages: macro names like {{user}} are shown as written, not resolved. */
@@ -177,8 +178,9 @@ function displayName(preset) {
 
 /** Name shown for the preset {{user}} currently resolves to. */
 function userPresetName() {
-    const preset = findUserPreset();
-    return preset ? displayName(preset) : '无预设';
+    const { preset, via } = resolveUserPreset();
+    if (!preset) return '无预设，默认模型和 LoRA';
+    return via === 'fallback' ? `${displayName(preset)}（默认）` : displayName(preset);
 }
 
 export function refreshTargetSelect() {
@@ -206,6 +208,11 @@ function refreshPresetSelect() {
         .map(preset => `<option value="${escapeHtml(preset.id)}">${escapeHtml(presetLabel(preset))}</option>`)
         .join(''))
         .val(selectedPresetId);
+    const fallback = settings.presets.some(preset => preset.id === settings.userFallbackPresetId) ? settings.userFallbackPresetId : '';
+    $('#ctp_user_fallback')
+        .html([['', '不使用角色预设（默认模型 + 默认 LoRA）'], ...settings.presets.map(preset => [preset.id, displayName(preset)])]
+            .map(([id, label]) => `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`).join(''))
+        .val(fallback);
     loadPresetEditor();
     refreshTargetSelect();
 }
@@ -289,20 +296,29 @@ function onPersonaToggle(event) {
     refreshTargetSelect();
 }
 
-let lastUserPresetId;
+/** Persona + preset {{user}} used last time, to notice a switch. */
+let lastUserKey;
 
-/** Called after a persona switch: refresh labels and say which preset {{user}} now uses. */
+function userSwitchText(preset, via) {
+    const who = `{{user}}（${ctx().name1}）`;
+    if (!preset) return `${who}没有预设 → 不加固定外貌，用默认模型和 LoRA`;
+    const profile = renderProfileFor(preset);
+    const render = `，渲染配置：${profile ? profile.name : '默认'}`;
+    if (via === 'fallback') return `${who}没有自己的预设 → 默认的${displayName(preset)}${render}`;
+    return `${who}→ ${displayName(preset)}${render}`;
+}
+
+/** Called after a persona switch: show the new persona's preset and say what {{user}} now uses. */
 export function onPersonaChanged() {
+    const { preset, via } = resolveUserPreset();
+    const key = `${currentPersona()}|${preset?.id ?? ''}`;
+    const switched = lastUserKey !== undefined && key !== lastUserKey;
+    // The editor jumps to the preset the new persona uses, so its look / LoRA / render profile are at hand.
+    if (switched && preset) selectedPresetId = preset.id;
     // Labels and the checklist show persona names / the active persona.
     refreshPresetSelect();
-    const preset = findUserPreset();
-    const id = preset?.id ?? null;
-    if (lastUserPresetId !== undefined && id !== lastUserPresetId && getSettings().enabled) {
-        const profile = renderProfileFor(preset);
-        const render = preset ? `，渲染配置：${profile ? profile.name : '默认'}` : '';
-        toastr.info(`{{user}}（${ctx().name1}）→ ${preset ? displayName(preset) : '无预设（没有绑定或同名的预设）'}${render}`, 'ComfyUI 角色配图');
-    }
-    lastUserPresetId = id;
+    if (switched && getSettings().enabled) toastr.info(userSwitchText(preset, via), 'ComfyUI 角色配图');
+    lastUserKey = key;
 }
 
 function newPreset(base = {}) {
@@ -335,7 +351,35 @@ function sanitizePreset(raw) {
 
 function initPresets() {
     $('#ctp_preset_personas').on('change', 'input[data-persona]', onPersonaToggle);
-    lastUserPresetId = findUserPreset()?.id ?? null;
+    lastUserKey = `${currentPersona()}|${findUserPreset()?.id ?? ''}`;
+    $('#ctp_user_fallback').on('change', function () {
+        getSettings().userFallbackPresetId = String($(this).val());
+        saveSettings();
+        refreshPresetSelect();
+    });
+
+    $('#ctp_preset_for_persona').on('click', () => {
+        const avatar = currentPersona();
+        if (!avatar) {
+            toastr.info('没有读到当前的用户人设');
+            return;
+        }
+        const settings = getSettings();
+        let moved = '';
+        for (const other of settings.presets) {
+            if (other.personas?.includes(avatar)) {
+                other.personas = other.personas.filter(id => id !== avatar);
+                moved = `（原来绑定在「${presetName(other) || other.name}」上，已改绑）`;
+            }
+        }
+        const preset = newPreset({ name: ctx().name1 || '新人设', personas: [avatar] });
+        settings.presets.push(preset);
+        selectedPresetId = preset.id;
+        saveSettings();
+        refreshPresetSelect();
+        refreshRenderProfileUsage();
+        toastr.success(`已为人设「${ctx().name1}」新建预设并绑定${moved}，填上固定外貌，需要的话选角色 LoRA 和渲染配置`);
+    });
     $('#ctp_target').on('change', function () {
         getSettings().targetMode = String($(this).val());
         saveSettings();
@@ -387,6 +431,7 @@ function initPresets() {
         const settings = getSettings();
         settings.presets = settings.presets.filter(item => item.id !== preset.id);
         if (settings.targetMode === preset.id) settings.targetMode = TARGET_USER;
+        if (settings.userFallbackPresetId === preset.id) settings.userFallbackPresetId = '';
         saveSettings();
         refreshPresetSelect();
         refreshRenderProfileUsage();

@@ -95,8 +95,15 @@
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
-                    <div class="ctp-row">
-                        <select class="text_pole flex1" id="ctp_preset_select"></select>
+                    <label>没有配置的人设使用
+                        <select class="text_pole" id="ctp_user_fallback"></select>
+                    </label>
+                    <small class="ctp-hint">切换用户人设时，{{user}} 先用勾选绑定了这个人设的预设，再找同名的预设；都没有（比如新建的人设）就用这里选的预设，连同它的角色 LoRA 和渲染配置。选「不使用角色预设」= 不加固定外貌，模型和风格 LoRA 用「出图参数」里的默认值。</small>
+                    <label>编辑预设
+                        <select class="text_pole" id="ctp_preset_select"></select>
+                    </label>
+                    <div class="ctp-row ctp-wrap-row">
+                        <div class="menu_button fa-solid fa-user-plus" id="ctp_preset_for_persona" title="为当前人设新建预设（自动绑定当前人设）"></div>
                         <div class="menu_button fa-solid fa-plus" id="ctp_preset_add" title="新建"></div>
                         <div class="menu_button fa-solid fa-clone" id="ctp_preset_clone" title="复制"></div>
                         <div class="menu_button fa-solid fa-trash-can" id="ctp_preset_delete" title="删除"></div>

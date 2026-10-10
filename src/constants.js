@@ -171,6 +171,8 @@ export const DEFAULT_SETTINGS = {
     presets: defaultPresets(),
     /** Named model / LoRA / sampling overrides that character presets can use (see renderProfiles.js). */
     renderProfiles: [],
+    /** Preset for user personas without a bound or same-named preset ('' = none: default model / LoRA only). */
+    userFallbackPresetId: 'user',
     continuity: true,
 
     promptTemplate: DEFAULT_PROMPT_TEMPLATE,
