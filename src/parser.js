@@ -32,9 +32,18 @@ ${found.text}
 这是写正文的 AI 对本楼结束时角色状态的总结：穿着、动作、状态、心情以它为准，翻译成英文、补成具体的视觉描写写进对应字段；正文只用来补充细节。状态栏写的不是目标角色时，只作参考。`;
 }
 
+/**
+ * The chat as the parser may see it for floor `mesId`: that floor and the ones before it, never later floors.
+ * Re-parsing #10 in a chat that has reached #30 must not read #11 and after (their text, images, drawing
+ * instructions or status bars), so every reader below takes its messages from here.
+ */
+export function chatUpTo(mesId) {
+    return ctx().chat.slice(0, Math.max(0, mesId + 1));
+}
+
 /** Most recent parsed state of the same character on an earlier floor (for outfit/scene continuity). */
 export function findLastState(mesId, targetName) {
-    const chat = ctx().chat;
+    const chat = chatUpTo(mesId);
     const wanted = String(targetName || '').toLowerCase();
     for (let i = mesId - 1; i >= 0; i--) {
         const data = getMessageData(chat[i]);
@@ -59,7 +68,7 @@ function formatState(state, shownFloors) {
  * They live in the messages' extension data, never in the message text, so only the parser sees them.
  */
 export function previousOutputs(mesId, count) {
-    const chat = ctx().chat;
+    const chat = chatUpTo(mesId);
     const records = [];
     for (let i = mesId - 1; i >= 0 && records.length < count; i--) {
         const data = getMessageData(chat[i]);
@@ -131,7 +140,7 @@ function referenceBlock(target, mode) {
  */
 function othersReference(mesId, target) {
     if (target.auto) return '';
-    const chat = ctx().chat;
+    const chat = chatUpTo(mesId);
     const text = [chat[mesId - 1], chat[mesId]].filter(Boolean).map(message => plainText(message.mes)).join('\n');
     const seen = new Set([target.preset?.id]);
     const lines = [];
@@ -148,8 +157,9 @@ function othersReference(mesId, target) {
 async function activatedWorldInfo(mesId) {
     const context = ctx();
     if (typeof context.getWorldInfoPrompt !== 'function') throw new Error('当前酒馆版本没有世界书扫描接口');
-    // Same input shape as SillyTavern's generation: "name: text", newest first.
-    const scan = context.chat.slice(0, mesId + 1)
+    // Same input shape as SillyTavern's generation: "name: text", newest first. A dry run applies no sticky /
+    // cooldown effects, and "delay" counts this shortened chat, so later floors don't activate anything.
+    const scan = chatUpTo(mesId)
         .filter(message => message && !message.is_system)
         .map(message => `${message.name}: ${message.mes}`)
         .reverse();
@@ -219,7 +229,8 @@ export async function buildParserPrompt(mesId, target) {
     const preset = activeParserPreset();
     const mode = promptMode();
     const allowOthers = !!preset.allowOthers;
-    const chat = ctx().chat;
+    const chat = chatUpTo(mesId);
+    const laterFloors = ctx().chat.length - chat.length;
     const depth = Math.max(0, Number(settings.parser.contextDepth) || 0);
     const maxChars = Number(settings.parser.maxCharsPerMessage) || 0;
 
@@ -287,6 +298,7 @@ export async function buildParserPrompt(mesId, target) {
             records.length ? `参考了之前 ${records.length} 次配图输出` : '',
             hints.length ? `用户画图指令 ${hints.reduce((sum, item) => sum + item.hints.length, 0)} 条` : '',
             status ? '读取了正文状态栏' : '',
+            laterFloors > 0 ? `只读取 #${mesId} 及之前的楼层，之后的 ${laterFloors} 楼不读取` : '',
         ].filter(Boolean),
     };
 }

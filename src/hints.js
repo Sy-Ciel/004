@@ -66,7 +66,8 @@ export function removeHint(message, index) {
  */
 export function pendingHints(mesId) {
     if (!hintsEnabled()) return [];
-    const chat = ctx().chat;
+    // Never instructions from later floors: re-drawing #10 only uses what was written up to #10.
+    const chat = ctx().chat.slice(0, Math.max(0, mesId + 1));
     let start = Math.max(0, mesId - 30);
     for (let i = mesId - 1; i >= start; i--) {
         if (getMessageData(chat[i])?.parsed) {
