@@ -1,4 +1,4 @@
-import { PARSED_FIELDS } from './constants.js';
+import { PARSED_FIELDS, STATE_FIELDS } from './constants.js';
 import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
 import { activeParserPreset, outputRules, parseFixedFields, promptMode } from './parserPresets.js';
@@ -37,7 +37,7 @@ export function findLastState(mesId, targetName) {
 function formatState(state, shownFloors) {
     if (!state) return '（无）';
     if (shownFloors.has(state.floor)) return `（见下方之前的配图输出 #${state.floor}）`;
-    const lines = PARSED_FIELDS
+    const lines = [...STATE_FIELDS, ...PARSED_FIELDS]
         .filter(field => state.parsed[field])
         .map(field => `${field}: ${state.parsed[field]}`);
     return lines.length ? `（来自 #${state.floor}）\n${lines.join('\n')}` : '（无）';
@@ -64,7 +64,7 @@ function formatOutputs(records, includePrompt) {
     if (!records.length) return '';
     const blocks = records.map(({ floor, data }) => {
         const lines = [`#${floor} · 目标：${data.target || '?'}`];
-        for (const field of PARSED_FIELDS) {
+        for (const field of [...STATE_FIELDS, ...PARSED_FIELDS]) {
             if (data.parsed[field]) lines.push(`${field}: ${data.parsed[field]}`);
         }
         if (includePrompt) {
@@ -485,7 +485,7 @@ export function parseParserOutput(raw) {
         // Salvage fields from broken or truncated JSON, or from "key: value" lines. A quoted value only counts
         // when its closing quote is present, so a reply cut off mid-value does not leak half a phrase.
         object = {};
-        for (const key of ['skip', 'reason', 'target', 'prompt', ...PARSED_FIELDS]) {
+        for (const key of ['skip', 'reason', 'target', 'prompt', ...STATE_FIELDS, ...PARSED_FIELDS]) {
             const quoted = text.match(new RegExp(`["']?${key}["']?\\s*[:：]\\s*"([^"\\n]*)"`, 'i'));
             const line = text.match(new RegExp(`^\\s*${key}\\s*[:：]\\s*([^"{}\\n]+)$`, 'im'));
             if (quoted) object[key] = quoted[1];
@@ -503,7 +503,7 @@ export function parseParserOutput(raw) {
         reason: normalizeValue(object.reason),
         target: normalizeValue(object.target),
     };
-    for (const field of PARSED_FIELDS) {
+    for (const field of [...STATE_FIELDS, ...PARSED_FIELDS]) {
         result[field] = normalizeValue(object[field]);
     }
     // Only present in the "AI writes the whole prompt" mode

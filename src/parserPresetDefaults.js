@@ -25,19 +25,41 @@ export const PARSER_USER_TEMPLATE = `【目标角色】{{target}}
 
 请按要求只输出 JSON。`;
 
+/**
+ * Shared by both output modes: plans and intentions are not events. Without this, models draw "she is about to
+ * change and go to dinner" as already changed and eating.
+ */
+const TIMELINE_RULES = `时间线（最重要，先想清楚再写画面）：
+- 画面时刻就是任务里说的那个时刻（通常是【当前楼层】结束的那一刻；需要挑瞬间的预设，也只能挑正文真正写到的瞬间）。只画到这一刻为止已经发生、或正在进行的事。
+- 「准备、打算、想要、要去、正要、待会、等一下、马上、决定去、说要、起身去……」这类只是计划或意图。正文没有写到做完，就当作还没发生，画面保持之前的状态。
+  例：正文写到「她说先去换件衣服，然后一起去吃饭」就结束了 → 她还穿着原来的衣服、还在原来的地方，不能画成已经换好衣服，也不能画成正在吃饭。
+- 换装：只有正文明确写到已经换好（或画面时刻正在换）才算换了；否则服装和【上一次状态】/【之前的配图输出】里的穿着保持一致。
+- 【之前的配图输出】里的 pending 是当时还没做的事：只有当前楼层的正文写到它做完了，才算完成。
+- 【用户画图指令】优先级最高，不受这条限制。
+
+JSON 里先写三个分析字段，再根据它们写画面字段。这三个字段是例外：用中文简短地写，只用来分析和检查，不会进提示词（画面字段照常用英文）：
+- now_doing：画面时刻角色实际在做什么（只写已经发生或正在进行的）
+- now_wearing：画面时刻角色身上实际穿着什么（还没换就写原来的衣服）
+- pending：正文里提到、但到画面时刻还没做或还没做完的事（准备、打算、即将要做的）；没有就写「无」
+画面字段必须和 now_doing、now_wearing 一致，pending 里的事一律不能画进画面。`;
+
 /** "Fixed appearance + AI details": the preset's appearance is added to the prompt by the extension. */
-export const OUTPUT_RULES_FIXED = `外貌：目标角色的固定外貌（发型、发色、瞳色、五官、肤色、体型等）已由用户预设，会自动加进提示词，你不要描写、也不要改动这些内容。
+export const OUTPUT_RULES_FIXED = `${TIMELINE_RULES}
+
+外貌：目标角色的固定外貌（发型、发色、瞳色、五官、肤色、体型等）已由用户预设，会自动加进提示词，你不要描写、也不要改动这些内容。
 
 输出格式：
-{"skip": false, "target": "目标角色名", "outfit": "", "action": "", "expression": "", "demeanor": "", "scene": "", "camera": "", "lighting": ""}`;
+{"skip": false, "target": "目标角色名", "now_doing": "", "now_wearing": "", "pending": "", "outfit": "", "action": "", "expression": "", "demeanor": "", "scene": "", "camera": "", "lighting": ""}`;
 
 /** "AI writes the whole prompt": the appearance is handed to the model, which must work it into `prompt`. */
-export const OUTPUT_RULES_AI = `外貌：【角色设定】是这个角色的固定外貌，必须完整、准确地写进 prompt（翻译成英文），不能遗漏或改动；没有角色设定时根据剧情合理描写。
+export const OUTPUT_RULES_AI = `${TIMELINE_RULES}
+
+外貌：【角色设定】是这个角色的固定外貌，必须完整、准确地写进 prompt（翻译成英文），不能遗漏或改动；没有角色设定时根据剧情合理描写。
 
 除了上面的字段，还要写 prompt：一段完整、流畅的英文画面描述（自然语言，适合 Krea 2）。开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、场景、镜头构图、光线；【固定内容】里的字段必须原样体现。不要写人名，不要要求画面里出现文字。
 
 输出格式：
-{"skip": false, "target": "目标角色名", "outfit": "", "action": "", "expression": "", "demeanor": "", "scene": "", "camera": "", "lighting": "", "prompt": "完整的英文提示词"}`;
+{"skip": false, "target": "目标角色名", "now_doing": "", "now_wearing": "", "pending": "", "outfit": "", "action": "", "expression": "", "demeanor": "", "scene": "", "camera": "", "lighting": "", "prompt": "完整的英文提示词"}`;
 
 const STORY_SYSTEM = `你是「角色状态解析器」。你的输出会被拼进文生图模型（Krea 2，擅长理解英文自然语言描述）的提示词里。
 

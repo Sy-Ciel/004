@@ -1,4 +1,4 @@
-import { PARSED_FIELDS } from './constants.js';
+import { PARSED_FIELDS, STATE_FIELDS } from './constants.js';
 import { dryRun } from './pipeline.js';
 import { buildParserPrompt } from './parser.js';
 import { resolveTarget } from './targets.js';
@@ -13,6 +13,19 @@ const FIELD_LABELS = {
     camera: '镜头',
     lighting: '光线',
 };
+
+const STATE_LABELS = {
+    now_doing: '此刻在做',
+    now_wearing: '此刻穿着',
+    pending: '还没做的事',
+};
+
+/** The parser's timeline analysis (what is done vs. only planned); empty when the model skipped it. */
+function stateTable(parsed) {
+    const rows = STATE_FIELDS.map(field => [`${STATE_LABELS[field]} (${field})`, parsed?.[field]]);
+    const html = table(rows);
+    return html ? `<p class="ctp-muted">时间线分析（只用来检查，不进提示词）</p>${html}` : '';
+}
 
 function block(title, content, { open = true, copy = true } = {}) {
     if (content === undefined || content === null || content === '') return '';
@@ -89,6 +102,7 @@ export async function showFloorDebug(mesId) {
         ${table([['外貌', data.fixed?.appearance || '（空）'], ['触发词', data.fixed?.trigger]])}
         ${data.parsed?.prompt ? block('AI 写的完整提示词（prompt 字段）', data.parsed.prompt) : ''}
         <h4>② AI 解析部分${data.error && data.parsed ? '（以下是最近一次成功的解析，本次失败的输出见下方「原始输出」）' : ''}</h4>
+        ${stateTable(data.parsed)}
         ${table(parsedRows) || '<p class="ctp-muted">无</p>'}
         ${data.parser ? block('解析模型原始输出', data.parserRaw || '（空）', { open: !!data.error }) : ''}
         ${block('解析模型思考内容', data.parserReasoning, { open: false })}
@@ -191,6 +205,7 @@ export async function showDryRun() {
             ${block('最终正向提示词', result.prompt)}
             ${result.parsed.prompt ? block('AI 写的完整提示词（prompt 字段）', result.parsed.prompt, { open: false }) : ''}
             ${block('反向提示词', result.negative)}
+            ${stateTable(result.parsed)}
             ${table(PARSED_FIELDS.map(field => [`${FIELD_LABELS[field]} (${field})`, result.parsed[field]]))}
             ${block('解析模型原始输出', result.reply.content || '（空）')}
             ${block('解析模型思考内容', result.reply.reasoning, { open: false })}

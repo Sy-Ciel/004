@@ -66,6 +66,12 @@ Setting: {{scene}}.
 /** Fields the parser model is asked to produce. */
 export const PARSED_FIELDS = ['outfit', 'action', 'expression', 'demeanor', 'scene', 'camera', 'lighting'];
 
+/**
+ * Timeline analysis the parser writes before the picture fields (in Chinese): what the character is doing and
+ * wearing at the pictured moment, and what is only planned. Kept for continuity and debugging; never in the prompt.
+ */
+export const STATE_FIELDS = ['now_doing', 'now_wearing', 'pending'];
+
 export const RESOLUTION_PRESETS = [
     { label: '竖 832×1216', w: 832, h: 1216 },
     { label: '竖 896×1152', w: 896, h: 1152 },
