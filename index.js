@@ -31,7 +31,21 @@ function isGreetingFloor(mesId) {
     return true;
 }
 
-function maybeAutoGenerate(mesId, type) {
+/** Tokens in the reply as SillyTavern counts them (the number shown on the message). */
+async function replyTokenCount(message) {
+    const text = String(message.mes ?? '');
+    try {
+        const count = await ctx().getTokenCountAsync?.(text, 0);
+        if (Number.isFinite(count)) return count;
+    } catch (error) {
+        log('token 计数失败，改用估算', error);
+    }
+    // Rough fallback: about one token per CJK character, four characters per token otherwise.
+    const cjk = (text.match(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uff00-\uffef]/g) || []).length;
+    return Math.ceil(cjk + (text.length - cjk) / 4);
+}
+
+async function maybeAutoGenerate(mesId, type) {
     const settings = getSettings();
     if (!settings.enabled || !settings.autoGenerate) return;
     const chat = ctx().chat;
@@ -51,9 +65,24 @@ function maybeAutoGenerate(mesId, type) {
     const existing = getMessageData(message);
     if (existing && !(type === 'continue' && settings.regenOnContinue)) return;
 
-    // Drawing instructions always get a picture, even between "every N floors".
+    // Drawing instructions always get a picture, even between "every N floors" or on a short reply.
+    const hasHints = pendingHints(mesId).length > 0;
     const everyN = Math.max(1, Number(settings.everyN) || 1);
-    if (everyN > 1 && aiFloorNumber(mesId) % everyN !== 0 && !pendingHints(mesId).length) return;
+    if (everyN > 1 && aiFloorNumber(mesId) % everyN !== 0 && !hasHints) return;
+
+    const minTokens = Math.max(0, Number(settings.minReplyTokens) || 0);
+    if (minTokens > 0 && !hasHints) {
+        const swipeId = message.swipe_id ?? 0;
+        const tokens = await replyTokenCount(message);
+        if (tokens < minTokens) {
+            log(`#${mesId} 正文只有 ${tokens} token（少于 ${minTokens}），不自动配图`);
+            return;
+        }
+        // Counting can wait on the server; skip if the chat, swipe or floor state changed meanwhile.
+        const current = ctx().chat;
+        if (current !== chat || current[mesId] !== message || mesId !== current.length - 1) return;
+        if ((message.swipe_id ?? 0) !== swipeId || getJob(message) || getMessageData(message) !== existing) return;
+    }
 
     log(`自动配图 #${mesId} (${type ?? 'normal'})`);
     enqueue(mesId, { mode: 'reparse' });
@@ -216,7 +245,7 @@ function registerEvents() {
     const { eventSource, eventTypes } = ctx();
     eventSource.on(eventTypes.CHARACTER_MESSAGE_RENDERED, (mesId, type) => {
         renderMessage(Number(mesId));
-        maybeAutoGenerate(Number(mesId), type);
+        maybeAutoGenerate(Number(mesId), type).catch(error => console.warn(LOG_PREFIX, error));
     });
     eventSource.on(eventTypes.USER_MESSAGE_RENDERED, mesId => renderMessage(Number(mesId)));
 

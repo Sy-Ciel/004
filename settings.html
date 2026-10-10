@@ -15,6 +15,10 @@
                     <label>每隔几楼生成一次 <input type="number" class="text_pole" min="1" step="1" data-ctp="everyN" data-type="int"></label>
                     <label>每楼最多保留版本 <input type="number" class="text_pole" min="1" step="1" data-ctp="maxVersions" data-type="int"></label>
                 </div>
+                <div class="ctp-row">
+                    <label>正文少于几 token 不自动配图 <input type="number" class="text_pole" min="0" step="10" data-ctp="minReplyTokens" data-type="int"></label>
+                </div>
+                <small class="ctp-hint">0 = 不限制。按酒馆当前的分词器计算（和消息上显示的 token 数一样）。只影响自动配图，手动 🖼 / 🔄 / <code>/ctimg</code> 照常；带 <code>[[ ]]</code> 画图指令的楼层也照常配图；短回复点「继续」写长后会重新判断。</small>
                 <label class="checkbox_label"><input type="checkbox" data-ctp="includeFirstMessage"> 开场白也自动配图</label>
                 <label class="checkbox_label"><input type="checkbox" data-ctp="regenOnContinue"> 「继续」后重新生成（否则已有图片的楼层不再生成）</label>
                 <label class="checkbox_label"><input type="checkbox" data-ctp="hintsEnabled"> 启用画图指令 <code>[[ ]]</code> / <code>【【 】】</code></label>

@@ -109,6 +109,8 @@ export const DEFAULT_SETTINGS = {
     enabled: true,
     autoGenerate: true,
     everyN: 1,
+    // Automatic pictures skip AI replies shorter than this many tokens (0 = no limit).
+    minReplyTokens: 0,
     includeFirstMessage: false,
     regenOnContinue: false,
     debug: false,
