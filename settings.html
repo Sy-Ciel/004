@@ -136,6 +136,10 @@
                     <label>超时(秒) <input type="number" class="text_pole" step="5" min="0" data-ctp="parser.timeoutSec" data-type="int"></label>
                 </div>
                 <div class="ctp-row">
+                    <label>失败自动重试次数 <input type="number" class="text_pole" min="0" max="5" step="1" data-ctp="parser.retries" data-type="int"></label>
+                </div>
+                <small class="ctp-hint">接口偶尔报错（比如 <code>Invalid API parameter</code>、429、502）或者没返回可用的 JSON 时，自动再请求一次，0 = 不重试。取消、超时、设置填错、输出被截断不会重试。</small>
+                <div class="ctp-row">
                     <label>读取前几楼剧情 <input type="number" class="text_pole" min="0" step="1" data-ctp="parser.contextDepth" data-type="int"></label>
                     <label>每楼最多字数 <input type="number" class="text_pole" min="0" step="100" data-ctp="parser.maxCharsPerMessage" data-type="int"></label>
                 </div>

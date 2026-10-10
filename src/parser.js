@@ -9,8 +9,10 @@ import {
     fillTemplate,
     getMessageData,
     getSettings,
+    isAbortError,
     plainText,
     resolveMacros,
+    sleep,
     truncate,
     warn,
     withTimeout,
@@ -254,6 +256,13 @@ export async function buildParserPrompt(mesId, target) {
     };
 }
 
+/** A mistake in the settings: retrying the request cannot fix it. */
+function settingsError(message) {
+    const error = new Error(message);
+    error.noRetry = true;
+    return error;
+}
+
 function authHeaders(key) {
     return key ? JSON.stringify({ Authorization: `Bearer ${key}` }) : undefined;
 }
@@ -266,10 +275,10 @@ export function parseExtraBody() {
     try {
         value = JSON.parse(text);
     } catch (error) {
-        throw new Error(`「附加请求参数」不是合法 JSON：${error.message}`);
+        throw settingsError(`「附加请求参数」不是合法 JSON：${error.message}`);
     }
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        throw new Error('「附加请求参数」必须是 JSON 对象，例如 {"thinking": {"type": "disabled"}}');
+        throw settingsError('「附加请求参数」必须是 JSON 对象，例如 {"thinking": {"type": "disabled"}}');
     }
     return value;
 }
@@ -294,8 +303,8 @@ async function callCustom(system, user, signal) {
     const { parser } = getSettings();
     const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
     const url = parser.customUrl.trim().replace(/\/+$/, '');
-    if (!url) throw new Error('未填写解析模型的 API 地址');
-    if (!parser.customModel.trim()) throw new Error('未填写解析模型名称');
+    if (!url) throw settingsError('未填写解析模型的 API 地址');
+    if (!parser.customModel.trim()) throw settingsError('未填写解析模型名称');
     const extraBody = parseExtraBody();
     const maxTokens = Number(parser.maxTokens) || 2048;
 
@@ -343,8 +352,8 @@ async function callCustom(system, user, signal) {
 async function callProfile(system, user, signal) {
     const { parser } = getSettings();
     const service = ctx().ConnectionManagerRequestService;
-    if (!service) throw new Error('当前酒馆版本没有 Connection Manager 接口，请改用「独立 API」');
-    if (!parser.profileId) throw new Error('未选择连接配置');
+    if (!service) throw settingsError('当前酒馆版本没有 Connection Manager 接口，请改用「独立 API」');
+    if (!parser.profileId) throw settingsError('未选择连接配置');
     const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
     const result = await service.sendRequest(
         parser.profileId,
@@ -404,10 +413,41 @@ export async function callParser(system, user, parentSignal) {
                 return await callCustom(system, user, signal);
         }
     } catch (error) {
-        if (signal.aborted && signal.reason instanceof Error) throw signal.reason;
+        if (signal.aborted && signal.reason instanceof Error) {
+            // Timed out: another attempt would most likely wait just as long.
+            signal.reason.noRetry = true;
+            throw signal.reason;
+        }
         throw error;
     } finally {
         dispose();
+    }
+}
+
+/**
+ * Calls the parser and parses its reply, retrying what a retry can fix: provider errors (some APIs reject an
+ * identical request now and then, e.g. "Invalid API parameter", 429, 502) and replies without usable JSON.
+ * Cancelling, timeouts, wrong settings and replies cut off by the output limit fail at once.
+ * @param {{ onReply?: (reply: ParserReply) => void, onRetry?: (attempt: number, max: number, error: Error) => void }} [hooks]
+ * @returns {Promise<{ reply: ParserReply, parsed: ReturnType<typeof parseParserOutput>, retried: number }>}
+ */
+export async function requestParse(system, user, signal, { onReply, onRetry } = {}) {
+    const retries = Math.max(0, Math.min(5, Math.trunc(Number(getSettings().parser.retries) || 0)));
+    for (let attempt = 0; ; attempt++) {
+        let reply = null;
+        try {
+            reply = await callParser(system, user, signal);
+            onReply?.(reply);
+            return { reply, parsed: parseParserReply(reply), retried: attempt };
+        } catch (error) {
+            const retryable = !signal?.aborted && !isAbortError(error) && !error?.noRetry && reply?.finish !== 'length';
+            if (!retryable) throw error;
+            if (attempt >= retries) {
+                throw attempt > 0 ? new Error(`解析模型连续 ${attempt + 1} 次失败`, { cause: error }) : error;
+            }
+            onRetry?.(attempt + 1, retries, error);
+            await sleep(1500 * (attempt + 1), signal);
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 import { EXTRA_KEY } from './constants.js';
 import { getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
-import { buildParserPrompt, callParser, parseParserReply, parserLabel } from './parser.js';
+import { buildParserPrompt, parserLabel, requestParse } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution } from './parserPresets.js';
 import { buildImagePrompt, buildNegativePrompt } from './prompt.js';
 import { findPresetById, findPresetByName, resolveTarget, settleAutoTarget } from './targets.js';
@@ -175,14 +175,19 @@ async function runJob(message, job, options) {
             data.parserFinish = '';
 
             const started = performance.now();
-            const reply = await callParser(parserPrompt.system, parserPrompt.user, signal);
+            const { parsed } = await requestParse(parserPrompt.system, parserPrompt.user, signal, {
+                onReply: reply => {
+                    data.parserRaw = truncate(reply.content, 6000);
+                    data.parserReasoning = truncate(reply.reasoning, 4000);
+                    data.parserFinish = reply.finish || '';
+                    log(`#${mesId} 解析输出`, reply);
+                },
+                onRetry: (attempt, max, error) => {
+                    data.debug.notes.push(`解析第 ${attempt} 次失败，已自动重试：${truncate(errorMessage(error), 300)}`);
+                    setStage(job, message, 'parsing', `解析失败，正在重试（${attempt}/${max}）…`);
+                },
+            });
             data.parserMs = Math.round(performance.now() - started);
-            data.parserRaw = truncate(reply.content, 6000);
-            data.parserReasoning = truncate(reply.reasoning, 4000);
-            data.parserFinish = reply.finish || '';
-            log(`#${mesId} 解析输出`, reply);
-
-            const parsed = parseParserReply(reply);
             if (!settings.debug) {
                 delete data.debug.parserSystem;
                 delete data.debug.parserUser;
@@ -300,7 +305,8 @@ async function runJob(message, job, options) {
         console.error('[ComfyPortrait]', error);
         data.error = errorMessage(error);
         commit(message, job.swipeId, data);
-        toastr.error(truncate(data.error, 300), 'ComfyUI 配图失败');
+        const where = job.stage === 'parsing' ? '（解析模型）' : job.stage === 'drawing' ? '（ComfyUI）' : '';
+        toastr.error(truncate(data.error, 300), `配图失败${where}`);
     } finally {
         jobs.delete(message);
         activeJobs.delete(job);
@@ -314,8 +320,7 @@ export async function dryRun(mesId, targetOverride) {
     if (!message) throw new Error(`没有 #${mesId} 楼`);
     let target = resolveTarget(message, targetOverride);
     const parserPrompt = await buildParserPrompt(mesId, target);
-    const reply = await callParser(parserPrompt.system, parserPrompt.user);
-    const raw = parseParserReply(reply);
+    const { reply, parsed: raw } = await requestParse(parserPrompt.system, parserPrompt.user);
     if (target.auto && !raw.skip) target = settleAutoTarget(target, raw.target, message);
     const notes = [...parserPrompt.notes];
     const built = raw.skip ? { parsed: raw, prompt: '' } : promptFromParse(target.preset, raw, parserPrompt, notes);

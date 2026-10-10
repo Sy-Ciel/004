@@ -148,6 +148,8 @@ export const DEFAULT_SETTINGS = {
         includePersona: false,
         includeCharDescription: false,
         timeoutSec: 90,
+        // Automatic retries when the parser API errors or returns no usable JSON.
+        retries: 2,
     },
 
     /** 'fixed' = preset appearance + AI-written details; 'ai' = the parser writes the whole prompt. */
