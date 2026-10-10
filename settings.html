@@ -94,6 +94,10 @@
                         <label class="ctp-narrow">强度 <input type="number" class="text_pole" step="0.05" data-preset="loraStrength" data-type="float"></label>
                     </div>
                     <label>额外反向提示词 <input type="text" class="text_pole" data-preset="negative"></label>
+                    <label>渲染配置（这个角色用的模型 / LoRA）
+                        <select class="text_pole" data-preset="renderProfileId" id="ctp_preset_render"></select>
+                    </label>
+                    <small class="ctp-hint">「默认」= 用 ComfyUI 区的模型和 LoRA。渲染配置在 ComfyUI 区最下面新建。人设绑定了这个预设时，切换人设会连同模型和 LoRA 一起切换。</small>
                 </div>
                 <label class="checkbox_label"><input type="checkbox" data-ctp="continuity"> 状态延续（把同一角色上一张图的服装/场景交给解析模型参考）</label>
             </div>
@@ -292,6 +296,43 @@
                 <div class="ctp-row">
                     <label class="flex1">文件名前缀 <input type="text" class="text_pole" data-ctp="comfy.filenamePrefix"></label>
                     <label>超时(秒) <input type="number" class="text_pole" min="0" step="10" data-ctp="comfy.timeoutSec" data-type="int"></label>
+                </div>
+
+                <h4>渲染配置（不同角色用不同的模型 / LoRA）</h4>
+                <small class="ctp-hint">上面的模型、LoRA、采样是默认值。这里建好渲染配置，再到「角色预设」里给角色选一个：画这个角色时换成配置里的设置，没填的项沿用默认值。</small>
+                <div class="ctp-row">
+                    <select class="text_pole flex1" id="ctp_rp_select"></select>
+                    <div class="menu_button fa-solid fa-plus" id="ctp_rp_add" title="新建"></div>
+                    <div class="menu_button fa-solid fa-clone" id="ctp_rp_clone" title="复制"></div>
+                    <div class="menu_button fa-solid fa-trash-can" id="ctp_rp_delete" title="删除"></div>
+                </div>
+                <small class="ctp-hint" id="ctp_rp_empty">还没有渲染配置，点 + 新建。</small>
+                <div id="ctp_rp_editor">
+                    <label>名称 <input type="text" class="text_pole" data-rp="name"></label>
+                    <small class="ctp-hint" id="ctp_rp_used"></small>
+                    <label>扩散模型 <select class="text_pole" data-profile-picker="unet" data-list="unet" data-inherit="comfy.unet"></select></label>
+                    <label>文本编码器 <select class="text_pole" data-profile-picker="clip" data-list="clip" data-inherit="comfy.clip"></select></label>
+                    <label>VAE <select class="text_pole" data-profile-picker="vae" data-list="vae" data-inherit="comfy.vae"></select></label>
+                    <div class="ctp-row">
+                        <label class="flex1">风格 LoRA <select class="text_pole" data-profile-picker="lora" data-list="lora" data-inherit="comfy.lora" data-none="1"></select></label>
+                        <label class="ctp-narrow">强度 <input type="number" class="text_pole" step="0.05" data-rp="loraStrength" data-type="float"></label>
+                    </div>
+                    <small class="ctp-hint">强度只在这里选了 LoRA 时生效。角色 LoRA 在角色预设里设置，和这里的风格 LoRA 同时使用。</small>
+                    <div class="ctp-row">
+                        <label>步数（0 = 默认） <input type="number" class="text_pole" min="0" step="1" data-rp="steps" data-type="int"></label>
+                        <label>CFG（0 = 默认） <input type="number" class="text_pole" min="0" step="0.1" data-rp="cfg" data-type="float"></label>
+                    </div>
+                    <div class="ctp-row">
+                        <label class="flex1">采样器 <select class="text_pole" data-profile-picker="sampler" data-list="sampler" data-inherit="comfy.sampler"></select></label>
+                        <label class="flex1">调度器 <select class="text_pole" data-profile-picker="scheduler" data-list="scheduler" data-inherit="comfy.scheduler"></select></label>
+                    </div>
+                    <details class="ctp-details">
+                        <summary>专用工作流（可选，换成另一类模型时用）</summary>
+                        <textarea class="text_pole ctp-mono" rows="8" data-rp="workflow" placeholder="留空 = 用上面的工作流。粘贴 ComfyUI 导出的 API 格式 JSON，占位符和上面一样"></textarea>
+                        <div class="ctp-row">
+                            <div class="menu_button" id="ctp_rp_validate">校验</div>
+                        </div>
+                    </details>
                 </div>
             </div>
 

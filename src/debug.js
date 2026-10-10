@@ -111,6 +111,7 @@ export async function showFloorDebug(mesId) {
         ${!data.debug?.parserUser ? '<p class="ctp-muted">提示：开启「调试模式」后生成的楼层会额外记录解析模型的完整输入和最终工作流（失败的楼层总会记录输入）。</p>' : ''}
         <h4>③ ComfyUI 参数</h4>
         ${table([
+        ['渲染配置', data.params ? params.renderProfile || '默认（ComfyUI 设置）' : ''],
         ['工作流', params.workflow],
         ['种子', image?.seed ?? params.seed],
         ['分辨率', image ? `${image.width} × ${image.height}` : (params.width ? `${params.width} × ${params.height}` : '')],

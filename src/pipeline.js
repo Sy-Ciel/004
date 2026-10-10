@@ -3,6 +3,7 @@ import { getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './
 import { buildParserPrompt, parserLabel, requestParse } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution } from './parserPresets.js';
 import { buildImagePrompt, buildNegativePrompt } from './prompt.js';
+import { effectiveComfy, renderProfileFor } from './renderProfiles.js';
 import { findPresetById, findPresetByName, resolveTarget, settleAutoTarget } from './targets.js';
 import {
     ctx,
@@ -221,7 +222,11 @@ async function runJob(message, job, options) {
 
         setStage(job, message, 'drawing', 'ComfyUI 生成中…');
         const preset = findPresetById(data.presetId) ?? findPresetByName(data.target);
-        const { comfy } = settings;
+        // The character's render profile swaps in its own model / LoRA / sampling settings.
+        const profile = renderProfileFor(preset);
+        const comfy = effectiveComfy(profile);
+        if (profile) data.debug.notes.push(`渲染配置：${profile.name}（角色预设「${resolveMacros(preset.name)}」）`);
+        else if (preset?.renderProfileId) data.debug.notes.push('角色预设选的渲染配置已被删除，使用默认 ComfyUI 设置');
         const fixedSeed = Number(comfy.seed);
         const seed = mode !== 'reroll' && fixedSeed >= 0 ? fixedSeed : randomSeed();
         // Resolution: the parser preset this floor was parsed with may override the global size.
@@ -253,10 +258,11 @@ async function runJob(message, job, options) {
             batch_size: 1,
         };
 
-        const template = await getWorkflowTemplate();
+        const template = await getWorkflowTemplate(comfy, profile);
         const { workflow, notes } = prepareWorkflow(template.text, values);
         data.debug.notes.push(...notes);
         data.params = {
+            renderProfile: profile?.name || '',
             workflow: template.name,
             seed,
             width,

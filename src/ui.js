@@ -10,7 +10,10 @@ import {
 } from './constants.js';
 import { lastFloorId, showChatDebug, showDryRun, showParserPreview } from './debug.js';
 import { resetPanelGeometry } from './panel.js';
+import { bindPickers, getPath, readInput, registerPickerOwner, renderPicker, renderPickers, setPath, writeInput } from './form.js';
 import { initParserPresetUi, refreshParserPresetUi } from './ui-parser-presets.js';
+import { initRenderProfileUi, refreshRenderProfileUi, refreshRenderProfileUsage } from './ui-render-profiles.js';
+import { renderProfileFor, sanitizeRenderProfile } from './renderProfiles.js';
 import { callParser, parseExtraBody } from './parser.js';
 import { enqueue } from './pipeline.js';
 import { renderAll } from './render.js';
@@ -21,97 +24,6 @@ const SETTINGS_URL = new URL('../settings.html', import.meta.url);
 const UI_WORKFLOW_URL = new URL('../workflows/krea2_turbo_t2i_lora_ui.json', import.meta.url);
 
 let selectedPresetId = null;
-
-function getPath(object, path) {
-    return path.split('.').reduce((value, key) => value?.[key], object);
-}
-
-function setPath(object, path, value) {
-    const keys = path.split('.');
-    const last = keys.pop();
-    const parent = keys.reduce((value, key) => (value[key] ??= {}), object);
-    parent[last] = value;
-}
-
-function readInput(element) {
-    const type = element.dataset.type;
-    if (element.type === 'checkbox') return element.checked;
-    if (type === 'int') {
-        const number = parseInt(element.value, 10);
-        return Number.isFinite(number) ? number : 0;
-    }
-    if (type === 'float') {
-        const number = parseFloat(element.value);
-        return Number.isFinite(number) ? number : 0;
-    }
-    return element.value;
-}
-
-function writeInput(element, value) {
-    if (element.type === 'checkbox') element.checked = !!value;
-    else element.value = value ?? '';
-}
-
-/* ---------------- pickers (select + manual input, work on mobile unlike <datalist>) ---------------- */
-
-const MANUAL = '__ctp_manual__';
-
-function pickerItems(listName) {
-    const settings = getSettings();
-    if (listName === 'parserModels') return settings.parser.models || [];
-    return settings.comfy.lists?.[listName] || [];
-}
-
-function readPicker(select) {
-    if (select.dataset.picker) return String(getPath(getSettings(), select.dataset.picker) ?? '');
-    return String(currentPreset()?.[select.dataset.presetPicker] ?? '');
-}
-
-function writePicker(select, value) {
-    if (select.dataset.picker) {
-        setPath(getSettings(), select.dataset.picker, value);
-    } else {
-        const preset = currentPreset();
-        if (!preset) return;
-        preset[select.dataset.presetPicker] = value;
-    }
-    saveSettings();
-}
-
-function renderPicker(select) {
-    const value = readPicker(select);
-    const items = pickerItems(select.dataset.list);
-    const options = [];
-    if (select.dataset.none) options.push(['', '（不使用）']);
-    else if (!value) options.push(['', items.length ? '（请选择）' : '（列表为空，点「读取列表」或手动输入）']);
-    if (value && !items.includes(value)) {
-        options.push([value, items.length ? `${value}（当前值，不在列表里）` : value]);
-    }
-    for (const item of items) options.push([item, item]);
-    options.push([MANUAL, '✏️ 手动输入…']);
-    select.innerHTML = options.map(([v, label]) => `<option value="${escapeHtml(v)}">${escapeHtml(label)}</option>`).join('');
-    select.value = value;
-}
-
-function renderPickers() {
-    document.querySelectorAll('.ctp-settings [data-picker], .ctp-settings [data-preset-picker]').forEach(renderPicker);
-}
-
-function bindPickers(root) {
-    root.querySelectorAll('[data-picker], [data-preset-picker]').forEach(select => {
-        select.addEventListener('change', async () => {
-            if (select.value !== MANUAL) {
-                writePicker(select, select.value);
-                return;
-            }
-            const { callGenericPopup, POPUP_TYPE } = ctx();
-            const typed = await callGenericPopup('手动输入（ComfyUI 里的文件名，含子文件夹路径和扩展名）', POPUP_TYPE.INPUT, readPicker(select));
-            if (typeof typed === 'string') writePicker(select, typed.trim());
-            renderPicker(select);
-        });
-        renderPicker(select);
-    });
-}
 
 function listsSummary() {
     const lists = getSettings().comfy.lists || {};
@@ -302,13 +214,27 @@ function currentPreset() {
     return getSettings().presets.find(preset => preset.id === selectedPresetId) ?? null;
 }
 
+registerPickerOwner('presetPicker', currentPreset);
+
+/** Options of the preset editor's render profile select (default + every profile). */
+function renderPresetRenderOptions() {
+    const preset = currentPreset();
+    const options = [['', '默认（ComfyUI 区的设置）'], ...getSettings().renderProfiles.map(profile => [profile.id, profile.name])];
+    $('#ctp_preset_render')
+        .html(options.map(([id, name]) => `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`).join(''))
+        .val(renderProfileFor(preset)?.id ?? '');
+}
+
 function loadPresetEditor() {
     const preset = currentPreset();
     $('#ctp_preset_editor').toggle(!!preset);
     if (!preset) return;
+    renderPresetRenderOptions();
     document.querySelectorAll('#ctp_preset_editor [data-preset]').forEach(element => {
         writeInput(element, preset[element.dataset.preset]);
     });
+    // A deleted or unknown profile shows as the default.
+    $('#ctp_preset_render').val(renderProfileFor(preset)?.id ?? '');
     document.querySelectorAll('#ctp_preset_editor [data-preset-picker]').forEach(renderPicker);
     renderPersonaBindings();
 }
@@ -372,7 +298,9 @@ export function onPersonaChanged() {
     const preset = findUserPreset();
     const id = preset?.id ?? null;
     if (lastUserPresetId !== undefined && id !== lastUserPresetId && getSettings().enabled) {
-        toastr.info(`{{user}}（${ctx().name1}）→ ${preset ? displayName(preset) : '无预设（没有绑定或同名的预设）'}`, 'ComfyUI 角色配图');
+        const profile = renderProfileFor(preset);
+        const render = preset ? `，渲染配置：${profile ? profile.name : '默认'}` : '';
+        toastr.info(`{{user}}（${ctx().name1}）→ ${preset ? displayName(preset) : '无预设（没有绑定或同名的预设）'}${render}`, 'ComfyUI 角色配图');
     }
     lastUserPresetId = id;
 }
@@ -388,6 +316,7 @@ function newPreset(base = {}) {
         loraStrength: 0.8,
         negative: '',
         personas: [],
+        renderProfileId: '',
         ...base,
     };
 }
@@ -427,6 +356,7 @@ function initPresets() {
                 $('#ctp_preset_select option:selected').text(presetLabel(preset));
                 refreshTargetSelect();
             }
+            if (element.dataset.preset === 'name' || element.dataset.preset === 'renderProfileId') refreshRenderProfileUsage();
         });
     });
 
@@ -459,10 +389,13 @@ function initPresets() {
         if (settings.targetMode === preset.id) settings.targetMode = TARGET_USER;
         saveSettings();
         refreshPresetSelect();
+        refreshRenderProfileUsage();
     });
 
     $('#ctp_preset_export').on('click', () => {
-        const blob = new Blob([JSON.stringify({ type: 'comfy_portrait_presets', presets: getSettings().presets }, null, 2)], { type: 'application/json' });
+        const { presets, renderProfiles } = getSettings();
+        // Render profiles go along so imported presets keep their models and LoRAs.
+        const blob = new Blob([JSON.stringify({ type: 'comfy_portrait_presets', presets, renderProfiles }, null, 2)], { type: 'application/json' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
         link.download = 'comfy_portrait_presets.json';
@@ -480,11 +413,18 @@ function initPresets() {
             const list = Array.isArray(json) ? json : Array.isArray(json?.presets) ? json.presets : [json];
             const imported = list.filter(item => item && typeof item === 'object').map(sanitizePreset);
             if (!imported.length) throw new Error('文件里没有角色预设');
-            getSettings().presets.push(...imported);
+            const settings = getSettings();
+            const known = new Set(settings.renderProfiles.map(profile => profile.id));
+            const profiles = (Array.isArray(json?.renderProfiles) ? json.renderProfiles : [])
+                .filter(item => item && typeof item === 'object' && item.id && !known.has(String(item.id)))
+                .map(sanitizeRenderProfile);
+            settings.renderProfiles.push(...profiles);
+            settings.presets.push(...imported);
             selectedPresetId = imported[0].id;
             saveSettings();
+            refreshRenderProfileUi();
             refreshPresetSelect();
-            toastr.success(`已导入 ${imported.length} 个角色预设`);
+            toastr.success(`已导入 ${imported.length} 个角色预设${profiles.length ? `、${profiles.length} 个渲染配置` : ''}`);
         } catch (error) {
             toastr.error(errorMessage(error), '导入失败');
         }
@@ -609,8 +549,7 @@ async function loadComfyLists({ quiet = false } = {}) {
     }
 }
 
-function validateWorkflow() {
-    const text = getSettings().comfy.workflow;
+function validateWorkflow(text = getSettings().comfy.workflow) {
     try {
         parseWorkflow(text);
         const { notes } = prepareWorkflow(text, {
@@ -675,6 +614,7 @@ export async function initSettingsUi() {
     validateExtraBody();
     $('#ctp_lists_status').text(listsSummary());
     initPresets();
+    initRenderProfileUi({ onChange: renderPresetRenderOptions, validateWorkflow });
     refreshPresetSelect();
     updateSourceVisibility();
     updateWorkflowVisibility();
@@ -690,7 +630,7 @@ export async function initSettingsUi() {
     $('#ctp_parser_test').on('click', testParser);
     $('#ctp_comfy_test').on('click', testComfy);
     $('#ctp_comfy_models').on('click', () => loadComfyLists());
-    $('#ctp_workflow_validate').on('click', validateWorkflow);
+    $('#ctp_workflow_validate').on('click', () => validateWorkflow());
     $('#ctp_workflow_load_builtin').on('click', loadBuiltinIntoEditor);
     $('#ctp_debug_chat').on('click', showChatDebug);
     $('#ctp_debug_preview').on('click', showParserPreview);
@@ -712,4 +652,5 @@ export function syncSettingsUi() {
     renderPickers();
     refreshTargetSelect();
     refreshParserPresetUi();
+    refreshRenderProfileUi();
 }

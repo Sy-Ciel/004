@@ -13,10 +13,14 @@ export async function loadBuiltinWorkflow() {
     return builtinWorkflowCache;
 }
 
-export async function getWorkflowTemplate() {
-    const { comfy } = getSettings();
+/**
+ * @param {object} [comfy] ComfyUI settings, possibly with a render profile's overrides (see effectiveComfy)
+ * @param {object} [profile] The render profile those overrides came from
+ */
+export async function getWorkflowTemplate(comfy = getSettings().comfy, profile = null) {
     if (comfy.workflowSource === 'custom' && comfy.workflow.trim()) {
-        return { name: '自定义工作流', text: comfy.workflow };
+        const own = profile && String(profile.workflow ?? '').trim();
+        return { name: own ? `渲染配置「${profile.name}」的工作流` : '自定义工作流', text: comfy.workflow };
     }
     return { name: '内置 Krea 2 Turbo 文生图 + LoRA', text: await loadBuiltinWorkflow() };
 }
