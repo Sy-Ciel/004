@@ -185,6 +185,46 @@
                 </div>
             </div>
 
+            <!-- ============ 正文状态栏 ============ -->
+            <div class="inline-drawer ctp-sub" data-sub="status">
+                <div class="inline-drawer-toggle inline-drawer-header">
+                    <span><b>正文状态栏</b> <small>让正文 AI 在回复末尾写可折叠的穿着 / 状态 / 心情</small></span>
+                    <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+                </div>
+                <div class="inline-drawer-content">
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="statusBar.enabled"> 让正文 AI 在每次回复末尾写状态栏</label>
+                    <small class="ctp-hint">状态栏折叠显示在正文最下面，点开才看得到。它是正文的一部分，正文 AI 之后的回复也能看到它；解析模型会把它单独拿出来重点参考。不需要世界书或脚本，扩展会把说明自动加进发给正文 AI 的提示里。</small>
+                    <div class="ctp-row">
+                        <label class="flex1">写谁
+                            <select class="text_pole" data-ctp="statusBar.target">
+                                <option value="follow">和「画谁」一样</option>
+                                <option value="user">{{user}}</option>
+                                <option value="char">{{char}}</option>
+                                <option value="custom">指定名字</option>
+                            </select>
+                        </label>
+                        <label class="flex1" id="ctp_status_name">名字 <input type="text" class="text_pole" data-ctp="statusBar.name" placeholder="例：莉娜"></label>
+                    </div>
+                    <label>写哪些项（顿号或逗号分隔）<input type="text" class="text_pole" data-ctp="statusBar.fields" placeholder="穿着、动作、状态、心情"></label>
+                    <div class="ctp-row">
+                        <label>折叠标题 <input type="text" class="text_pole" data-ctp="statusBar.label"></label>
+                        <label>插入深度 <input type="number" class="text_pole" min="0" max="20" step="1" data-ctp="statusBar.depth" data-type="int"></label>
+                    </div>
+                    <small class="ctp-hint">插入深度：说明插在倒数第几条消息之前，0 = 最后，越靠后 AI 越听话。解析模型按折叠标题找状态栏，改了标题之前的楼层就认不出了。</small>
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="statusBar.parserFocus"> 解析模型重点参考状态栏</label>
+                    <details class="ctp-details">
+                        <summary>发给正文 AI 的说明（高级）</summary>
+                        <label>模板 <span class="ctp-link" data-reset="statusBar.template">恢复默认</span>
+                            <textarea class="text_pole" rows="10" data-ctp="statusBar.template"></textarea>
+                        </label>
+                        <small class="ctp-hint">变量：{{name}} 写谁 · {{label}} 折叠标题 · {{lines}} 要填的各行 · {{fields}} 项目名，以及酒馆宏。</small>
+                        <div class="ctp-row">
+                            <div class="menu_button" id="ctp_status_preview">预览发给正文 AI 的说明</div>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
             <!-- ============ 解析模型（API） ============ -->
             <div class="inline-drawer ctp-sub" data-sub="parser">
                 <div class="inline-drawer-toggle inline-drawer-header">

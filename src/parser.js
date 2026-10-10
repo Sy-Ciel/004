@@ -2,6 +2,7 @@ import { PARSED_FIELDS, STATE_FIELDS } from './constants.js';
 import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
 import { activeParserPreset, outputRules, parseFixedFields, promptMode } from './parserPresets.js';
+import { findStatusBar, withoutStatusBar } from './statusBar.js';
 import { findUserPreset, presetForName, presetName, presetsMentioned } from './targets.js';
 import {
     ctx,
@@ -18,9 +19,17 @@ import {
     withTimeout,
 } from './utils.js';
 
-function formatMessage(message, maxChars) {
+function formatMessage(message, maxChars, text = message.mes) {
     const name = message.name || (message.is_user ? ctx().name1 : ctx().name2);
-    return `${name}: ${truncate(plainText(message.mes), maxChars)}`;
+    return `${name}: ${truncate(plainText(text), maxChars)}`;
+}
+
+/** The current floor's status bar as its own block, so the parser treats it as the main source. */
+function statusBarBlock(found) {
+    if (!found) return '';
+    return `【正文状态栏（写正文的 AI 总结的本楼结束时的状态，重点参考）】
+${found.text}
+这是写正文的 AI 对本楼结束时角色状态的总结：穿着、动作、状态、心情以它为准，翻译成英文、补成具体的视觉描写写进对应字段；正文只用来补充细节。状态栏写的不是目标角色时，只作参考。`;
 }
 
 /** Most recent parsed state of the same character on an earlier floor (for outfit/scene continuity). */
@@ -230,6 +239,9 @@ export async function buildParserPrompt(mesId, target) {
         ? `【候选角色】请从以下角色中选出当前楼层最适合作为画面主角的一位（通常是动作、情绪描写最集中的人），把名字原样填入 target：\n${target.candidates.map(name => `- ${name}`).join('\n')}`
         : '';
 
+    // The main AI's status bar for this floor (see statusBar.js), read first and left out of the floor's text.
+    const status = settings.statusBar.parserFocus ? findStatusBar(chat[mesId].mes) : null;
+
     const vars = {
         target: target.auto ? '（由你从候选角色中选择）' : target.name,
         appearance: [referenceBlock(target, mode), allowOthers ? othersReference(mesId, target) : ''].filter(Boolean).join('\n'),
@@ -239,7 +251,8 @@ export async function buildParserPrompt(mesId, target) {
         last_state: target.auto ? '（自动模式下不提供）' : formatState(lastState, shownFloors),
         prev_outputs: prevOutputs,
         history: history.length ? history.join('\n\n') : '（无）',
-        latest: formatMessage(chat[mesId], maxChars),
+        latest: formatMessage(chat[mesId], maxChars, withoutStatusBar(chat[mesId].mes, status)),
+        status_bar: statusBarBlock(status),
         floor: String(mesId),
     };
 
@@ -256,6 +269,7 @@ export async function buildParserPrompt(mesId, target) {
     if (prevOutputs) userTemplate = ensureSlot(userTemplate, 'prev_outputs', ['【最近剧情', '【当前楼层']);
     if (worldInfo.text) userTemplate = ensureSlot(userTemplate, 'world_info', ['【上一次状态', '【最近剧情', '【当前楼层']);
     if (vars.user_hints) userTemplate = ensureSlot(userTemplate, 'user_hints', ['请按要求']);
+    if (vars.status_bar) userTemplate = ensureSlot(userTemplate, 'status_bar', ['{{user_hints}}', '请按要求']);
 
     // A custom system prompt without {{output_rules}} keeps its own output format in "fixed" mode; the
     // "AI writes the prompt" mode and "allow other people" need the rules that ask for `prompt` / `others`.
@@ -272,6 +286,7 @@ export async function buildParserPrompt(mesId, target) {
             worldInfo.note,
             records.length ? `参考了之前 ${records.length} 次配图输出` : '',
             hints.length ? `用户画图指令 ${hints.reduce((sum, item) => sum + item.hints.length, 0)} 条` : '',
+            status ? '读取了正文状态栏' : '',
         ].filter(Boolean),
     };
 }

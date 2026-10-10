@@ -112,6 +112,21 @@ export function defaultPresets() {
     ];
 }
 
+/**
+ * Instruction injected into the main AI's prompt when the status bar is on (see statusBar.js).
+ * {{name}} who to describe · {{label}} the collapsible block's title · {{lines}} the lines to fill · {{fields}} item names.
+ */
+export const DEFAULT_STATUS_TEMPLATE = `【状态栏】正文全部写完之后，在回复的最末尾另起一行，附上{{name}}在本次回复结束时的状态栏。严格使用下面的格式，保留 <details> 和 <summary> 标签，标题不要改：
+<details><summary>{{label}}</summary>
+
+{{lines}}
+</details>
+
+要求：
+- 只写本次回复结束时已经成立的情况；正在准备、还没做的事不算（例如还没换衣服，就写原来的衣服）
+- 每项一两句话，具体、能直接画出来：衣服的款式和颜色、动作姿势、表情神态
+- 状态栏只放在回复最末尾，正文里不要提到它`;
+
 /** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */
 export const SETTINGS_VERSION = 4;
 
@@ -173,6 +188,18 @@ export const DEFAULT_SETTINGS = {
     renderProfiles: [],
     /** Preset for user personas without a bound or same-named preset ('' = none: default model / LoRA only). */
     userFallbackPresetId: 'user',
+
+    /** Collapsible status block the main AI writes at the end of each reply; the parser reads it first. */
+    statusBar: {
+        enabled: false,
+        target: 'follow', // follow (same as "画谁") | user | char | custom
+        name: '',
+        fields: '穿着、动作、状态、心情',
+        label: '状态栏',
+        depth: 0,
+        template: DEFAULT_STATUS_TEMPLATE,
+        parserFocus: true,
+    },
     continuity: true,
 
     promptTemplate: DEFAULT_PROMPT_TEMPLATE,

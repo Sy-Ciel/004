@@ -21,6 +21,8 @@ export const PARSER_USER_TEMPLATE = `【目标角色】{{target}}
 【当前楼层 #{{floor}}】
 {{latest}}
 
+{{status_bar}}
+
 {{user_hints}}
 
 请按要求只输出 JSON。`;

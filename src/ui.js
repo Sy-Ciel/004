@@ -14,6 +14,7 @@ import { bindPickers, getPath, readInput, registerPickerOwner, renderPicker, ren
 import { initParserPresetUi, refreshParserPresetUi } from './ui-parser-presets.js';
 import { initRenderProfileUi, refreshRenderProfileUi, refreshRenderProfileUsage } from './ui-render-profiles.js';
 import { renderProfileFor, sanitizeRenderProfile } from './renderProfiles.js';
+import { buildStatusInstruction, updateStatusPrompt } from './statusBar.js';
 import { callParser, parseExtraBody } from './parser.js';
 import { enqueue } from './pipeline.js';
 import { renderAll } from './render.js';
@@ -60,6 +61,11 @@ function onSettingChanged(path) {
     if (path === 'parser.source') updateSourceVisibility();
     if (path === 'parser.extraBody') validateExtraBody();
     if (path === 'comfy.workflowSource') updateWorkflowVisibility();
+    if (path === 'enabled' || path.startsWith('statusBar.')) {
+        updateStatusPrompt();
+        updateStatusVisibility();
+    }
+    if (path === 'statusBar.label') renderAll();
     if (path === 'comfy.width' || path === 'comfy.height') {
         syncResolutionSelect();
         updateMegapixels();
@@ -87,6 +93,7 @@ function bindSettings(root) {
             saveSettings();
             const input = root.querySelector(`[data-ctp="${path}"]`);
             if (input) writeInput(input, getPath(getSettings(), path));
+            onSettingChanged(path);
             toastr.success('已恢复默认');
         });
     });
@@ -106,6 +113,17 @@ function bindSettings(root) {
             updateMegapixels();
         });
     }
+}
+
+function updateStatusVisibility() {
+    $('#ctp_status_name').toggle(getSettings().statusBar.target === 'custom');
+}
+
+async function previewStatusInstruction() {
+    const { callGenericPopup, POPUP_TYPE } = ctx();
+    const text = ctx().substituteParams?.(buildStatusInstruction()) ?? buildStatusInstruction();
+    const enabled = getSettings().statusBar.enabled ? '' : '<p class="ctp-muted">（状态栏现在是关闭的，打开后才会发给正文 AI）</p>';
+    await callGenericPopup(`<h3>发给正文 AI 的状态栏说明</h3>${enabled}<pre class="ctp-pre">${escapeHtml(text)}</pre>`, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true, okButton: '关闭' });
 }
 
 function updateSourceVisibility() {
@@ -717,6 +735,7 @@ export async function initSettingsUi() {
     refreshPresetSelect();
     updateSourceVisibility();
     updateWorkflowVisibility();
+    updateStatusVisibility();
     updateSideOptionsVisibility();
     $('#ctp_workflow_ui_link').attr('href', UI_WORKFLOW_URL.href);
 
@@ -730,6 +749,7 @@ export async function initSettingsUi() {
     $('#ctp_comfy_test').on('click', testComfy);
     $('#ctp_comfy_models').on('click', () => loadComfyLists());
     $('#ctp_workflow_validate').on('click', () => validateWorkflow());
+    $('#ctp_status_preview').on('click', previewStatusInstruction);
     $('#ctp_workflow_load_builtin').on('click', loadBuiltinIntoEditor);
     $('#ctp_debug_chat').on('click', showChatDebug);
     $('#ctp_debug_preview').on('click', showParserPreview);
@@ -752,4 +772,5 @@ export function syncSettingsUi() {
     refreshTargetSelect();
     refreshParserPresetUi();
     refreshRenderProfileUi();
+    updateStatusVisibility();
 }

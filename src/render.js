@@ -3,6 +3,7 @@ import { layoutMode } from './layout.js';
 import { currentIndex, statusHtml, toolbarHtml } from './markup.js';
 import { getPanelMesId, schedulePanelRefresh } from './panel.js';
 import { getJob } from './pipeline.js';
+import { decorateStatusBars } from './statusBar.js';
 import { ctx, escapeHtml, getMessageData, getSettings } from './utils.js';
 
 export { onLayoutChange } from './layout.js';
@@ -73,6 +74,7 @@ export function renderMessage(mesId) {
     const message = ctx().chat[mesId];
     const settings = getSettings();
     renderHints(element, message);
+    decorateStatusBars(element);
     const data = getMessageData(message);
     const job = getJob(message);
     const showJob = job && job.swipeId === (message?.swipe_id ?? 0);

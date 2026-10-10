@@ -4,6 +4,7 @@ import { captureHints, hintsEnabled, pendingHints, removeHint, stripHints, strip
 import { resetPanelForChat, showInPanel } from './src/panel.js';
 import { cancelAllJobs, cancelJob, enqueue, getJob, setImageAddedHandler, setRenderer } from './src/pipeline.js';
 import { onLayoutChange, renderAll, renderMessage } from './src/render.js';
+import { updateStatusPrompt } from './src/statusBar.js';
 import { findParserPreset } from './src/parserPresets.js';
 import { findPresetByName, findPresetById, initPersonaTracking } from './src/targets.js';
 import { initSettingsUi, onPersonaChanged, refreshTargetSelect, syncSettingsUi } from './src/ui.js';
@@ -266,7 +267,11 @@ function registerEvents() {
     eventSource.on(eventTypes.MESSAGE_DELETED, renderAllSoon);
     eventSource.on(eventTypes.MORE_MESSAGES_LOADED, renderAllSoon);
     eventSource.on(eventTypes.GENERATION_STOPPED, () => { lastStoppedAt = Date.now(); });
+    // Status bar instruction for the main AI: refreshed per generation (who to describe can change, and quiet
+    // generations must not get it).
+    eventSource.on(eventTypes.GENERATION_STARTED, type => updateStatusPrompt(type));
     eventSource.on(eventTypes.CHAT_CHANGED, () => {
+        updateStatusPrompt();
         cancelAllJobs();
         resetPanelForChat();
         renderAllSoon();
@@ -423,6 +428,7 @@ jQuery(async () => {
         injectWandButton();
         registerEvents();
         registerSlashCommands();
+        updateStatusPrompt();
         renderAll();
         console.log(LOG_PREFIX, 'loaded');
     } catch (error) {
