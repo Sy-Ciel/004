@@ -1,5 +1,5 @@
 import { PARSED_FIELDS } from './constants.js';
-import { BUILTIN_PARSER_PRESETS, OUTPUT_RULES_AI, OUTPUT_RULES_FIXED } from './parserPresetDefaults.js';
+import { BUILTIN_PARSER_PRESETS, buildOutputRules } from './parserPresetDefaults.js';
 import { getSettings, resolveMacros } from './utils.js';
 
 /** Chinese names accepted in a preset's "fixed content" lines. */
@@ -11,14 +11,15 @@ const FIELD_ALIASES = {
     场景: 'scene', 背景: 'scene',
     镜头: 'camera', 构图: 'camera',
     光线: 'lighting', 灯光: 'lighting',
+    其他人物: 'others', 其他人: 'others',
 };
 
 export function promptMode() {
     return getSettings().promptMode === 'ai' ? 'ai' : 'fixed';
 }
 
-export function outputRules(mode) {
-    return mode === 'ai' ? OUTPUT_RULES_AI : OUTPUT_RULES_FIXED;
+export function outputRules(mode, allowOthers = false) {
+    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers);
 }
 
 export function builtinParserPreset(id) {

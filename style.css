@@ -201,10 +201,47 @@
 }
 
 /* ---------- settings panel ---------- */
-.ctp-settings .ctp-section {
-    margin-bottom: 10px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid var(--SmartThemeBorderColor);
+/* Always-visible header: the switches used most often */
+.ctp-settings .ctp-top {
+    padding-bottom: 4px;
+    margin-bottom: 4px;
+}
+
+.ctp-settings .ctp-top .ctp-row {
+    align-items: center;
+    column-gap: 14px;
+}
+
+.ctp-settings .ctp-top .ctp-row > label {
+    flex: 0 1 auto;
+}
+
+.ctp-settings .ctp-sub-tools {
+    text-align: right;
+    font-size: 0.9em;
+}
+
+/* Collapsible groups (SillyTavern inline drawers nested in the extension's drawer) */
+.ctp-settings .ctp-sub {
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    margin: 6px 0;
+    padding: 0 8px;
+    background-color: var(--black30a);
+}
+
+.ctp-settings .ctp-sub > .inline-drawer-header {
+    padding: 6px 0;
+}
+
+.ctp-settings .ctp-sub > .inline-drawer-header small {
+    margin-left: 4px;
+    font-weight: normal;
+    opacity: 0.6;
+}
+
+.ctp-settings .ctp-sub > .inline-drawer-content {
+    padding-bottom: 8px;
 }
 
 .ctp-settings h4 {

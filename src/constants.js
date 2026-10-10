@@ -53,8 +53,14 @@ export const V3_PARSER_USER = `【目标角色】{{target}}
 
 请按要求只输出 JSON。`;
 
+/** Template line that keeps the picture to one person; dropped when the parser puts other people in the scene. */
+export const SOLO_LINE = 'A solo image of a single person, only one person in the frame.';
+
+/** Inserted into templates without {{others}} when other people are in the picture. */
+export const OTHERS_LINE = 'Also in the scene: {{others}}.';
+
 export const DEFAULT_PROMPT_TEMPLATE = `{{trigger}} {{prefix}}
-A solo image of a single person, only one person in the frame.
+${SOLO_LINE}
 {{appearance}}
 Wearing {{outfit}}.
 {{action}}.
@@ -63,8 +69,8 @@ Setting: {{scene}}.
 {{camera}}, {{lighting}}.
 {{suffix}}`;
 
-/** Fields the parser model is asked to produce. */
-export const PARSED_FIELDS = ['outfit', 'action', 'expression', 'demeanor', 'scene', 'camera', 'lighting'];
+/** Fields the parser model is asked to produce. `others` only when the parser preset allows other people. */
+export const PARSED_FIELDS = ['outfit', 'action', 'expression', 'demeanor', 'scene', 'camera', 'lighting', 'others'];
 
 /**
  * Timeline analysis the parser writes before the picture fields (in Chinese): what the character is doing and

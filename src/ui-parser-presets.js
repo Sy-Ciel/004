@@ -1,11 +1,12 @@
 import { makeId } from './constants.js';
+import { readInput, writeInput } from './form.js';
 import { activeParserPreset, builtinParserPreset } from './parserPresets.js';
 import { ctx, escapeHtml, getSettings, saveSettings } from './utils.js';
 
 const DESCRIPTIONS = {
     story: '剧情状态：服装、动作、表情、场景、镜头都由 AI 按剧情推断。',
     sprite: '立绘：姿势、镜头、背景、光线固定（见下方「固定内容」），只随剧情换服装、表情、神态。适合竖图。',
-    novel: '小说插画：挑当前楼层最有画面感的瞬间，电影感构图和有氛围的光线，环境更丰富。适合横图。',
+    novel: '小说插画：挑当前楼层最有画面感的瞬间，电影感构图和有氛围的光线，环境更丰富。适合横图。想让同一幕的其他人也入镜，勾选下面的「允许画面里出现其他人物」。',
 };
 
 function optionLabel(preset) {
@@ -20,7 +21,7 @@ export function refreshParserPresetUi() {
         .html(settings.parserPresets.map(preset => `<option value="${escapeHtml(preset.id)}">${escapeHtml(optionLabel(preset))}</option>`).join(''))
         .val(active.id);
     document.querySelectorAll('#ctp_pp_editor [data-pp]').forEach(element => {
-        element.value = active[element.dataset.pp] ?? '';
+        writeInput(element, active[element.dataset.pp]);
     });
     const builtin = !!builtinParserPreset(active.id);
     $('#ctp_pp_delete').toggle(!builtin);
@@ -41,10 +42,10 @@ export function initParserPresetUi() {
     });
 
     document.querySelectorAll('#ctp_pp_editor [data-pp]').forEach(element => {
-        element.addEventListener('input', () => {
+        element.addEventListener(element.type === 'checkbox' ? 'change' : 'input', () => {
             const preset = activeParserPreset();
             const key = element.dataset.pp;
-            preset[key] = element.dataset.type === 'int' ? (parseInt(element.value, 10) || 0) : element.value;
+            preset[key] = readInput(element);
             saveSettings();
             if (key === 'name') $('#ctp_pp_select option:selected').text(optionLabel(preset));
         });

@@ -2,7 +2,7 @@ import { PARSED_FIELDS, STATE_FIELDS } from './constants.js';
 import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
 import { activeParserPreset, outputRules, parseFixedFields, promptMode } from './parserPresets.js';
-import { presetForName } from './targets.js';
+import { findUserPreset, presetForName, presetName, presetsMentioned } from './targets.js';
 import {
     ctx,
     errorMessage,
@@ -116,6 +116,25 @@ function referenceBlock(target, mode) {
     return blocks.join('\n');
 }
 
+/**
+ * Fixed looks of characters who may share the frame when the preset allows other people: the {{user}} and
+ * {{char}} presets and any preset named in the last two messages, except the target itself.
+ */
+function othersReference(mesId, target) {
+    if (target.auto) return '';
+    const chat = ctx().chat;
+    const text = [chat[mesId - 1], chat[mesId]].filter(Boolean).map(message => plainText(message.mes)).join('\n');
+    const seen = new Set([target.preset?.id]);
+    const lines = [];
+    for (const preset of [findUserPreset(), presetForName(ctx().name2), ...presetsMentioned(text)]) {
+        if (!preset?.appearance || seen.has(preset.id)) continue;
+        seen.add(preset.id);
+        lines.push(`- ${presetName(preset)}: ${truncate(resolveMacros(preset.appearance), 600)}`);
+        if (lines.length >= 4) break;
+    }
+    return lines.length ? `【可能同框的其他角色（画进 others 时照这些外貌写，不写名字）】\n${lines.join('\n')}` : '';
+}
+
 /** Entries the current story activates, via SillyTavern's own scan in dry-run mode (no events, no timed effects). */
 async function activatedWorldInfo(mesId) {
     const context = ctx();
@@ -190,6 +209,7 @@ export async function buildParserPrompt(mesId, target) {
     const settings = getSettings();
     const preset = activeParserPreset();
     const mode = promptMode();
+    const allowOthers = !!preset.allowOthers;
     const chat = ctx().chat;
     const depth = Math.max(0, Number(settings.parser.contextDepth) || 0);
     const maxChars = Number(settings.parser.maxCharsPerMessage) || 0;
@@ -212,9 +232,9 @@ export async function buildParserPrompt(mesId, target) {
 
     const vars = {
         target: target.auto ? '（由你从候选角色中选择）' : target.name,
-        appearance: referenceBlock(target, mode),
+        appearance: [referenceBlock(target, mode), allowOthers ? othersReference(mesId, target) : ''].filter(Boolean).join('\n'),
         fixed_fields: fixedFieldsBlock(preset),
-        output_rules: outputRules(mode),
+        output_rules: outputRules(mode, allowOthers),
         candidates,
         last_state: target.auto ? '（自动模式下不提供）' : formatState(lastState, shownFloors),
         prev_outputs: prevOutputs,
@@ -238,9 +258,9 @@ export async function buildParserPrompt(mesId, target) {
     if (vars.user_hints) userTemplate = ensureSlot(userTemplate, 'user_hints', ['请按要求']);
 
     // A custom system prompt without {{output_rules}} keeps its own output format in "fixed" mode; the
-    // "AI writes the prompt" mode needs the rules that ask for the `prompt` field, so they are appended.
+    // "AI writes the prompt" mode and "allow other people" need the rules that ask for `prompt` / `others`.
     let systemTemplate = String(preset.system || '');
-    if (mode === 'ai' && !systemTemplate.includes('{{output_rules}}')) systemTemplate += '\n\n{{output_rules}}';
+    if ((mode === 'ai' || allowOthers) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += '\n\n{{output_rules}}';
 
     return {
         system: fillTemplate(systemTemplate, vars).replace(/\n{3,}/g, '\n\n'),
@@ -248,7 +268,7 @@ export async function buildParserPrompt(mesId, target) {
         preset,
         mode,
         notes: [
-            `解析预设：${preset.name} · ${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}`,
+            `解析预设：${preset.name} · ${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`,
             worldInfo.note,
             records.length ? `参考了之前 ${records.length} 次配图输出` : '',
             hints.length ? `用户画图指令 ${hints.reduce((sum, item) => sum + item.hints.length, 0)} 条` : '',

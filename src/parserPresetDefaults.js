@@ -43,23 +43,52 @@ JSON 里先写三个分析字段，再根据它们写画面字段。这三个字
 - pending：正文里提到、但到画面时刻还没做或还没做完的事（准备、打算、即将要做的）；没有就写「无」
 画面字段必须和 now_doing、now_wearing 一致，pending 里的事一律不能画进画面。`;
 
-/** "Fixed appearance + AI details": the preset's appearance is added to the prompt by the extension. */
-export const OUTPUT_RULES_FIXED = `${TIMELINE_RULES}
+const APPEARANCE_FIXED = '外貌：目标角色的固定外貌（发型、发色、瞳色、五官、肤色、体型等）已由用户预设，会自动加进提示词，你不要描写、也不要改动这些内容。';
 
-外貌：目标角色的固定外貌（发型、发色、瞳色、五官、肤色、体型等）已由用户预设，会自动加进提示词，你不要描写、也不要改动这些内容。
+const APPEARANCE_AI = '外貌：【角色设定】是这个角色的固定外貌，必须完整、准确地写进 prompt（翻译成英文），不能遗漏或改动；没有角色设定时根据剧情合理描写。';
 
-输出格式：
-{"skip": false, "target": "目标角色名", "now_doing": "", "now_wearing": "", "pending": "", "outfit": "", "action": "", "expression": "", "demeanor": "", "scene": "", "camera": "", "lighting": ""}`;
+/** Only for presets that allow other people; overrides the "only the target" rule of the preset's own prompt. */
+const OTHERS_RULES = `其他人物：这个预设允许画面里出现其他人物，前面「画面中只有目标角色一个人 / 其他人物不要入镜」的要求在这里不适用：
+- 目标角色仍是画面主角；outfit、action、expression、demeanor 只写目标角色
+- 画面时刻和目标角色在同一个场景、参与这一幕的其他人物可以画进来，最多 3 人；不在场或和这一幕无关的人不要画
+- 把他们写进 others（英文，自然语言）：每人写外貌（性别、年龄感、发型发色、体型）、穿着、在画面中的位置、动作和表情，不写人名；【可能同框的其他角色】里给了外貌的人，照着那个外貌写
+- 没有其他人同框时，others 留空`;
 
-/** "AI writes the whole prompt": the appearance is handed to the model, which must work it into `prompt`. */
-export const OUTPUT_RULES_AI = `${TIMELINE_RULES}
+function promptRule(allowOthers) {
+    const order = allowOthers
+        ? '开头说明画面里有几个人、谁是主角；先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写场景、镜头构图、光线'
+        : '开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、场景、镜头构图、光线';
+    return `除了上面的字段，还要写 prompt：一段完整、流畅的英文画面描述（自然语言，适合 Krea 2）。${order}；【固定内容】里的字段必须原样体现。不要写人名，不要要求画面里出现文字。`;
+}
 
-外貌：【角色设定】是这个角色的固定外貌，必须完整、准确地写进 prompt（翻译成英文），不能遗漏或改动；没有角色设定时根据剧情合理描写。
+function outputFormat(mode, allowOthers) {
+    const fields = [
+        '"skip": false', '"target": "目标角色名"', '"now_doing": ""', '"now_wearing": ""', '"pending": ""',
+        '"outfit": ""', '"action": ""', '"expression": ""', '"demeanor": ""', '"scene": ""', '"camera": ""', '"lighting": ""',
+    ];
+    if (allowOthers) fields.push('"others": ""');
+    if (mode === 'ai') fields.push('"prompt": "完整的英文提示词"');
+    return `输出格式：\n{${fields.join(', ')}}`;
+}
 
-除了上面的字段，还要写 prompt：一段完整、流畅的英文画面描述（自然语言，适合 Krea 2）。开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、场景、镜头构图、光线；【固定内容】里的字段必须原样体现。不要写人名，不要要求画面里出现文字。
+/**
+ * The rules that replace {{output_rules}} in a preset's system prompt.
+ * - mode "fixed": the preset's appearance is added to the prompt by the extension.
+ * - mode "ai": the appearance is handed to the model, which must work it into `prompt`.
+ * - allowOthers: other people in the scene may be drawn too (field `others`).
+ */
+export function buildOutputRules(mode, allowOthers = false) {
+    return [
+        TIMELINE_RULES,
+        mode === 'ai' ? APPEARANCE_AI : APPEARANCE_FIXED,
+        allowOthers ? OTHERS_RULES : '',
+        mode === 'ai' ? promptRule(allowOthers) : '',
+        outputFormat(mode, allowOthers),
+    ].filter(Boolean).join('\n\n');
+}
 
-输出格式：
-{"skip": false, "target": "目标角色名", "now_doing": "", "now_wearing": "", "pending": "", "outfit": "", "action": "", "expression": "", "demeanor": "", "scene": "", "camera": "", "lighting": "", "prompt": "完整的英文提示词"}`;
+export const OUTPUT_RULES_FIXED = buildOutputRules('fixed');
+export const OUTPUT_RULES_AI = buildOutputRules('ai');
 
 const STORY_SYSTEM = `你是「角色状态解析器」。你的输出会被拼进文生图模型（Krea 2，擅长理解英文自然语言描述）的提示词里。
 
@@ -143,11 +172,12 @@ const NOVEL_SYSTEM = `你是「小说插画分镜师」。你的输出会被拼�
  * @property {string} prefix Extra words placed after the global style prefix
  * @property {number} width Resolution override (0 = global setting)
  * @property {number} height
+ * @property {boolean} [allowOthers] Other people in the scene may be drawn too (field `others`)
  */
 
 /** @type {ParserPreset[]} */
 export const BUILTIN_PARSER_PRESETS = [
-    { id: 'story', name: '剧情状态（默认）', system: STORY_SYSTEM, user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: '', width: 0, height: 0 },
-    { id: 'sprite', name: '立绘模式', system: SPRITE_SYSTEM, user: PARSER_USER_TEMPLATE, fixedFields: SPRITE_FIXED, prefix: '', width: 0, height: 0 },
-    { id: 'novel', name: '小说插画模式', system: NOVEL_SYSTEM, user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: 'A narrative story illustration with cinematic composition.', width: 0, height: 0 },
+    { id: 'story', name: '剧情状态（默认）', system: STORY_SYSTEM, user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: '', width: 0, height: 0, allowOthers: false },
+    { id: 'sprite', name: '立绘模式', system: SPRITE_SYSTEM, user: PARSER_USER_TEMPLATE, fixedFields: SPRITE_FIXED, prefix: '', width: 0, height: 0, allowOthers: false },
+    { id: 'novel', name: '小说插画模式', system: NOVEL_SYSTEM, user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: 'A narrative story illustration with cinematic composition.', width: 0, height: 0, allowOthers: false },
 ];

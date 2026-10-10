@@ -80,6 +80,13 @@ function isUserPreset(preset) {
     return boundPersonas(preset).length > 0 || String(preset?.name || '').trim().toLowerCase() === '{{user}}';
 }
 
+/** Character presets whose name or an alias appears in the text ({{user}} presets are found via the persona). */
+export function presetsMentioned(text) {
+    const haystack = String(text || '').toLowerCase();
+    if (!haystack) return [];
+    return getSettings().presets.filter(preset => !isUserPreset(preset) && presetNames(preset).some(name => haystack.includes(name)));
+}
+
 /** Name → preset, routing the user's own name through the persona binding. */
 export function presetForName(name) {
     const user = String(ctx().name1 || '').trim().toLowerCase();

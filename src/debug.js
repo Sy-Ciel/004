@@ -12,6 +12,7 @@ const FIELD_LABELS = {
     scene: '场景',
     camera: '镜头',
     lighting: '光线',
+    others: '其他人物',
 };
 
 const STATE_LABELS = {

@@ -576,6 +576,59 @@ async function loadBuiltinIntoEditor() {
     }
 }
 
+/* ---------------- collapsible groups ---------------- */
+
+const OPEN_SECTIONS_KEY = 'ctp_open_sections';
+
+function subIcon(sub) {
+    return sub.querySelector(':scope > .inline-drawer-header .inline-drawer-icon');
+}
+
+function setSubOpen(sub, open) {
+    const icon = subIcon(sub);
+    icon?.classList.toggle('up', open);
+    icon?.classList.toggle('fa-circle-chevron-up', open);
+    icon?.classList.toggle('down', !open);
+    icon?.classList.toggle('fa-circle-chevron-down', !open);
+    const content = sub.querySelector(':scope > .inline-drawer-content');
+    if (content) content.style.display = open ? 'block' : 'none';
+}
+
+/** Remembers which groups are open in this browser only (a viewing preference, not a setting). */
+function saveOpenSections(root) {
+    const open = [...root.querySelectorAll('.ctp-sub')]
+        .filter(sub => subIcon(sub)?.classList.contains('up'))
+        .map(sub => sub.dataset.sub);
+    try {
+        localStorage.setItem(OPEN_SECTIONS_KEY, JSON.stringify(open));
+    } catch {
+        // Storage unavailable (private window, blocked site data): groups just start closed next time.
+    }
+}
+
+function initSubSections(root) {
+    let open = [];
+    try {
+        open = JSON.parse(localStorage.getItem(OPEN_SECTIONS_KEY) || '[]');
+    } catch {
+        open = [];
+    }
+    const subs = [...root.querySelectorAll('.ctp-sub')];
+    for (const sub of subs) {
+        if (Array.isArray(open) && open.includes(sub.dataset.sub)) setSubOpen(sub, true);
+        // SillyTavern's drawer handler flips the icon, then fires this (jQuery) event.
+        $(sub).on('inline-drawer-toggle', event => {
+            if (event.target === sub) saveOpenSections(root);
+        });
+    }
+    const setAll = value => {
+        subs.forEach(sub => setSubOpen(sub, value));
+        saveOpenSections(root);
+    };
+    $('#ctp_expand_all').on('click', () => setAll(true));
+    $('#ctp_collapse_all').on('click', () => setAll(false));
+}
+
 /* ---------------- debug / maintenance ---------------- */
 
 async function clearChatData() {
@@ -608,6 +661,7 @@ export async function initSettingsUi() {
 
     bindSettings(root);
     bindPickers(root);
+    initSubSections(root);
     initParserPresetUi();
     initResolution();
     updateMegapixels();

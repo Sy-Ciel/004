@@ -45,6 +45,7 @@ function promptFromParse(characterPreset, parsed, parserPrompt, notes) {
     if (parserPrompt.mode === 'ai' && !final.prompt) {
         notes.push('解析模型没有返回 prompt 字段，已改用「固定外貌 + AI 补充」的模板拼接');
     }
+    if (parserPrompt.preset?.allowOthers && final.others) notes.push('画面里有其他人物（others）');
     return {
         parsed: final,
         prompt: buildImagePrompt(characterPreset, final, { parserPreset: parserPrompt.preset, mode: parserPrompt.mode }),
