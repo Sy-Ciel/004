@@ -1,4 +1,4 @@
-import { EMPTY_LISTS } from './constants.js';
+import { EMPTY_LISTS, KREA2_REFINE_INSTRUCTIONS } from './constants.js';
 import { ctx, errorMessage, getSettings, sleep, truncate, withTimeout } from './utils.js';
 
 const BUILTIN_WORKFLOW_URL = new URL('../workflows/krea2_turbo_t2i_lora_api.json', import.meta.url);
@@ -20,9 +20,58 @@ export async function loadBuiltinWorkflow() {
 export async function getWorkflowTemplate(comfy = getSettings().comfy, profile = null) {
     if (comfy.workflowSource === 'custom' && comfy.workflow.trim()) {
         const own = profile && String(profile.workflow ?? '').trim();
-        return { name: own ? `渲染配置「${profile.name}」的工作流` : '自定义工作流', text: comfy.workflow };
+        return { name: own ? `渲染配置「${profile.name}」的工作流` : '自定义工作流', text: comfy.workflow, refine: false };
     }
-    return { name: '内置 Krea 2 Turbo 文生图 + LoRA', text: await loadBuiltinWorkflow() };
+    const text = await loadBuiltinWorkflow();
+    if (!comfy.refinePrompt) return { name: '内置 Krea 2 Turbo 文生图 + LoRA', text, refine: false };
+    const workflow = addPromptRefine(JSON.parse(text));
+    return { name: '内置 Krea 2 Turbo 文生图 + LoRA + 提示词扩写', text: JSON.stringify(workflow), refine: true };
+}
+
+/**
+ * Adds the official Krea 2 Turbo template's "Refine Prompt?" step: the instructions plus the prompt go to
+ * TextGenerate (the Qwen3-VL text encoder writing an expanded prompt, same sampling settings as the template),
+ * and its output is what gets encoded. PreviewAny keeps the rewritten text in ComfyUI's history.
+ */
+export function addPromptRefine(workflow) {
+    const found = Object.entries(workflow).find(([, node]) => node?.class_type === 'CLIPTextEncode' && node.inputs?.text === '%prompt%');
+    if (!found) return workflow;
+    const [, encode] = found;
+    const used = new Set(Object.keys(workflow));
+    const nextId = () => {
+        let id = 100;
+        while (used.has(String(id))) id++;
+        used.add(String(id));
+        return String(id);
+    };
+    const concat = nextId();
+    const generate = nextId();
+    const preview = nextId();
+    workflow[concat] = {
+        class_type: 'StringConcatenate',
+        inputs: { string_a: KREA2_REFINE_INSTRUCTIONS, string_b: '%prompt%', delimiter: '' },
+        _meta: { title: '扩写说明 + 提示词' },
+    };
+    workflow[generate] = {
+        class_type: 'TextGenerate',
+        inputs: {
+            clip: encode.inputs.clip,
+            prompt: [concat, 0],
+            max_length: 512,
+            sampling_mode: 'on',
+            'sampling_mode.temperature': 0.7,
+            'sampling_mode.top_k': 64,
+            'sampling_mode.top_p': 0.95,
+            'sampling_mode.min_p': 0.05,
+            'sampling_mode.repetition_penalty': 1.05,
+            'sampling_mode.seed': 0,
+            thinking: false,
+        },
+        _meta: { title: '提示词扩写（Qwen3-VL）' },
+    };
+    workflow[preview] = { class_type: 'PreviewAny', inputs: { source: [generate, 0] }, _meta: { title: '扩写后的提示词' } };
+    encode.inputs.text = [generate, 0];
+    return workflow;
 }
 
 /** Parses a workflow in ComfyUI API format, rejecting the UI ("nodes"/"links") format with a helpful message. */
@@ -287,7 +336,9 @@ async function generateDirect(workflow, signal, onStatus) {
         if (!view.ok) throw new Error(`下载 ComfyUI 图片失败 (${view.status})`);
         const blob = await view.blob();
         const format = (image.filename.split('.').pop() || 'png').toLowerCase();
-        return { format, data: await blobToBase64(blob) };
+        // Text outputs, e.g. the prompt rewritten by the "refine" step (PreviewAny).
+        const texts = Object.values(item.outputs || {}).flatMap(output => output.text || []).map(String);
+        return { format, data: await blobToBase64(blob), texts };
     } finally {
         signal.removeEventListener('abort', interrupt);
     }
@@ -295,7 +346,7 @@ async function generateDirect(workflow, signal, onStatus) {
 
 /**
  * Queues a workflow and waits for the first output image.
- * @returns {Promise<{format: string, data: string}>} base64 image
+ * @returns {Promise<{format: string, data: string, texts?: string[]}>} base64 image, plus text outputs in direct mode
  */
 export async function runWorkflow(workflow, parentSignal, onStatus) {
     const { comfy } = getSettings();

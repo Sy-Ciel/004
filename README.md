@@ -350,6 +350,14 @@ Setting: {{scene}}.
 
 ## 常见问题
 
+- **同一段提示词，放进 ComfyUI 官方 Krea 2 Turbo 模板出的图和这里不一样**：主要原因是官方模板默认开着「Refine Prompt（提示词扩写）」——
+  它先让文本编码器（Qwen3-VL）按模板自带的一段说明把你的提示词扩写成一段更长的描述，再用扩写后的文字出图；扩展的内置工作流默认不扩写。
+  其余部分（UNETLoader、CLIPLoader `krea2`、EmptyLatentImage、KSampler 8 步 / CFG 1 / euler / simple、空负向）和官方模板一致。
+  想要一样的效果：
+  - 「ComfyUI 连接」里勾选「ComfyUI 端提示词扩写」：内置工作流加上和官方模板相同的扩写步骤（同样的说明、max_length 512、temperature 0.7 等参数）。需要较新的 ComfyUI（有 TextGenerate 节点），每张图多花几秒；「浏览器直连」模式下，🐞 调试弹窗会显示「ComfyUI 扩写后的提示词」
+  - 「出图参数」里的「恢复为官方 Krea 2 Turbo 模板的设置」：一键把工作流、模型、风格 LoRA、分辨率（1024×1024）、采样（8 步、CFG 1、euler / simple）、提示词扩写恢复成官方默认值；ComfyUI 地址、连接方式、渲染配置、角色预设不变
+  - 另外几处也会让图不同：种子（默认每次随机，🐞「③ ComfyUI 参数」里能看到这张图的种子，填进 ComfyUI 才能复现同一张）、角色预设的角色 LoRA 和触发词、风格 LoRA、渲染配置换掉的模型、分辨率。官方模板开 LoRA 时把触发词加在提示词末尾，扩展加在最前面
+
 - **代理模式报错只有一句 “ComfyUI returned an error.”**：这是酒馆后端代理的限制。临时切到「浏览器直连」（ComfyUI 用 `--enable-cors-header` 启动）可以看到具体是哪个节点、什么错误
 - **「从 ComfyUI 读取列表」只读到部分列表**：酒馆后端只提供扩散模型、VAE、采样器、调度器的列表，没有 LoRA 和文本编码器的接口；
   这两个列表要由浏览器直接访问 ComfyUI 的 `/object_info` 读取。做法：ComfyUI 加启动参数 `--listen --enable-cors-header`，

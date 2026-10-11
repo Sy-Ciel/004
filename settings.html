@@ -362,6 +362,8 @@
                         </div>
                         <small class="ctp-hint">占位符：%prompt% %negative_prompt% %width% %height% %seed% %steps% %cfg% %sampler% %scheduler% %unet% %clip% %vae% %lora% %lora_strength% %char_lora% %char_lora_strength% %filename_prefix%。LoRA 名为空的 LoRA 节点自动旁路；没有 %prompt% 时尝试自动注入。</small>
                     </div>
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="comfy.refinePrompt"> ComfyUI 端提示词扩写（官方 Krea 2 Turbo 模板默认开启）</label>
+                    <small class="ctp-hint">ComfyUI 官方模板默认会先让文本编码器（Qwen3-VL）按它自带的说明把提示词扩写一遍，再用扩写后的文字出图，所以同一段提示词放进官方模板和这里出的图不一样。打开这一项，内置工作流就加上同样的扩写步骤（同样的说明和参数）。只对内置工作流有效；需要较新的 ComfyUI（有 TextGenerate 节点）；每张图会多花几秒。「浏览器直连」模式下可以在 🐞 调试里看到扩写后的文字。</small>
                     <a class="ctp-link" id="ctp_workflow_ui_link" target="_blank" download>下载 UI 版工作流（拖进 ComfyUI 检查模型）</a>
                 </div>
             </div>
@@ -373,6 +375,10 @@
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
+                    <div class="ctp-row">
+                        <div class="menu_button" id="ctp_reset_official">恢复为官方 Krea 2 Turbo 模板的设置</div>
+                    </div>
+                    <small class="ctp-hint">把工作流、模型、风格 LoRA、分辨率、采样、提示词扩写恢复成 ComfyUI 官方模板的默认值，方便和官方模板出的图对比。</small>
                     <h4>模型</h4>
                     <div class="ctp-row">
                         <div class="menu_button" id="ctp_comfy_models">从 ComfyUI 读取列表</div>

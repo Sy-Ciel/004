@@ -2,6 +2,7 @@ import { fetchModelLists, loadBuiltinWorkflow, parseWorkflow, prepareWorkflow, t
 import {
     DEFAULT_SETTINGS,
     EXTRA_KEY,
+    OFFICIAL_KREA2_TURBO,
     RESOLUTION_PRESETS,
     TARGET_AUTO,
     TARGET_CHAR,
@@ -627,6 +628,21 @@ function validateWorkflow(text = getSettings().comfy.workflow) {
     }
 }
 
+async function resetToOfficial() {
+    const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
+    const confirmed = await callGenericPopup(
+        '恢复为 ComfyUI 官方 Krea 2 Turbo 模板的设置？<br>内置工作流、官方模型文件、不用风格 LoRA、1024×1024、8 步、CFG 1、euler / simple、随机种子、开启 ComfyUI 端提示词扩写。<br>ComfyUI 地址、连接方式、渲染配置、角色预设（角色 LoRA、触发词）不变。',
+        POPUP_TYPE.CONFIRM);
+    if (confirmed !== POPUP_RESULT.AFFIRMATIVE) return;
+    Object.assign(getSettings().comfy, structuredClone(OFFICIAL_KREA2_TURBO));
+    saveSettings();
+    syncSettingsUi();
+    syncResolutionSelect();
+    updateMegapixels();
+    updateWorkflowVisibility();
+    toastr.success('已恢复为官方 Krea 2 Turbo 模板的设置');
+}
+
 async function loadBuiltinIntoEditor() {
     try {
         const text = await loadBuiltinWorkflow();
@@ -751,6 +767,7 @@ export async function initSettingsUi() {
     $('#ctp_workflow_validate').on('click', () => validateWorkflow());
     $('#ctp_status_preview').on('click', previewStatusInstruction);
     $('#ctp_workflow_load_builtin').on('click', loadBuiltinIntoEditor);
+    $('#ctp_reset_official').on('click', resetToOfficial);
     $('#ctp_debug_chat').on('click', showChatDebug);
     $('#ctp_debug_preview').on('click', showParserPreview);
     $('#ctp_debug_dry').on('click', showDryRun);

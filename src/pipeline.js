@@ -264,8 +264,14 @@ async function runJob(message, job, options) {
         const template = await getWorkflowTemplate(comfy, profile);
         const { workflow, notes } = prepareWorkflow(template.text, values);
         data.debug.notes.push(...notes);
+        if (template.refine) {
+            data.debug.notes.push(comfy.mode === 'direct'
+                ? 'ComfyUI 端提示词扩写已开启：实际用来出图的是扩写后的文字（见下方）'
+                : 'ComfyUI 端提示词扩写已开启：实际用来出图的是扩写后的文字（「酒馆后端代理」模式拿不到扩写结果，切到「浏览器直连」可以在调试里看到）');
+        }
         data.params = {
             renderProfile: profile?.name || '',
+            refine: !!template.refine,
             workflow: template.name,
             seed,
             width,
@@ -286,6 +292,7 @@ async function runJob(message, job, options) {
         const started = performance.now();
         const image = await runWorkflow(workflow, signal, text => setStage(job, message, 'drawing', text));
         data.comfyMs = Math.round(performance.now() - started);
+        data.refinedPrompt = template.refine && image.texts?.length ? truncate(image.texts.join('\n'), 4000) : '';
 
         let src;
         let path = '';
@@ -298,7 +305,7 @@ async function runJob(message, job, options) {
             data.debug.notes.push(`${error.message}，图片改为 base64 内嵌在聊天记录中`);
         }
 
-        data.images.push({ src, path, seed, width, height, prompt: data.prompt, negative: data.negative || '', time: Date.now() });
+        data.images.push({ src, path, seed, width, height, prompt: data.prompt, negative: data.negative || '', refined: data.refinedPrompt || undefined, time: Date.now() });
         const maxVersions = Math.max(1, Number(settings.maxVersions) || 10);
         while (data.images.length > maxVersions) data.images.shift();
         data.index = data.images.length - 1;

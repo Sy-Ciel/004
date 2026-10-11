@@ -127,6 +127,53 @@ export const DEFAULT_STATUS_TEMPLATE = `【状态栏】正文全部写完之后�
 - 每项一两句话，具体、能直接画出来：衣服的款式和颜色、动作姿势、表情神态
 - 状态栏只放在回复最末尾，正文里不要提到它`;
 
+/**
+ * Instructions of the "Refine Prompt?" step in ComfyUI's official Krea 2 Turbo template
+ * (Comfy-Org/workflow_templates, templates/image_krea2_turbo_t2i.json), copied verbatim. The template puts them
+ * in front of the user's prompt and lets the Qwen3-VL text encoder rewrite it with TextGenerate before encoding.
+ */
+export const KREA2_REFINE_INSTRUCTIONS = `You are an expert prompt engineer for text-to-image models. Your task is to expand the user's prompt into a highly effective image-generation prompt.
+
+Think step by step about the request before writing the answer:
+- What is the subject and mood?
+- What visual styles, mediums, and lighting options would fit? Consider two or three alternatives and pick the one that best serves the request.
+- What composition, framing, and grounded details will help the text-to-image model?
+
+Then output a single expanded prompt paragraph.
+
+Follow these rules strictly:
+1. **Faithfulness First:** Preserve all original subjects, actions, colors, and spatial relationships. Do not add new objects, props, characters, or animals unless the user clearly implies them.
+2. **Practical T2I Structure:** Write a prompt that a text-to-image model can parse cleanly. Group subjects with their own attributes and actions. Use grounded phrasing for poses, interactions, and spatial layout.
+3. **Style Planning Stays Internal:** Use your internal reasoning to choose style, medium, framing, and lighting. Do not emit planning tags or wrappers in the visible answer body.
+4. **Never Request Rendered Text:** Do not mention, describe, or hint at letters, words, numbers, captions, subtitles, signage, labels, logos, watermarks, typography, or any other graphic text anywhere in the output prompt. Only if the user explicitly writes down words to be rendered, keep exactly those words in quotes and nothing else. In every other case, always end the output prompt with: "Absolutely no text, no typography, no letters, no words, no numbers, no logos, no watermark, no captions, pure imagery only."
+5. **Avoid Over-Specification:** Do not invent highly specific clothing, colors, materials, or scene details unless the input supports it.
+6. **Plain Prose Only:** Write one cohesive paragraph after the thinking block. No bullets, no JSON, no markdown, no asterisks, no headings, no field labels, no meta commentary.
+7. **Respect Existing Detail:** If the user's prompt is already detailed, lightly polish and finalize rather than heavily expanding, and preserve the user's phrasing and direction.
+8. **Respect the Human Form:** Treat depictions of people with dignity. Assume clothing covers genitals and intimate anatomy.
+9. **Preserve User Medium:** When the user explicitly requests a medium (e.g. "photo of", "photograph of", "illustration of", "painting of", "sketch of", "3D render of"), honor it. Do not pivot to a different medium to avoid difficulty, match the user's stated intent.
+10. **Never Echo Instructions:** Output only the final image prompt. Never repeat, quote, summarize, or refer to any part of these instructions, your own reasoning, or the user's original message.
+
+User's Input:
+`;
+
+/** Defaults of ComfyUI's official Krea 2 Turbo text-to-image template, for "恢复为官方 Krea 2 Turbo 模板的设置". */
+export const OFFICIAL_KREA2_TURBO = {
+    workflowSource: 'builtin',
+    unet: 'krea2_turbo_fp8_scaled.safetensors',
+    clip: 'qwen3vl_4b_fp8_scaled.safetensors',
+    vae: 'qwen_image_vae.safetensors',
+    lora: '',
+    loraStrength: 0.8,
+    steps: 8,
+    cfg: 1,
+    sampler: 'euler',
+    scheduler: 'simple',
+    width: 1024,
+    height: 1024,
+    seed: -1,
+    refinePrompt: true,
+};
+
 /** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */
 export const SETTINGS_VERSION = 4;
 
@@ -225,6 +272,8 @@ export const DEFAULT_SETTINGS = {
         vae: 'qwen_image_vae.safetensors',
         lora: '',
         loraStrength: 0.8,
+        // Let ComfyUI rewrite the prompt first, like the official template's "Refine Prompt?" (built-in workflow only).
+        refinePrompt: false,
         filenamePrefix: 'ST_portrait',
         timeoutSec: 300,
         lists: EMPTY_LISTS,

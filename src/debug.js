@@ -98,6 +98,7 @@ export async function showFloorDebug(mesId) {
     ])}
         ${data.debug?.notes?.length ? block('处理备注', data.debug.notes.join('\n'), { copy: false }) : ''}
         ${image ? block('当前图片使用的正向提示词', image.prompt) : block('最终正向提示词', data.prompt)}
+        ${block('ComfyUI 扩写后的提示词（实际用来出图的）', image ? image.refined : data.refinedPrompt)}
         ${block('反向提示词', image?.negative ?? data.negative)}
         <h4>① 固定部分（角色预设）</h4>
         ${table([['外貌', data.fixed?.appearance || '（空）'], ['触发词', data.fixed?.trigger]])}
@@ -113,6 +114,7 @@ export async function showFloorDebug(mesId) {
         <h4>③ ComfyUI 参数</h4>
         ${table([
         ['渲染配置', data.params ? params.renderProfile || '默认（ComfyUI 设置）' : ''],
+        ['提示词扩写', params.refine ? 'ComfyUI 端扩写（和官方模板的 Refine Prompt 一样）' : ''],
         ['工作流', params.workflow],
         ['种子', image?.seed ?? params.seed],
         ['分辨率', image ? `${image.width} × ${image.height}` : (params.width ? `${params.width} × ${params.height}` : '')],
