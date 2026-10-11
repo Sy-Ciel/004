@@ -507,3 +507,41 @@
     font-size: 0.9em;
     text-align: left;
 }
+
+/* ---------- edit prompt dialog ---------- */
+.ctp-edit {
+    text-align: left;
+}
+
+.ctp-edit textarea {
+    width: 100%;
+    resize: vertical;
+}
+
+.ctp-edit label {
+    display: block;
+    margin: 4px 0;
+}
+
+.ctp-edit label.checkbox_label {
+    display: flex;
+}
+
+.ctp-edit .ctp-row {
+    display: flex;
+    gap: 6px;
+}
+
+.ctp-edit .ctp-row > label {
+    flex: 1;
+}
+
+.ctp-edit .ctp-hint {
+    display: block;
+    opacity: 0.7;
+    margin: 2px 0 6px;
+}
+
+.ctp-edit .ctp-edit-extras {
+    margin: 6px 0;
+}

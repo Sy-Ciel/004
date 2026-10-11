@@ -378,7 +378,7 @@
                     <div class="ctp-row">
                         <div class="menu_button" id="ctp_reset_official">恢复为官方 Krea 2 Turbo 模板的设置</div>
                     </div>
-                    <small class="ctp-hint">把工作流、模型、风格 LoRA、分辨率、采样、提示词扩写恢复成 ComfyUI 官方模板的默认值，方便和官方模板出的图对比。</small>
+                    <small class="ctp-hint">把工作流、模型、风格 LoRA、分辨率、采样恢复成 ComfyUI 官方模板的默认值，方便和官方模板出的图对比；提示词扩写保持关闭。</small>
                     <h4>模型</h4>
                     <div class="ctp-row">
                         <div class="menu_button" id="ctp_comfy_models">从 ComfyUI 读取列表</div>
@@ -467,7 +467,7 @@
             <!-- ============ 调试与维护 ============ -->
             <div class="inline-drawer ctp-sub" data-sub="debug">
                 <div class="inline-drawer-toggle inline-drawer-header">
-                    <span><b>调试与维护</b> <small>预览解析输入 · 试运行 · 清除数据</small></span>
+                    <span><b>调试与维护</b> <small>预览解析输入 · 试运行 · 清除数据 · 全部恢复默认值</small></span>
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
@@ -476,7 +476,9 @@
                         <div class="menu_button" id="ctp_debug_preview">预览解析输入</div>
                         <div class="menu_button" id="ctp_debug_dry">试运行解析（不出图）</div>
                         <div class="menu_button redWarningBG" id="ctp_clear_chat">清除本聊天配图数据</div>
+                        <div class="menu_button redWarningBG" id="ctp_reset_all">全部恢复默认值</div>
                     </div>
+                    <small class="ctp-hint">「全部恢复默认值」把扩展的所有设置恢复成刚安装时的样子，可以选择保留角色预设、渲染配置和 API / ComfyUI 的连接信息；聊天里的图片不受影响。</small>
                     <small class="ctp-hint">斜杠命令：/ctimg [target=名字] [at=楼层] [prompt=提示词] · /ctimg-target 名字|user|char|auto · /ctimg-preset 预设名 · /ctimg-mode fixed|ai · /ctimg-debug on|off</small>
                 </div>
             </div>

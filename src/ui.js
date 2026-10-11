@@ -17,6 +17,7 @@ import { initRenderProfileUi, refreshRenderProfileUi, refreshRenderProfileUsage 
 import { renderProfileFor, sanitizeRenderProfile } from './renderProfiles.js';
 import { buildStatusInstruction, updateStatusPrompt } from './statusBar.js';
 import { callParser, parseExtraBody } from './parser.js';
+import { builtinParserPreset } from './parserPresets.js';
 import { enqueue } from './pipeline.js';
 import { renderAll } from './render.js';
 import { currentPersona, findUserPreset, personaList, presetName, resolveUserPreset } from './targets.js';
@@ -631,7 +632,7 @@ function validateWorkflow(text = getSettings().comfy.workflow) {
 async function resetToOfficial() {
     const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
     const confirmed = await callGenericPopup(
-        '恢复为 ComfyUI 官方 Krea 2 Turbo 模板的设置？<br>内置工作流、官方模型文件、不用风格 LoRA、1024×1024、8 步、CFG 1、euler / simple、随机种子、开启 ComfyUI 端提示词扩写。<br>ComfyUI 地址、连接方式、渲染配置、角色预设（角色 LoRA、触发词）不变。',
+        '恢复为 ComfyUI 官方 Krea 2 Turbo 模板的设置？<br>内置工作流、官方模型文件、不用风格 LoRA、1024×1024、8 步、CFG 1、euler / simple、随机种子，关闭 ComfyUI 端提示词扩写（官方模板默认开着扩写，需要时自己勾选）。<br>ComfyUI 地址、连接方式、渲染配置、角色预设（角色 LoRA、触发词）不变。',
         POPUP_TYPE.CONFIRM);
     if (confirmed !== POPUP_RESULT.AFFIRMATIVE) return;
     Object.assign(getSettings().comfy, structuredClone(OFFICIAL_KREA2_TURBO));
@@ -653,6 +654,57 @@ async function loadBuiltinIntoEditor() {
     } catch (error) {
         toastr.error(errorMessage(error));
     }
+}
+
+/* ---------------- reset everything ---------------- */
+
+const KEEP_PARSER = ['source', 'customUrl', 'customKey', 'customModel', 'extraBody', 'models', 'profileId'];
+const KEEP_COMFY = ['url', 'browserUrl', 'mode', 'lists'];
+
+/** Puts every setting back to its default, optionally keeping the user's presets and connection details. */
+async function resetAllSettings() {
+    const root = document.createElement('div');
+    root.innerHTML = `
+        <h3>全部恢复默认值</h3>
+        <p>把这个扩展的所有设置恢复成刚安装时的样子。聊天里已经生成的图片和配图记录不受影响。</p>
+        <label class="checkbox_label"><input type="checkbox" data-keep="presets" checked> 保留角色预设、人设绑定、渲染配置和自己建的配图风格</label>
+        <label class="checkbox_label"><input type="checkbox" data-keep="parser" checked> 保留解析模型的 API 地址、Key、模型和连接配置</label>
+        <label class="checkbox_label"><input type="checkbox" data-keep="comfy" checked> 保留 ComfyUI 地址、连接方式和已读取的模型列表</label>
+        <small class="ctp-hint">三项都不勾 = 完全恢复成刚安装的样子，角色预设和 API Key 也会清掉；建议先在「角色预设」里导出备份。</small>`;
+    const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
+    const result = await callGenericPopup(root, POPUP_TYPE.CONFIRM, '', { okButton: '恢复默认值', cancelButton: '取消' });
+    if (result !== POPUP_RESULT.AFFIRMATIVE) return;
+    const keep = name => root.querySelector(`[data-keep="${name}"]`).checked;
+
+    const settings = getSettings();
+    const fresh = structuredClone(DEFAULT_SETTINGS);
+    if (keep('presets')) {
+        fresh.presets = settings.presets;
+        fresh.renderProfiles = settings.renderProfiles;
+        fresh.userFallbackPresetId = settings.userFallbackPresetId;
+        // Built-in styles go back to their default text; the user's own styles stay.
+        fresh.parserPresets.push(...settings.parserPresets.filter(preset => !builtinParserPreset(preset.id)));
+    }
+    if (keep('parser')) for (const key of KEEP_PARSER) fresh.parser[key] = settings.parser[key];
+    if (keep('comfy')) for (const key of KEEP_COMFY) fresh.comfy[key] = settings.comfy[key];
+    // Same object, new contents: other modules read it through getSettings().
+    for (const key of Object.keys(settings)) delete settings[key];
+    Object.assign(settings, fresh);
+    saveSettings();
+
+    selectedPresetId = null;
+    syncSettingsUi();
+    refreshPresetSelect();
+    syncResolutionSelect();
+    updateMegapixels();
+    updateSourceVisibility();
+    updateWorkflowVisibility();
+    updateSideOptionsVisibility();
+    validateExtraBody();
+    $('#ctp_lists_status').text(listsSummary());
+    updateStatusPrompt();
+    renderAll();
+    toastr.success('已全部恢复默认值');
 }
 
 /* ---------------- collapsible groups ---------------- */
@@ -768,6 +820,7 @@ export async function initSettingsUi() {
     $('#ctp_status_preview').on('click', previewStatusInstruction);
     $('#ctp_workflow_load_builtin').on('click', loadBuiltinIntoEditor);
     $('#ctp_reset_official').on('click', resetToOfficial);
+    $('#ctp_reset_all').on('click', resetAllSettings);
     $('#ctp_debug_chat').on('click', showChatDebug);
     $('#ctp_debug_preview').on('click', showParserPreview);
     $('#ctp_debug_dry').on('click', showDryRun);

@@ -135,6 +135,50 @@ export function enqueue(mesId, options = {}) {
     return queue;
 }
 
+/**
+ * What a floor will be drawn with: its character preset, that preset's render profile, the resulting ComfyUI
+ * settings, size and LoRAs. `overrides` come from the edit dialog: seed, size, and whether to use the character
+ * LoRA, the style LoRA, the render profile and the ComfyUI-side refine step.
+ */
+export function renderPlan(data, overrides = null) {
+    // presetId null = the target had no preset (e.g. a persona without one). Matching by name here would pick up
+    // the {{user}} preset, whose name resolves to any persona. Only floors from older versions lack the id.
+    const preset = data?.presetId === null ? null : findPresetById(data?.presetId) ?? presetForName(data?.target);
+    const boundProfile = renderProfileFor(preset);
+    const profile = overrides?.profile === false ? null : boundProfile;
+    let comfy = effectiveComfy(profile);
+    if (typeof overrides?.refine === 'boolean') comfy = { ...comfy, refinePrompt: overrides.refine };
+    // Resolution: the edit dialog, else the parser preset this floor was parsed with, else the global size.
+    const presetSize = presetResolution(findParserPreset(data?.parserPresetId) ?? activeParserPreset());
+    const width = roundTo16(overrides?.width || presetSize?.width || comfy.width, 832);
+    const height = roundTo16(overrides?.height || presetSize?.height || comfy.height, 1216);
+    return {
+        preset,
+        profile,
+        boundProfile,
+        comfy,
+        width,
+        height,
+        sizeFromPreset: !overrides?.width && !!presetSize,
+        charLora: overrides?.charLora === false ? '' : preset?.lora || '',
+        charLoraStrength: Number(preset?.loraStrength) || 0,
+        styleLora: overrides?.styleLora === false ? '' : comfy.lora || '',
+        styleLoraStrength: Number(comfy.loraStrength) || 0,
+    };
+}
+
+function describeOverrides(overrides) {
+    const parts = [];
+    if (Number.isFinite(overrides.seed)) parts.push(`种子 ${overrides.seed}`);
+    if (overrides.width && overrides.height) parts.push(`${overrides.width}×${overrides.height}`);
+    if (overrides.charLora === false) parts.push('不加角色 LoRA');
+    if (overrides.styleLora === false) parts.push('不加风格 LoRA');
+    if (overrides.profile === false) parts.push('不用渲染配置');
+    if (overrides.refine === false) parts.push('不扩写');
+    if (overrides.refine === true) parts.push('ComfyUI 端扩写');
+    return parts.length ? `按编辑窗口的设置出图：${parts.join('、')}` : '';
+}
+
 async function runJob(message, job, options) {
     const settings = getSettings();
     const signal = job.controller.signal;
@@ -150,8 +194,11 @@ async function runJob(message, job, options) {
 
         data.error = null;
         data.debug = { ...(data.debug || {}), notes: [] };
+        // Edit-dialog choices stay with the floor for 🔄 (new seed, same settings) until it is parsed again.
+        const overrides = mode === 'edit' ? options.overrides ?? null : mode === 'reroll' ? data.editOverrides ?? null : null;
 
         if (mode === 'reparse' || !data.prompt) {
+            delete data.editOverrides;
             setStage(job, message, 'parsing', '正在解析角色状态…');
             let target = resolveTarget(message, options.target);
             const applyTarget = resolved => {
@@ -215,28 +262,28 @@ async function runJob(message, job, options) {
             data.parserPresetName = parserPrompt.preset.name;
             data.promptMode = parserPrompt.mode;
         } else if (mode === 'edit') {
-            data.prompt = String(options.prompt || '').trim();
-            data.debug.notes.push('提示词由用户手动编辑');
+            // Sent exactly as typed, so it can be compared with the same text in ComfyUI.
+            data.prompt = String(options.prompt ?? '');
+            data.editOverrides = overrides ?? undefined;
+            data.debug.notes.push('提示词由用户手动编辑（原样发送）');
         }
         data.skipped = null;
-        if (!data.prompt) throw new Error('最终提示词为空');
+        if (!String(data.prompt ?? '').trim()) throw new Error('最终提示词为空');
 
         setStage(job, message, 'drawing', 'ComfyUI 生成中…');
-        // presetId null = the target had no preset (e.g. a persona without one). Matching by name here would pick up
-        // the {{user}} preset, whose name resolves to any persona. Only floors from older versions lack the id.
-        const preset = data.presetId === null ? null : findPresetById(data.presetId) ?? presetForName(data.target);
         // The character's render profile swaps in its own model / LoRA / sampling settings.
-        const profile = renderProfileFor(preset);
-        const comfy = effectiveComfy(profile);
+        const plan = renderPlan(data, overrides);
+        const { preset, profile, comfy, width, height } = plan;
         if (profile) data.debug.notes.push(`渲染配置：${profile.name}（角色预设「${resolveMacros(preset.name)}」）`);
-        else if (preset?.renderProfileId) data.debug.notes.push('角色预设选的渲染配置已被删除，使用默认 ComfyUI 设置');
+        else if (preset?.renderProfileId && !plan.boundProfile) data.debug.notes.push('角色预设选的渲染配置已被删除，使用默认 ComfyUI 设置');
+        if (overrides) {
+            const described = describeOverrides(overrides);
+            if (described) data.debug.notes.push(described);
+        }
         const fixedSeed = Number(comfy.seed);
-        const seed = mode !== 'reroll' && fixedSeed >= 0 ? fixedSeed : randomSeed();
-        // Resolution: the parser preset this floor was parsed with may override the global size.
-        const presetSize = presetResolution(findParserPreset(data.parserPresetId) ?? activeParserPreset());
-        const width = roundTo16(presetSize?.width ?? comfy.width, 832);
-        const height = roundTo16(presetSize?.height ?? comfy.height, 1216);
-        if (presetSize) data.debug.notes.push(`分辨率来自解析预设：${width}×${height}`);
+        const ownSeed = mode === 'edit' && Number.isFinite(overrides?.seed) && overrides.seed >= 0 ? overrides.seed : null;
+        const seed = ownSeed ?? (mode !== 'reroll' && fixedSeed >= 0 ? fixedSeed : randomSeed());
+        if (plan.sizeFromPreset) data.debug.notes.push(`分辨率来自解析预设：${width}×${height}`);
         const values = {
             prompt: data.prompt,
             negative_prompt: data.negative || '',
@@ -253,10 +300,10 @@ async function runJob(message, job, options) {
             model: comfy.unet,
             clip: comfy.clip,
             vae: comfy.vae,
-            lora: comfy.lora || '',
-            lora_strength: Number(comfy.loraStrength) || 0,
-            char_lora: preset?.lora || '',
-            char_lora_strength: Number(preset?.loraStrength) || 0,
+            lora: plan.styleLora,
+            lora_strength: plan.styleLoraStrength,
+            char_lora: plan.charLora,
+            char_lora_strength: plan.charLoraStrength,
             filename_prefix: comfy.filenamePrefix || 'ST_portrait',
             batch_size: 1,
         };

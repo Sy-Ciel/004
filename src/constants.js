@@ -156,7 +156,10 @@ Follow these rules strictly:
 User's Input:
 `;
 
-/** Defaults of ComfyUI's official Krea 2 Turbo text-to-image template, for "恢复为官方 Krea 2 Turbo 模板的设置". */
+/**
+ * Defaults of ComfyUI's official Krea 2 Turbo text-to-image template, for "恢复为官方 Krea 2 Turbo 模板的设置".
+ * The template refines prompts by default; here that stays off (users compare against the template with it off).
+ */
 export const OFFICIAL_KREA2_TURBO = {
     workflowSource: 'builtin',
     unet: 'krea2_turbo_fp8_scaled.safetensors',
@@ -171,7 +174,7 @@ export const OFFICIAL_KREA2_TURBO = {
     width: 1024,
     height: 1024,
     seed: -1,
-    refinePrompt: true,
+    refinePrompt: false,
 };
 
 /** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */

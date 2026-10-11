@@ -1,5 +1,6 @@
 import { EXTRA_KEY, LOG_PREFIX, TARGET_AUTO, TARGET_CHAR, TARGET_USER } from './src/constants.js';
 import { lastFloorId, showFloorDebug } from './src/debug.js';
+import { openEditDialog } from './src/editDialog.js';
 import { captureHints, hintsEnabled, pendingHints, removeHint, stripHints, stripOutgoingChat } from './src/hints.js';
 import { resetPanelForChat, showInPanel } from './src/panel.js';
 import { cancelAllJobs, cancelJob, enqueue, getJob, setImageAddedHandler, setRenderer } from './src/pipeline.js';
@@ -91,18 +92,6 @@ async function maybeAutoGenerate(mesId, type) {
 
 /* ---------------- per-floor actions ---------------- */
 
-async function editPrompt(mesId) {
-    const message = ctx().chat[mesId];
-    const data = getMessageData(message);
-    const index = Math.max(0, data?.index ?? 0);
-    const current = data?.images?.[index]?.prompt || data?.prompt || '';
-    const { callGenericPopup, POPUP_TYPE } = ctx();
-    const result = await callGenericPopup(`编辑 #${mesId} 的正向提示词，确认后用它重新生成`, POPUP_TYPE.INPUT, current, { rows: 12, wide: true, okButton: '生成' });
-    if (typeof result === 'string' && result.trim()) {
-        enqueue(mesId, { mode: 'edit', prompt: result });
-    }
-}
-
 async function deleteImage(mesId) {
     const message = ctx().chat[mesId];
     const data = getMessageData(message);
@@ -172,7 +161,7 @@ function onAction(event) {
         case 'reroll': enqueue(mesId, { mode: 'reroll' }); break;
         case 'reparse': enqueue(mesId, { mode: 'reparse', force: true }); break;
         case 'force': enqueue(mesId, { mode: 'reparse', force: true }); break;
-        case 'edit': editPrompt(mesId); break;
+        case 'edit': openEditDialog(mesId); break;
         case 'debug': showFloorDebug(mesId); break;
         case 'delete': deleteImage(mesId); break;
         case 'clear': clearState(mesId); break;
