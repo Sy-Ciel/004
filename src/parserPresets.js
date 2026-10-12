@@ -1,5 +1,6 @@
 import { PARSED_FIELDS } from './constants.js';
-import { BUILTIN_PARSER_PRESETS, buildOutputRules } from './parserPresetDefaults.js';
+import { currentMode } from './modes.js';
+import { buildOutputRules, builtinParserPresets } from './parserPresetDefaults.js';
 import { getSettings, resolveMacros } from './utils.js';
 
 /** Chinese names accepted in a preset's "fixed content" lines. */
@@ -19,11 +20,12 @@ export function promptMode() {
 }
 
 export function outputRules(mode, allowOthers = false) {
-    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers);
+    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers, currentMode());
 }
 
+/** The active image model mode's built-in preset with this id (each mode has its own wording). */
 export function builtinParserPreset(id) {
-    return BUILTIN_PARSER_PRESETS.find(preset => preset.id === id) ?? null;
+    return builtinParserPresets(currentMode()).find(preset => preset.id === id) ?? null;
 }
 
 export function findParserPreset(idOrName) {
@@ -41,7 +43,7 @@ export function activeParserPreset() {
     const settings = getSettings();
     return settings.parserPresets.find(preset => preset.id === settings.parserPresetId)
         ?? settings.parserPresets.find(preset => preset.id === 'story')
-        ?? structuredClone(BUILTIN_PARSER_PRESETS[0]);
+        ?? structuredClone(builtinParserPresets(currentMode())[0]);
 }
 
 /**

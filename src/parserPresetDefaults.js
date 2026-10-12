@@ -1,9 +1,32 @@
 /**
  * Built-in parser presets (the instructions sent to the parser model). Pure data, no imports.
  *
- * A preset's system prompt contains {{output_rules}}; it is replaced by OUTPUT_RULES_FIXED or OUTPUT_RULES_AI
- * depending on the prompt mode, so every preset works in both modes.
+ * A preset's system prompt contains {{output_rules}}; it is replaced by the output rules of the prompt mode
+ * (buildOutputRules), so every preset works in both modes.
+ *
+ * Each image model mode has its own copy of the built-ins (same ids, so 'story' always exists): Krea 2 reads
+ * natural English, Anima (an anime model) reads Danbooru-style tags, so the language rules differ.
  */
+
+/** Wording that depends on the image model. */
+const MODEL_TEXT = {
+    krea2: {
+        model: '文生图模型（Krea 2，擅长理解英文自然语言描述）',
+        language: '所有字段值使用英文，写成具体、可视化的短语或短句',
+        camera: '如 medium shot、full body shot、close-up，以及机位角度',
+        others: '英文，自然语言',
+    },
+    anima: {
+        model: '动漫文生图模型（Anima，用 Danbooru 风格的英文标签和英文描述训练）',
+        language: '所有字段值使用英文 Danbooru 风格标签（小写，用空格代替下划线，例如 long hair、school uniform、looking at viewer；多个标签用英文逗号隔开，标签说不清的细节可以补一个很短的英文短语）',
+        camera: '如 upper body、cowboy shot、full body、close-up，以及 from above、from side 等机位',
+        others: '英文 Danbooru 风格标签，每人一组，先写 1boy / 1girl 这样的人数标签',
+    },
+};
+
+function modelText(model) {
+    return MODEL_TEXT[model] ?? MODEL_TEXT.krea2;
+}
 
 export const PARSER_USER_TEMPLATE = `【目标角色】{{target}}
 {{appearance}}
@@ -50,13 +73,21 @@ const APPEARANCE_FIXED = '外貌：目标角色的固定外貌（发型、发色
 const APPEARANCE_AI = '外貌：【角色设定】是这个角色的固定外貌，必须完整、准确地写进 prompt（翻译成英文），不能遗漏或改动；没有角色设定时根据剧情合理描写。';
 
 /** Only for presets that allow other people; overrides the "only the target" rule of the preset's own prompt. */
-const OTHERS_RULES = `其他人物：这个预设允许画面里出现其他人物，前面「画面中只有目标角色一个人 / 其他人物不要入镜」的要求在这里不适用：
+function othersRules(model) {
+    return `其他人物：这个预设允许画面里出现其他人物，前面「画面中只有目标角色一个人 / 其他人物不要入镜」的要求在这里不适用：
 - 目标角色仍是画面主角；outfit、action、expression、demeanor 只写目标角色
 - 画面时刻和目标角色在同一个场景、参与这一幕的其他人物可以画进来，最多 3 人；不在场或和这一幕无关的人不要画
-- 把他们写进 others（英文，自然语言）：每人写外貌（性别、年龄感、发型发色、体型）、穿着、在画面中的位置、动作和表情，不写人名；【可能同框的其他角色】里给了外貌的人，照着那个外貌写
+- 把他们写进 others（${modelText(model).others}）：每人写外貌（性别、年龄感、发型发色、体型）、穿着、在画面中的位置、动作和表情，不写人名；【可能同框的其他角色】里给了外貌的人，照着那个外貌写
 - 没有其他人同框时，others 留空`;
+}
 
-function promptRule(allowOthers) {
+function promptRule(allowOthers, model) {
+    if (model === 'anima') {
+        const order = allowOthers
+            ? '先写人数标签（如 1girl, 1boy 或 2girls），然后先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写场景、镜头构图、光线'
+            : '先写 1girl / 1boy 这样的人数标签和 solo，然后依次写角色外貌、服装、动作姿势、表情神态、场景、镜头构图、光线';
+        return `除了上面的字段，还要写 prompt：一串英文 Danbooru 风格标签（小写，用空格代替下划线，英文逗号隔开，最后可以补一两句简短的英文描述），适合 Anima。${order}；【固定内容】里的字段必须原样体现。画质 / 评分标签（masterpiece、best quality、score_7 等）由程序自动加，不要写。不要写人名，不要要求画面里出现文字。`;
+    }
     const order = allowOthers
         ? '开头说明画面里有几个人、谁是主角；先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写场景、镜头构图、光线'
         : '开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、场景、镜头构图、光线';
@@ -78,13 +109,14 @@ function outputFormat(mode, allowOthers) {
  * - mode "fixed": the preset's appearance is added to the prompt by the extension.
  * - mode "ai": the appearance is handed to the model, which must work it into `prompt`.
  * - allowOthers: other people in the scene may be drawn too (field `others`).
+ * - model: the image model mode ('krea2' natural language, 'anima' Danbooru tags).
  */
-export function buildOutputRules(mode, allowOthers = false) {
+export function buildOutputRules(mode, allowOthers = false, model = 'krea2') {
     return [
         TIMELINE_RULES,
         mode === 'ai' ? APPEARANCE_AI : APPEARANCE_FIXED,
-        allowOthers ? OTHERS_RULES : '',
-        mode === 'ai' ? promptRule(allowOthers) : '',
+        allowOthers ? othersRules(model) : '',
+        mode === 'ai' ? promptRule(allowOthers, model) : '',
         outputFormat(mode, allowOthers),
     ].filter(Boolean).join('\n\n');
 }
@@ -92,7 +124,9 @@ export function buildOutputRules(mode, allowOthers = false) {
 export const OUTPUT_RULES_FIXED = buildOutputRules('fixed');
 export const OUTPUT_RULES_AI = buildOutputRules('ai');
 
-const STORY_SYSTEM = `你是「角色状态解析器」。你的输出会被拼进文生图模型（Krea 2，擅长理解英文自然语言描述）的提示词里。
+function storySystem(model) {
+    const text = modelText(model);
+    return `你是「角色状态解析器」。你的输出会被拼进${text.model}的提示词里。
 
 任务：阅读给出的剧情，判断【目标角色】在【当前楼层】结束时刻的视觉状态，输出一个 JSON 对象。
 
@@ -104,18 +138,21 @@ const STORY_SYSTEM = `你是「角色状态解析器」。你的输出会被拼�
    - expression：面部表情（眉眼、嘴角、视线方向）
    - demeanor：神态与气质、情绪、肢体语言给人的感觉
    - scene：所处场景与背景细节、时间、天气
-   - camera：景别与构图（如 medium shot、full body shot、close-up，以及机位角度）
+   - camera：景别与构图（${text.camera}）
    - lighting：光线与色调
 3. 剧情没写明的部分，参考【上一次状态】和【之前的配图输出】保持连贯（尤其是服装：没有换装情节就保持不变），再合理补全。之前的输出只用来保持连贯，不要照抄与当前剧情不符的内容。
 4. 【固定内容】里列出的字段必须原样使用，不要改。
 5. 【用户画图指令】是用户直接指定的画面内容，优先级最高：必须体现在对应字段里（翻译成英文，可以补全细节），不能被剧情覆盖或忽略。
-6. 所有字段值使用英文，写成具体、可视化的短语或短句；不要比喻、不要抽象形容、不要出现人名、不要要求画面里出现文字或标志。
+6. ${text.language}；不要比喻、不要抽象形容、不要出现人名、不要要求画面里出现文字或标志。
 7. 如果当前楼层里目标角色不在场，或者没有任何可以画面化的内容，输出 {"skip": true, "reason": "原因"}；有【用户画图指令】时不要输出 skip。
 8. 只输出 JSON 本身，不要解释，不要 markdown 代码块。
 
 {{output_rules}}`;
+}
 
-const SPRITE_SYSTEM = `你是「角色立绘设计师」。你的输出会被拼进文生图模型（Krea 2，擅长理解英文自然语言描述）的提示词里，用来生成同一个角色的一组立绘：姿势、构图、背景都固定不变，只随剧情改变服装、表情和神态。
+function spriteSystem(model) {
+    const text = modelText(model);
+    return `你是「角色立绘设计师」。你的输出会被拼进${text.model}的提示词里，用来生成同一个角色的一组立绘：姿势、构图、背景都固定不变，只随剧情改变服装、表情和神态。
 
 任务：阅读给出的剧情，判断【目标角色】在【当前楼层】结束时刻穿着什么、是什么表情和神态，输出一个 JSON 对象。
 
@@ -129,18 +166,26 @@ const SPRITE_SYSTEM = `你是「角色立绘设计师」。你的输出会被拼
    - 【固定内容】没有给出的其他字段，按「站姿全身立绘、纯色背景」补全
 4. 服装：没有换装情节时，参考【上一次状态】和【之前的配图输出】保持不变。
 5. 【用户画图指令】是用户直接指定的画面内容，优先级最高：必须体现在对应字段里（翻译成英文，可以补全细节）。
-6. 所有字段值使用英文，写成具体、可视化的短语或短句；不要比喻、不要出现人名、不要要求画面里出现文字或标志。
+6. ${text.language}；不要比喻、不要出现人名、不要要求画面里出现文字或标志。
 7. 立绘每一层都可以画：只要目标角色在剧情里出现过就不要输出 skip。
 8. 只输出 JSON 本身，不要解释，不要 markdown 代码块。
 
 {{output_rules}}`;
+}
+
+const SPRITE_FIXED_ANIMA = `action: standing, facing viewer, arms at sides, full body
+camera: full body, straight-on, centered, eye level
+scene: simple background, grey background, no other people
+lighting: soft lighting`;
 
 const SPRITE_FIXED = `action: standing upright and facing the viewer, full body visible from head to feet, arms relaxed at the sides
 camera: full body shot, front view, centered composition, eye level
 scene: plain light grey studio background, no props, no other people
 lighting: soft even studio lighting`;
 
-const NOVEL_SYSTEM = `你是「小说插画分镜师」。你的输出会被拼进文生图模型（Krea 2，擅长理解英文自然语言描述）的提示词里，为当前这一层剧情画一张小说插画。
+function novelSystem(model) {
+    const text = modelText(model);
+    return `你是「小说插画分镜师」。你的输出会被拼进${text.model}的提示词里，为当前这一层剧情画一张小说插画。
 
 任务：从【当前楼层】里挑出最有画面感、最能代表这段情节的一个瞬间，以【目标角色】为画面中唯一的人物设计一张插画，输出一个 JSON 对象。
 
@@ -158,11 +203,12 @@ const NOVEL_SYSTEM = `你是「小说插画分镜师」。你的输出会被拼�
 4. 剧情没写明的部分，参考【上一次状态】和【之前的配图输出】保持人物服装连贯。
 5. 【固定内容】里列出的字段必须原样使用，不要改。
 6. 【用户画图指令】是用户直接指定的画面内容，优先级最高：必须体现在对应字段里（翻译成英文，可以补全细节）。
-7. 所有字段值使用英文，写成具体、可视化的短语或短句；不要出现人名，不要要求画面里出现文字或标志。
+7. ${text.language}；不要出现人名，不要要求画面里出现文字或标志。
 8. 如果当前楼层没有任何可以画面化的情节，输出 {"skip": true, "reason": "原因"}；有【用户画图指令】时不要输出 skip。
 9. 只输出 JSON 本身，不要解释，不要 markdown 代码块。
 
 {{output_rules}}`;
+}
 
 /**
  * @typedef {Object} ParserPreset
@@ -177,9 +223,25 @@ const NOVEL_SYSTEM = `你是「小说插画分镜师」。你的输出会被拼�
  * @property {boolean} [allowOthers] Other people in the scene may be drawn too (field `others`)
  */
 
-/** @type {ParserPreset[]} */
-export const BUILTIN_PARSER_PRESETS = [
-    { id: 'story', name: '剧情状态（默认）', system: STORY_SYSTEM, user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: '', width: 0, height: 0, allowOthers: false },
-    { id: 'sprite', name: '立绘模式', system: SPRITE_SYSTEM, user: PARSER_USER_TEMPLATE, fixedFields: SPRITE_FIXED, prefix: '', width: 0, height: 0, allowOthers: false },
-    { id: 'novel', name: '小说插画模式', system: NOVEL_SYSTEM, user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: 'A narrative story illustration with cinematic composition.', width: 0, height: 0, allowOthers: false },
-];
+function makeBuiltins(model) {
+    const anima = model === 'anima';
+    return [
+        { id: 'story', name: '剧情状态（默认）', system: storySystem(model), user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: '', width: 0, height: 0, allowOthers: false },
+        { id: 'sprite', name: '立绘模式', system: spriteSystem(model), user: PARSER_USER_TEMPLATE, fixedFields: anima ? SPRITE_FIXED_ANIMA : SPRITE_FIXED, prefix: '', width: 0, height: 0, allowOthers: false },
+        { id: 'novel', name: '小说插画模式', system: novelSystem(model), user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: anima ? 'illustration, cinematic composition' : 'A narrative story illustration with cinematic composition.', width: 0, height: 0, allowOthers: false },
+    ];
+}
+
+const BUILTINS = { krea2: makeBuiltins('krea2'), anima: makeBuiltins('anima') };
+
+/**
+ * The built-in presets of an image model mode ('krea2' or 'anima'). Shared objects: clone before changing them.
+ * @returns {ParserPreset[]}
+ */
+export function builtinParserPresets(model = 'krea2') {
+    return BUILTINS[model] ?? BUILTINS.krea2;
+}
+
+/** Krea 2's built-ins (also what settings from before the Anima mode were made with). */
+export const BUILTIN_PARSER_PRESETS = BUILTINS.krea2;
+export const ANIMA_PARSER_PRESETS = BUILTINS.anima;

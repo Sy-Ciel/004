@@ -318,3 +318,16 @@ export function resetPanelGeometry() {
     lastHtml = '';
     schedulePanelRefresh();
 }
+
+/**
+ * Before the image model mode switches: the panel's size and position are per mode, so a pending save of the
+ * old mode's size must not land in the new mode's settings, and the new mode's saved geometry is applied fresh.
+ */
+export function resetPanelForMode() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    maximized = false;
+    lastApplied = null;
+    lastHtml = '';
+    schedulePanelRefresh();
+}

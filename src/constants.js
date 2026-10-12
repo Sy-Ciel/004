@@ -7,7 +7,21 @@ export const TARGET_USER = '__user__';
 export const TARGET_CHAR = '__char__';
 export const TARGET_AUTO = '__auto__';
 
-import { BUILTIN_PARSER_PRESETS } from './parserPresetDefaults.js';
+import { ANIMA_PARSER_PRESETS, BUILTIN_PARSER_PRESETS } from './parserPresetDefaults.js';
+
+/**
+ * Image model modes. Each keeps its own settings (see modes.js); only the API settings are shared.
+ * Settings from before the Anima mode are Krea 2's.
+ */
+export const MODEL_KREA2 = 'krea2';
+export const MODEL_ANIMA = 'anima';
+export const MODEL_MODES = [MODEL_KREA2, MODEL_ANIMA];
+export const MODEL_LABELS = { [MODEL_KREA2]: 'Krea 2', [MODEL_ANIMA]: 'Anima' };
+
+/** A known mode, else Krea 2 (missing on old settings and old floors). */
+export function normalizeMode(mode) {
+    return MODEL_MODES.includes(mode) ? mode : MODEL_KREA2;
+}
 
 /** v1.4 defaults, kept only to recognise untouched settings when migrating to parser presets. */
 export const V3_PARSER_SYSTEM = `你是「角色状态解析器」。你的输出会被直接拼进文生图模型（Krea 2，擅长理解英文自然语言描述）的提示词里。
@@ -59,6 +73,10 @@ export const SOLO_LINE = 'A solo image of a single person, only one person in th
 /** Inserted into templates without {{others}} when other people are in the picture. */
 export const OTHERS_LINE = 'Also in the scene: {{others}}.';
 
+/** Anima's versions: Danbooru tags instead of sentences. */
+export const ANIMA_SOLO_LINE = 'solo';
+export const ANIMA_OTHERS_LINE = '{{others}}';
+
 export const DEFAULT_PROMPT_TEMPLATE = `{{trigger}} {{prefix}}
 ${SOLO_LINE}
 {{appearance}}
@@ -67,6 +85,20 @@ Wearing {{outfit}}.
 Facial expression: {{expression}}. {{demeanor}}.
 Setting: {{scene}}.
 {{camera}}, {{lighting}}.
+{{suffix}}`;
+
+/**
+ * Anima's template: one tag group per line, joined with commas (see prompt.js). Quality / score tags go in the
+ * prefix, the count tag (1girl, 1boy …) in the character's appearance.
+ */
+export const ANIMA_PROMPT_TEMPLATE = `{{trigger}}, {{prefix}}
+${ANIMA_SOLO_LINE}
+{{appearance}}
+{{outfit}}
+{{action}}
+{{expression}}, {{demeanor}}
+{{scene}}
+{{camera}}, {{lighting}}
 {{suffix}}`;
 
 /** Fields the parser model is asked to produce. `others` only when the parser preset allows other people. */
@@ -91,6 +123,23 @@ export const RESOLUTION_PRESETS = [
     { label: '横 1920×1088', w: 1920, h: 1088 },
 ];
 
+/** Anima is trained at about 1 MP: the official template's sizes (1 MP, multiples of 16). */
+export const RESOLUTION_PRESETS_ANIMA = [
+    { label: '竖 832×1248（2:3）', w: 832, h: 1248 },
+    { label: '竖 896×1152', w: 896, h: 1152 },
+    { label: '竖 880×1184（3:4）', w: 880, h: 1184 },
+    { label: '竖 768×1360（9:16）', w: 768, h: 1360 },
+    { label: '方 1024×1024', w: 1024, h: 1024 },
+    { label: '横 1248×832（3:2）', w: 1248, h: 832 },
+    { label: '横 1152×896', w: 1152, h: 896 },
+    { label: '横 1184×880（4:3）', w: 1184, h: 880 },
+    { label: '横 1360×768（16:9）', w: 1360, h: 768 },
+];
+
+export function resolutionPresets(mode) {
+    return normalizeMode(mode) === MODEL_ANIMA ? RESOLUTION_PRESETS_ANIMA : RESOLUTION_PRESETS;
+}
+
 export function makeId() {
     return Math.random().toString(36).slice(2, 10);
 }
@@ -110,6 +159,14 @@ export function defaultPresets() {
             renderProfileId: '',
         },
     ];
+}
+
+/** Anima's default {{user}} preset: the same look as Krea 2's, written as tags (the count tag first). */
+export function animaDefaultPresets() {
+    return defaultPresets().map(preset => ({
+        ...preset,
+        appearance: '1girl, young woman, long hair, straight hair, black hair, blunt bangs, amber eyes, mole under eye, fair skin, slender',
+    }));
 }
 
 /**
@@ -177,6 +234,40 @@ export const OFFICIAL_KREA2_TURBO = {
     refinePrompt: false,
 };
 
+/** The official Anima templates' negative prompt (Anima uses a real negative, unlike Krea 2 Turbo at CFG 1). */
+export const ANIMA_NEGATIVE = 'worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, sepia';
+
+/**
+ * Defaults of ComfyUI's official Anima Base v1 text-to-image template (templates/image_anima_base_v1.json),
+ * for "恢复为官方 Anima 模板的设置". The template has no prompt refine step.
+ */
+export const OFFICIAL_ANIMA = {
+    workflowSource: 'builtin',
+    unet: 'anima-base-v1.0.safetensors',
+    clip: 'qwen_3_06b_base.safetensors',
+    vae: 'qwen_image_vae.safetensors',
+    lora: '',
+    loraStrength: 1,
+    steps: 30,
+    cfg: 4,
+    sampler: 'euler',
+    scheduler: 'simple',
+    width: 1024,
+    height: 1024,
+    seed: -1,
+    refinePrompt: false,
+};
+
+/** The official template's turbo switch: the turbo LoRA at strength 1, 8 steps, CFG 1. */
+export const ANIMA_TURBO = {
+    lora: 'anima-turbo-lora-v0.2.safetensors',
+    loraStrength: 1,
+    steps: 8,
+    cfg: 1,
+    sampler: 'euler',
+    scheduler: 'simple',
+};
+
 /** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */
 export const SETTINGS_VERSION = 4;
 
@@ -185,9 +276,20 @@ export const LORA_NONE = '__none__';
 
 export const EMPTY_LISTS = { unet: [], clip: [], vae: [], lora: [], sampler: [], scheduler: [] };
 
+/**
+ * Krea 2's defaults; Anima's are these with ANIMA_DEFAULTS on top (see modeDefaults). Everything except the
+ * shared keys listed in modes.js is stored per mode.
+ */
 export const DEFAULT_SETTINGS = {
     settingsVersion: SETTINGS_VERSION,
     enabled: true,
+    /** Active image model mode; the other mode's settings wait in modeStore (see modes.js). */
+    modelMode: MODEL_KREA2,
+    modeStore: {},
+    /** Words every prompt of this mode starts with (e.g. a style LoRA's trigger); the parser is told about them. */
+    triggerWords: '',
+    /** Escape ( ) in prompts so ComfyUI reads them as text, not as weights, e.g. "artoria pendragon \(fate\)". */
+    escapeParens: false,
     autoGenerate: true,
     everyN: 1,
     // Automatic pictures skip AI replies shorter than this many tokens (0 = no limit).
@@ -282,6 +384,45 @@ export const DEFAULT_SETTINGS = {
         lists: EMPTY_LISTS,
     },
 };
+
+/** Where Anima's defaults differ from Krea 2's. */
+const ANIMA_DEFAULTS = {
+    escapeParens: true,
+    parserPresets: ANIMA_PARSER_PRESETS,
+    presets: animaDefaultPresets(),
+    promptTemplate: ANIMA_PROMPT_TEMPLATE,
+    prefix: 'masterpiece, best quality, score_7',
+    negativePrompt: ANIMA_NEGATIVE,
+    comfy: {
+        ...OFFICIAL_ANIMA,
+        // Portrait 2:3 at 1 MP, like Krea 2's portrait default.
+        width: 832,
+        height: 1248,
+        filenamePrefix: 'ST_anima',
+    },
+};
+
+function isPlainObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function mergeDefaults(base, extra) {
+    const merged = structuredClone(base);
+    for (const [key, value] of Object.entries(extra)) {
+        merged[key] = isPlainObject(value) && isPlainObject(merged[key]) ? mergeDefaults(merged[key], value) : structuredClone(value);
+    }
+    return merged;
+}
+
+const MODE_DEFAULTS = {
+    [MODEL_KREA2]: DEFAULT_SETTINGS,
+    [MODEL_ANIMA]: mergeDefaults(DEFAULT_SETTINGS, ANIMA_DEFAULTS),
+};
+
+/** Default settings of a mode. Shared object: clone before changing it. */
+export function modeDefaults(mode) {
+    return MODE_DEFAULTS[normalizeMode(mode)];
+}
 
 
 /** Defaults up to v1.3, kept to recognise untouched templates when migrating. */

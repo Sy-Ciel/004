@@ -18,6 +18,11 @@ function usedByText(profile) {
     return names.length ? `使用这个配置的角色预设：${names.join('、')}` : '还没有角色预设使用这个配置（在「角色预设」里选择）';
 }
 
+/** The settings were replaced (mode switch, reset): the editor starts at the first profile of the new list. */
+export function resetRenderProfileSelection() {
+    selectedId = null;
+}
+
 /** Re-reads the profile list and the selected profile into the editor. */
 export function refreshRenderProfileUi() {
     const profiles = getSettings().renderProfiles;

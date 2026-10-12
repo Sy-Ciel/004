@@ -1,7 +1,9 @@
 import { PARSED_FIELDS, STATE_FIELDS } from './constants.js';
 import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
+import { currentMode, floorMode, modeLabel } from './modes.js';
 import { activeParserPreset, outputRules, parseFixedFields, promptMode } from './parserPresets.js';
+import { triggerWordList } from './prompt.js';
 import { findStatusBar, withoutStatusBar } from './statusBar.js';
 import { findUserPreset, presetForName, presetName, presetsMentioned } from './targets.js';
 import {
@@ -41,12 +43,21 @@ export function chatUpTo(mesId) {
     return ctx().chat.slice(0, Math.max(0, mesId + 1));
 }
 
+/**
+ * A floor's picture data, if it was drawn in the active image model mode. Pictures of the other mode are
+ * written for another model (sentences vs tags), so the parser never sees them as earlier outputs.
+ */
+function sameModeData(message) {
+    const data = getMessageData(message);
+    return data && floorMode(data) === currentMode() ? data : null;
+}
+
 /** Most recent parsed state of the same character on an earlier floor (for outfit/scene continuity). */
 export function findLastState(mesId, targetName) {
     const chat = chatUpTo(mesId);
     const wanted = String(targetName || '').toLowerCase();
     for (let i = mesId - 1; i >= 0; i--) {
-        const data = getMessageData(chat[i]);
+        const data = sameModeData(chat[i]);
         if (!data?.parsed || data.skipped) continue;
         if (wanted && String(data.target || '').toLowerCase() !== wanted) continue;
         return { floor: i, parsed: data.parsed };
@@ -71,7 +82,7 @@ export function previousOutputs(mesId, count) {
     const chat = chatUpTo(mesId);
     const records = [];
     for (let i = mesId - 1; i >= 0 && records.length < count; i--) {
-        const data = getMessageData(chat[i]);
+        const data = sameModeData(chat[i]);
         if (!data?.parsed) continue;
         // A floor whose latest parse was skipped and that never got an image has nothing worth repeating.
         if (data.skipped && !data.images?.length) continue;
@@ -204,6 +215,19 @@ export async function worldInfoBlock(mesId) {
     }
 }
 
+/**
+ * Tells the parser about the mode's trigger words. They are added to every prompt by the extension anyway (see
+ * finishPrompt); when the AI writes the whole prompt it is asked to start with them.
+ */
+function triggerWordsRule(mode) {
+    const words = triggerWordList();
+    if (!words.length) return '';
+    const list = words.join(', ');
+    return mode === 'ai'
+        ? `触发词：最终提示词必须带上这些触发词：${list}。把它们原样写在 prompt 的最前面（不翻译、不改写、不加括号或权重），每次都要写。`
+        : `触发词：最终提示词的开头会自动加上这些触发词：${list}。它们由程序添加，你的字段里不用再写。`;
+}
+
 /** Puts `{{name}}` in front of `anchor` (or at the end) when a custom template predates the variable. */
 function ensureSlot(template, name, anchors) {
     if (template.includes(`{{${name}}}`)) return template;
@@ -287,13 +311,15 @@ export async function buildParserPrompt(mesId, target) {
     let systemTemplate = String(preset.system || '');
     if ((mode === 'ai' || allowOthers) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += '\n\n{{output_rules}}';
 
+    const triggerRule = triggerWordsRule(mode);
     return {
-        system: fillTemplate(systemTemplate, vars).replace(/\n{3,}/g, '\n\n'),
+        system: [fillTemplate(systemTemplate, vars), triggerRule].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
         user: fillTemplate(userTemplate, vars).replace(/\n{3,}/g, '\n\n'),
         preset,
         mode,
         notes: [
-            `解析预设：${preset.name} · ${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`,
+            `${modeLabel()} 模式 · 解析预设：${preset.name} · ${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`,
+            triggerRule ? `触发词：${triggerWordList().join(', ')}` : '',
             worldInfo.note,
             records.length ? `参考了之前 ${records.length} 次配图输出` : '',
             hints.length ? `用户画图指令 ${hints.reduce((sum, item) => sum + item.hints.length, 0)} 条` : '',

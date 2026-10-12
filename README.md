@@ -1,8 +1,10 @@
-# ComfyUI 角色配图 (Krea 2) — SillyTavern 扩展
+# ComfyUI 角色配图 (Krea 2 / Anima) — SillyTavern 扩展
 
 正文 AI 回复完之后，用一个**额外的模型**读剧情，判断角色（默认是 {{user}}）此刻的状态，写出服装、动作、表情、神态、场景，
-再和你**预先写好的固定外貌**（发型、面部等）拼成提示词，交给 ComfyUI 的 **Krea 2 文生图 + LoRA** 工作流出图，图片贴回这一楼。
+再和你**预先写好的固定外貌**（发型、面部等）拼成提示词，交给 ComfyUI 的 **Krea 2 或 Anima 文生图 + LoRA** 工作流出图，图片贴回这一楼。
 
+- **两种模型模式**：Krea 2（英文自然语言）和 Anima（动漫模型，Danbooru 标签），在设置面板最上方切换；两边的设置**完全分开保存**，只有 API 设置共用（见「模型模式」）
+- **触发词**：每个模式可以填自己的触发词，每张图都会带上（AI 写完整提示词时也会要求它写上，漏了自动补）
 - 默认只画**一个人**：{{user}}、当前角色、指定 NPC，或者让解析模型自动挑本楼的主角；需要时可以让同一幕的其他人一起入镜（配图风格里的「允许画面里出现其他人物」）
 - **配图风格（解析预设）**：剧情状态 / 立绘模式（固定姿势，只换服装表情）/ 小说插画模式，可以复制修改成自己的
 - **两种提示词生成方式**：固定外貌 + AI 补充，或者把人设交给 AI 让它写完整提示词
@@ -20,7 +22,7 @@
 
 1. 酒馆 → 扩展 → 安装扩展，填入本仓库地址：`https://github.com/sy-ciel/004`
 2. 在 SillyTavern 1.19.0（release 分支）上测试通过；用到了 `SillyTavern.getContext()` 里的 `ChatCompletionService`、`ConnectionManagerRequestService`，太旧的版本可能缺这些接口
-3. 设置面板在 扩展 → **ComfyUI 角色配图 (Krea 2)**
+3. 设置面板在 扩展 → **ComfyUI 角色配图**（标题后面显示当前模式：(Krea 2) 或 (Anima)）
 
 ## ComfyUI 准备（Krea 2）
 
@@ -44,9 +46,71 @@ EmptyLatentImage (自定义宽高)
 `workflows/krea2_turbo_t2i_lora_ui.json` 是同一个工作流的 UI 版，可以直接拖进 ComfyUI 检查模型是否齐全、手动试跑
 （设置面板里也有下载链接）。
 
+## 模型模式：Krea 2 / Anima
+
+设置面板**最上方**是「模型模式」开关：Krea 2 | Anima。点一下就切换，正在生成的配图会被取消（不会出现用一个模式解析、另一个模式出图的情况）。
+
+**两个模式的设置完全分开保存**，切换时整套一起换：角色预设（外貌、角色 LoRA、人设绑定）、渲染配置、配图风格（解析预设）、
+提示词组装（前缀、后缀、反向提示词、模板）、触发词、工作流（内置 / 自定义 / 渲染配置里的专用工作流）、模型和采样、分辨率、
+自动配图规则、图片显示位置、正文状态栏、解析内容（读几楼、世界书……）、调试模式等。第一次切到 Anima 时，Anima 这边是全新的默认设置。
+
+**两边共用的只有 API 设置**：
+
+- 「解析模型」一组：来源、API 地址、Key、模型、连接配置、附加请求参数、温度、最大输出、超时、重试次数
+- 「ComfyUI 连接」里的地址、连接方式、浏览器直连地址，以及已读取的模型列表
+- 最上面的「启用」
+
+聊天记录里的配图也按模式区分：每一楼记得自己是哪个模式画的（🐞 调试里的「模型模式」）。
+
+- 解析模型参考「之前的配图输出」「上一次状态」时，只看**同一模式**画的楼层（Krea 2 写的句子不会混进 Anima 的标签里，反过来也一样）
+- 在 Anima 模式下对 Krea 2 画的楼层点 🔄：提示词是给另一个模型写的，所以会**按 Anima 重新解析**再出图；旧图保留为一个版本
+- ✏️ 编辑另一个模式画的楼层时，窗口里会提示，出图用当前模式的模型、工作流和同名角色预设
+- 角色预设导出的文件会记下模式；把 Krea 2 的预设导入 Anima 时会先确认（LoRA、渲染配置可能不适用）
+- 「全部恢复默认值」只恢复当前模式，另一个模式可以勾选一起恢复
+- 斜杠命令：`/ctimg-model anima`、`/ctimg-model krea2`，不带参数返回当前模式
+
+### 触发词
+
+模式开关下面的「触发词」：逗号分隔，**这个模式的每张图都会带上**，放在提示词最前面（例如风格 LoRA 的触发词、Anima 的 `@画师名`）。
+
+- 「固定外貌 + AI 补充」：由扩展加在提示词最前面（模板里的 `{{trigger}}` = 本模式触发词 + 角色的 LoRA 触发词）
+- 「AI 写完整提示词」：要求解析 AI 每次把触发词原样写在 prompt 最前面；AI 漏写了，扩展自动补上；AI 已经写了就不重复
+- 用自己的组装模板、模板里没有 `{{trigger}}` 时也会补在最前面；🔄 重新出图时如果改过触发词，也会补上新的
+- ✏️ 编辑后生成是例外：提示词按你填的原样发送（方便和 ComfyUI 对比）
+
+## ComfyUI 准备（Anima）
+
+[Anima](https://huggingface.co/circlestone-labs/Anima)（CircleStone Labs / Comfy Org）是 2B 参数的**动漫 / 插画**模型，不擅长写实。需要 ComfyUI **0.16 或更新**。
+模型从 `circlestone-labs/Anima` 下载：
+
+| 文件 | 放到 |
+|---|---|
+| `anima-base-v1.0.safetensors` | `ComfyUI/models/diffusion_models/` |
+| `qwen_3_06b_base.safetensors` | `ComfyUI/models/text_encoders/` |
+| `qwen_image_vae.safetensors`（和 Krea 2 用的是同一个） | `ComfyUI/models/vae/` |
+| `anima-turbo-lora-v0.2.safetensors`（可选，`circlestone-labs/Anima-Official-LoRAs`） | `ComfyUI/models/loras/` |
+
+内置 Anima 工作流（`workflows/anima_base_t2i_lora_api.json`）和 ComfyUI 官方模板「Anima Base v1: Text to Image」一致，多了两个 LoRA 槽位：
+
+```
+UNETLoader ─► 角色 LoRA ─► 全局 LoRA ─► KSampler (30 步 · CFG 4 · euler · simple) ─► VAEDecode ─► SaveImage
+CLIPLoader (qwen_3_06b_base, type = stable_diffusion) ─► CLIPTextEncode 正向 / CLIPTextEncode 反向
+EmptyLatentImage (约 1 MP)
+```
+
+Anima 模式的默认值：
+
+- **分辨率**约 1 MP（默认竖图 832×1248，分辨率下拉里是官方的 1 MP 尺寸）；太大容易重复人物、多出肢体
+- **反向提示词**是真的会用的（CFG 4）：默认 `worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, sepia`（官方模板的那一段）
+- **画风前缀** `masterpiece, best quality, score_7`；**组装模板**按标签写，每行之间用逗号连接（见「提示词是怎么拼的」）
+- 解析模型被要求用 **Danbooru 风格的英文标签**写服装、动作、表情等（小写、空格代替下划线、逗号分隔），配图风格（剧情 / 立绘 / 小说插画）都有 Anima 版
+- **括号转义**默认打开：`artoria pendragon (fate)` 会变成 `artoria pendragon \(fate\)`，否则 ComfyUI 会把括号当成加权并去掉；写明权重的 `(smile:1.2)` 不受影响（「提示词组装」里可以关）
+- 没有 ComfyUI 端提示词扩写（官方 Anima 模板没有这一步，Krea 2 才有）
+- 「出图参数」里：「恢复为官方 Anima 模板的设置」= 官方默认值；「改用官方 Turbo LoRA」= 官方模板打开 turbo_mode 时的设置（风格 LoRA 换成 `anima-turbo-lora-v0.2` 强度 1、8 步、CFG 1，快很多；CFG 1 时反向提示词基本不起作用）
+
 ## 快速上手
 
-设置面板最上面是常用开关：启用、AI 回复后自动配图、调试模式、画谁（主角），以及「为最新楼层生成」「查看各楼层提示词」。
+设置面板最上面是**模型模式**开关（Krea 2 | Anima）和这个模式的**触发词**，下面是常用开关：启用、AI 回复后自动配图、调试模式、画谁（主角），以及「为最新楼层生成」「查看各楼层提示词」。
 其余设置按用途分组折叠，点分组标题展开；右上角可以「全部展开 / 全部收起」，展开过的分组下次打开还是展开的。
 
 1. **ComfyUI 连接**：填地址（默认 `http://127.0.0.1:8188`），点「测试连接」。连接方式默认「酒馆后端代理」，不需要给 ComfyUI 开 CORS
@@ -304,6 +368,7 @@ System 提示词里的 `{{output_rules}}` 会按生成方式换成外貌规则�
 /ctimg-target auto           切换目标：预设名 / user / char / auto
 /ctimg-preset 立绘           切换配图风格（解析预设，可以只写名字的一部分）
 /ctimg-mode ai               提示词生成方式：fixed（固定外貌 + AI 补充）/ ai（AI 写完整提示词）
+/ctimg-model anima           切换模型模式：krea2 / anima（不带参数返回当前模式）
 /ctimg-debug on              开关调试模式
 ```
 
@@ -330,7 +395,25 @@ Setting: {{scene}}.
 {{suffix}}
 ```
 
-某一行的变量全为空时整行省略。`{{appearance}}`、`{{trigger}}` 来自角色预设，`{{prefix}}` / `{{suffix}}` 是全局画风设置，其余来自解析模型。
+某一行的变量全为空时整行省略。`{{appearance}}` 来自角色预设，`{{trigger}}` 是本模式的触发词加上角色预设的 LoRA 触发词，`{{prefix}}` / `{{suffix}}` 是全局画风设置，其余来自解析模型。
+不管模板怎么写，本模式的触发词都会出现在最终提示词里（模板里没有就补在最前面）。
+
+Anima 模式的默认模板按标签写，每行之间用**逗号**连接（Krea 2 是每行一句话、用句号连接）：
+
+```
+{{trigger}}, {{prefix}}
+solo
+{{appearance}}
+{{outfit}}
+{{action}}
+{{expression}}, {{demeanor}}
+{{scene}}
+{{camera}}, {{lighting}}
+{{suffix}}
+```
+
+例：`my_style, masterpiece, best quality, score_7, solo, 1girl, long hair, black hair, amber eyes, grey hoodie, black leggings, sitting, holding cup, light smile, forest, dusk, cowboy shot, backlighting`。
+画面里有其他人时去掉 `solo`，`{{others}}`（也是标签，例如 `1boy, short hair, on left`）加在镜头那一行前面。
 配图风格允许其他人物、而且这张图里真的有其他人时，「A solo image…」这一行会被去掉，`{{others}}` 加在镜头那一行前面（模板里自己写了 `{{others}}` 就用你写的位置）。
 
 开启「状态延续」时，解析模型会拿到同一角色上一张图的服装、场景等，剧情里没换装就保持一致。
@@ -378,6 +461,12 @@ Setting: {{scene}}.
   取消、超时、设置填错、输出被截断不会重试。重试次数用完还失败，错误会写成「解析模型连续 3 次失败 ← 原因」
 - **解析失败「返回了空内容」/「输出被截断」**：多半是思考模型把「最大输出」用在思考上了。调大「最大输出」（默认 2048），
   或在「附加请求参数」里关闭思考。🐞 调试弹窗里能看到结束原因（finish_reason）和思考内容
-- **分辨率**：Krea 2 Turbo 适合约 1–2 MP，最高约 4 MP。设置里会显示当前像素数，超过 4 MP 会提示——过大容易画出重复的人物或多余肢体
+- **Anima 模式和 Krea 2 模式能不能共用角色预设**：两边是分开的。想把 Krea 2 的角色搬过去：在 Krea 2 模式「角色预设」里导出，切到 Anima 后导入，
+  再把外貌改成标签写法（如 `1girl, long hair, black hair, amber eyes`），角色 LoRA 换成 Anima 的 LoRA
+- **Anima 出图和官方 Anima 模板不一样**：内置工作流和官方模板相同（30 步、CFG 4、euler / simple、同样的反向提示词），差别通常在提示词、种子、尺寸和 LoRA。
+  用 ✏️ 编辑后生成可以填同样的提示词、种子和尺寸、去掉 LoRA，和官方模板对比；官方模板打开 turbo_mode 时对应「改用官方 Turbo LoRA」
+- **Anima 的提示词写法**：Anima 用 Danbooru 标签和自然语言描述训练，两种都能用。常见写法是 画质 / 评分标签 → 人数标签（1girl）→ 角色 → 作品 → 画师（`@画师名`）→ 其他标签。
+  这些规则（尤其是 `@画师名` 的写法）来自 Anima 的模型说明，扩展没有在实际模型上逐条验证过，效果以你自己的测试为准
+- **分辨率**：Krea 2 Turbo 适合约 1–2 MP，最高约 4 MP；Anima 按约 1 MP 训练。设置里会显示当前像素数，超出推荐范围（Krea 2 超过 4 MP，Anima 超过约 1.6 MP）会提示——过大容易画出重复的人物或多余肢体
 - **解析模型偶尔输出跳过**：剧情里目标角色不在场时会跳过；调试模式下能看到跳过原因并「强制生成」。手动触发（按钮、斜杠命令）总是强制生成
 - **API Key 存在哪**：存在酒馆的扩展设置（`settings.json`）里，请求时作为请求头经酒馆后端转发

@@ -1,10 +1,26 @@
 <div class="ctp-settings">
     <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-            <b>ComfyUI 角色配图 (Krea 2)</b>
+            <b>ComfyUI 角色配图 <span id="ctp_mode_title">(Krea 2)</span></b>
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
+
+            <!-- ============ 模型模式（最上方） ============ -->
+            <div class="ctp-mode-bar">
+                <div class="ctp-row ctp-mode-row">
+                    <span class="ctp-mode-caption">模型模式</span>
+                    <div class="ctp-mode-switch" id="ctp_model_mode" role="radiogroup" aria-label="模型模式">
+                        <div class="ctp-mode-option" data-mode="krea2" role="radio" tabindex="0">Krea 2</div>
+                        <div class="ctp-mode-option" data-mode="anima" role="radio" tabindex="0">Anima</div>
+                    </div>
+                </div>
+                <small class="ctp-hint">两个模式的设置完全分开保存，切换时整套一起换：角色预设、渲染配置、配图风格、提示词、工作流、模型和采样、显示方式、状态栏等。两边共用的只有「解析模型」的 API 设置和 ComfyUI 的地址 / 连接方式。</small>
+                <label>触发词（本模式每张图都带上）
+                    <input type="text" class="text_pole" data-ctp="triggerWords" id="ctp_trigger_words">
+                </label>
+                <small class="ctp-hint">逗号分隔，放在提示词最前面。「AI 写完整提示词」时会要求解析 AI 每次写上，漏写的自动补上；和角色预设里的「LoRA 触发词」可以同时用。</small>
+            </div>
 
             <!-- ============ 常用（始终显示） ============ -->
             <div class="ctp-top">
@@ -156,7 +172,7 @@
                             <option value="ai">AI 写完整提示词</option>
                         </select>
                     </label>
-                    <small class="ctp-hint">固定外貌 + AI 补充：角色预设的外貌原样放进提示词，AI 只写服装、动作、表情等。AI 写完整提示词：把外貌交给解析 AI，由它写出整段提示词。两种方式都会自动加上 LoRA 触发词和画风前缀 / 后缀。</small>
+                    <small class="ctp-hint">固定外貌 + AI 补充：角色预设的外貌原样放进提示词，AI 只写服装、动作、表情等。AI 写完整提示词：把外貌交给解析 AI，由它写出整段提示词。两种方式都会自动加上最上面的「触发词」、角色的 LoRA 触发词和画风前缀 / 后缀。</small>
                     <div id="ctp_pp_editor">
                         <label class="checkbox_label"><input type="checkbox" data-pp="allowOthers"> 允许画面里出现其他人物</label>
                         <small class="ctp-hint">打开后，和主角同在这一幕的其他人也可以画进来（最多 3 人），他们的外貌、穿着、位置由解析 AI 按剧情描写，有角色预设的照预设的外貌写。主角的角色 LoRA 会作用于整张图，其他人可能长得像主角。</small>
@@ -316,13 +332,16 @@
                 <div class="inline-drawer-content">
                     <label>画风 / 质量前缀 {{prefix}} <input type="text" class="text_pole" data-ctp="prefix" placeholder="例：A cinematic photograph, shot on 35mm film."></label>
                     <label>后缀 {{suffix}} <input type="text" class="text_pole" data-ctp="suffix" placeholder="例：high detail, natural skin texture"></label>
-                    <label>反向提示词 <input type="text" class="text_pole" data-ctp="negativePrompt" placeholder="内置 Krea 2 Turbo 工作流用 CFG 1，不使用反向提示词"></label>
+                    <label>反向提示词 <input type="text" class="text_pole" data-ctp="negativePrompt" id="ctp_negative"></label>
+                    <small class="ctp-hint" id="ctp_negative_hint"></small>
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="escapeParens"> 把提示词里的括号转义成 <code>\(</code> <code>\)</code>（Anima 推荐）</label>
+                    <small class="ctp-hint">ComfyUI 会把普通括号当成加权并去掉，Danbooru 标签里的括号（如 <code>artoria pendragon (fate)</code>）就丢了；打开后自动转义，写明权重的 <code>(smile:1.2)</code> 不受影响。</small>
                     <details class="ctp-details">
                         <summary>组装模板（高级）</summary>
                         <label>模板 <span class="ctp-link" data-reset="promptTemplate">恢复默认</span>
                             <textarea class="text_pole" rows="9" data-ctp="promptTemplate"></textarea>
                         </label>
-                        <small class="ctp-hint">变量：{{trigger}} {{prefix}} {{suffix}} {{appearance}}（固定）＋ {{outfit}} {{action}} {{expression}} {{demeanor}} {{scene}} {{camera}} {{lighting}} {{others}}（AI）。某一行的变量全为空时整行省略。画面里有其他人物时，「A solo image…」这一行会自动去掉；模板里没写 {{others}} 时自动加在镜头那一行前面。</small>
+                        <small class="ctp-hint">{{trigger}} = 本模式触发词 + 角色的 LoRA 触发词。Anima 模式每行之间用逗号连接（标签），Krea 2 模式每行是一句话。变量：{{trigger}} {{prefix}} {{suffix}} {{appearance}}（固定）＋ {{outfit}} {{action}} {{expression}} {{demeanor}} {{scene}} {{camera}} {{lighting}} {{others}}（AI）。某一行的变量全为空时整行省略。画面里有其他人物时，「A solo image…」这一行会自动去掉；模板里没写 {{others}} 时自动加在镜头那一行前面。</small>
                     </details>
                 </div>
             </div>
@@ -350,7 +369,7 @@
                     <small class="ctp-hint">读取 LoRA / 文本编码器列表和「浏览器直连」都由浏览器直接访问 ComfyUI：需要启动参数 <code>--listen --enable-cors-header</code>，且地址要能从浏览器所在设备访问到（手机上的 127.0.0.1 是手机自己）。</small>
                     <label>工作流
                         <select class="text_pole" data-ctp="comfy.workflowSource" id="ctp_workflow_source">
-                            <option value="builtin">内置：Krea 2 Turbo 文生图 + LoRA</option>
+                            <option value="builtin" id="ctp_workflow_builtin_option">内置：Krea 2 Turbo 文生图 + LoRA</option>
                             <option value="custom">自定义（粘贴 API 格式 JSON）</option>
                         </select>
                     </label>
@@ -362,9 +381,14 @@
                         </div>
                         <small class="ctp-hint">占位符：%prompt% %negative_prompt% %width% %height% %seed% %steps% %cfg% %sampler% %scheduler% %unet% %clip% %vae% %lora% %lora_strength% %char_lora% %char_lora_strength% %filename_prefix%。LoRA 名为空的 LoRA 节点自动旁路；没有 %prompt% 时尝试自动注入。</small>
                     </div>
+                    <div class="ctp-mode-only" data-mode="krea2">
                     <label class="checkbox_label"><input type="checkbox" data-ctp="comfy.refinePrompt"> ComfyUI 端提示词扩写（官方 Krea 2 Turbo 模板默认开启）</label>
                     <small class="ctp-hint">ComfyUI 官方模板默认会先让文本编码器（Qwen3-VL）按它自带的说明把提示词扩写一遍，再用扩写后的文字出图，所以同一段提示词放进官方模板和这里出的图不一样。打开这一项，内置工作流就加上同样的扩写步骤（同样的说明和参数）。只对内置工作流有效；需要较新的 ComfyUI（有 TextGenerate 节点）；每张图会多花几秒。「浏览器直连」模式下可以在 🐞 调试里看到扩写后的文字。</small>
                     <a class="ctp-link" id="ctp_workflow_ui_link" target="_blank" download>下载 UI 版工作流（拖进 ComfyUI 检查模型）</a>
+                    </div>
+                    <div class="ctp-mode-only" data-mode="anima">
+                    <small class="ctp-hint">内置 Anima 工作流和 ComfyUI 官方模板「Anima Base v1: Text to Image」一样：Qwen3 0.6B 文本编码器、真正的反向提示词、30 步、CFG 4、euler / simple，约 1 MP；另外多了角色 LoRA 和风格 LoRA 两个槽位（留空自动旁路）。需要 ComfyUI 0.16 以上。官方模板没有提示词扩写，这个模式也没有。</small>
+                    </div>
                 </div>
             </div>
 
@@ -375,10 +399,12 @@
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
-                    <div class="ctp-row">
+                    <div class="ctp-row ctp-wrap-row">
                         <div class="menu_button" id="ctp_reset_official">恢复为官方 Krea 2 Turbo 模板的设置</div>
+                        <div class="menu_button ctp-mode-only" data-mode="anima" id="ctp_anima_turbo">改用官方 Turbo LoRA（8 步）</div>
                     </div>
-                    <small class="ctp-hint">把工作流、模型、风格 LoRA、分辨率、采样恢复成 ComfyUI 官方模板的默认值，方便和官方模板出的图对比；提示词扩写保持关闭。</small>
+                    <small class="ctp-hint ctp-mode-only" data-mode="krea2">把工作流、模型、风格 LoRA、分辨率、采样恢复成 ComfyUI 官方模板的默认值，方便和官方模板出的图对比；提示词扩写保持关闭。</small>
+                    <small class="ctp-hint ctp-mode-only" data-mode="anima">「恢复为官方 Anima 模板的设置」= 官方模板的默认值：anima-base-v1.0、qwen_3_06b_base、qwen_image_vae、不用风格 LoRA、1024×1024、30 步、CFG 4、euler / simple、官方反向提示词。「Turbo LoRA」= 官方模板打开 turbo_mode 时的设置：风格 LoRA 换成 anima-turbo-lora-v0.2（强度 1）、8 步、CFG 1，快很多；要先把这个 LoRA 放进 models/loras。</small>
                     <h4>模型</h4>
                     <div class="ctp-row">
                         <div class="menu_button" id="ctp_comfy_models">从 ComfyUI 读取列表</div>
@@ -478,8 +504,8 @@
                         <div class="menu_button redWarningBG" id="ctp_clear_chat">清除本聊天配图数据</div>
                         <div class="menu_button redWarningBG" id="ctp_reset_all">全部恢复默认值</div>
                     </div>
-                    <small class="ctp-hint">「全部恢复默认值」把扩展的所有设置恢复成刚安装时的样子，可以选择保留角色预设、渲染配置和 API / ComfyUI 的连接信息；聊天里的图片不受影响。</small>
-                    <small class="ctp-hint">斜杠命令：/ctimg [target=名字] [at=楼层] [prompt=提示词] · /ctimg-target 名字|user|char|auto · /ctimg-preset 预设名 · /ctimg-mode fixed|ai · /ctimg-debug on|off</small>
+                    <small class="ctp-hint">「全部恢复默认值」把当前模型模式的所有设置恢复成刚安装时的样子（另一个模式可以选择一起恢复），可以选择保留角色预设、渲染配置和 API / ComfyUI 的连接信息；聊天里的图片不受影响。</small>
+                    <small class="ctp-hint">斜杠命令：/ctimg [target=名字] [at=楼层] [prompt=提示词] · /ctimg-target 名字|user|char|auto · /ctimg-preset 预设名 · /ctimg-mode fixed|ai · /ctimg-model krea2|anima · /ctimg-debug on|off</small>
                 </div>
             </div>
 

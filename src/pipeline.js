@@ -1,8 +1,9 @@
-import { EXTRA_KEY } from './constants.js';
+import { EXTRA_KEY, modeDefaults } from './constants.js';
 import { getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
+import { currentMode, floorMode, modeLabel } from './modes.js';
 import { buildParserPrompt, parserLabel, requestParse } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution } from './parserPresets.js';
-import { buildImagePrompt, buildNegativePrompt } from './prompt.js';
+import { buildImagePrompt, buildNegativePrompt, finishPrompt } from './prompt.js';
 import { effectiveComfy, renderProfileFor } from './renderProfiles.js';
 import { findPresetById, presetForName, resolveTarget, settleAutoTarget } from './targets.js';
 import {
@@ -73,6 +74,21 @@ export function cancelAllJobs() {
     for (const job of activeJobs) job.controller.abort();
 }
 
+export function hasActiveJobs() {
+    return activeJobs.size > 0;
+}
+
+/** Thrown when the image model mode changed while a job or dry run was waiting; nothing is written. */
+function modeChangedError() {
+    const error = new DOMException('Image model mode changed', 'AbortError');
+    error.modeChanged = true;
+    return error;
+}
+
+function assertMode(mode) {
+    if (currentMode() !== mode) throw modeChangedError();
+}
+
 function render(message) {
     const index = ctx().chat.indexOf(message);
     if (index >= 0) rerender(index);
@@ -136,22 +152,32 @@ export function enqueue(mesId, options = {}) {
 }
 
 /**
+ * The character preset a floor is drawn with. Presets are per image model mode and both modes have one with the
+ * id 'user', so a floor drawn in the other mode is matched by its character's name in the active mode instead.
+ */
+function floorPreset(data) {
+    if (data && floorMode(data) !== currentMode()) return data.target ? presetForName(data.target) : null;
+    // presetId null = the target had no preset (e.g. a persona without one). Matching by name here would pick up
+    // the {{user}} preset, whose name resolves to any persona. Only floors from older versions lack the id.
+    return data?.presetId === null ? null : findPresetById(data?.presetId) ?? presetForName(data?.target);
+}
+
+/**
  * What a floor will be drawn with: its character preset, that preset's render profile, the resulting ComfyUI
  * settings, size and LoRAs. `overrides` come from the edit dialog: seed, size, and whether to use the character
  * LoRA, the style LoRA, the render profile and the ComfyUI-side refine step.
  */
 export function renderPlan(data, overrides = null) {
-    // presetId null = the target had no preset (e.g. a persona without one). Matching by name here would pick up
-    // the {{user}} preset, whose name resolves to any persona. Only floors from older versions lack the id.
-    const preset = data?.presetId === null ? null : findPresetById(data?.presetId) ?? presetForName(data?.target);
+    const preset = floorPreset(data);
     const boundProfile = renderProfileFor(preset);
     const profile = overrides?.profile === false ? null : boundProfile;
     let comfy = effectiveComfy(profile);
     if (typeof overrides?.refine === 'boolean') comfy = { ...comfy, refinePrompt: overrides.refine };
     // Resolution: the edit dialog, else the parser preset this floor was parsed with, else the global size.
     const presetSize = presetResolution(findParserPreset(data?.parserPresetId) ?? activeParserPreset());
-    const width = roundTo16(overrides?.width || presetSize?.width || comfy.width, 832);
-    const height = roundTo16(overrides?.height || presetSize?.height || comfy.height, 1216);
+    const defaults = modeDefaults(currentMode()).comfy;
+    const width = roundTo16(overrides?.width || presetSize?.width || comfy.width, defaults.width);
+    const height = roundTo16(overrides?.height || presetSize?.height || comfy.height, defaults.height);
     return {
         preset,
         profile,
@@ -186,6 +212,10 @@ async function runJob(message, job, options) {
     const data = previous ? structuredClone(previous) : { v: 1, images: [], index: 0 };
     data.images ??= [];
     const mode = options.mode === 'edit' || options.mode === 'reroll' ? options.mode : 'reparse';
+    // The whole job uses one image model mode; switching modes cancels it (see assertMode).
+    const modelMode = currentMode();
+    // A prompt written for the other mode's model (sentences vs tags) is not reused by 🔄.
+    const otherMode = !!previous && floorMode(previous) !== modelMode && !!previous.prompt;
 
     try {
         if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -197,8 +227,10 @@ async function runJob(message, job, options) {
         // Edit-dialog choices stay with the floor for 🔄 (new seed, same settings) until it is parsed again.
         const overrides = mode === 'edit' ? options.overrides ?? null : mode === 'reroll' ? data.editOverrides ?? null : null;
 
-        if (mode === 'reparse' || !data.prompt) {
+        if (mode === 'reparse' || !data.prompt || (mode === 'reroll' && otherMode)) {
             delete data.editOverrides;
+            delete data.promptEdited;
+            if (mode === 'reroll' && otherMode) data.debug.notes.push(`这一楼上次是 ${modeLabel(floorMode(previous))} 模式画的，已按 ${modeLabel(modelMode)} 模式重新解析`);
             setStage(job, message, 'parsing', '正在解析角色状态…');
             let target = resolveTarget(message, options.target);
             const applyTarget = resolved => {
@@ -224,6 +256,7 @@ async function runJob(message, job, options) {
             data.parserFinish = '';
 
             const started = performance.now();
+            assertMode(modelMode);
             const { parsed } = await requestParse(parserPrompt.system, parserPrompt.user, signal, {
                 onReply: reply => {
                     data.parserRaw = truncate(reply.content, 6000);
@@ -237,10 +270,12 @@ async function runJob(message, job, options) {
                 },
             });
             data.parserMs = Math.round(performance.now() - started);
+            assertMode(modelMode);
             if (!settings.debug) {
                 delete data.debug.parserSystem;
                 delete data.debug.parserUser;
             }
+            data.modelMode = modelMode;
             if (parsed.skip && !options.force) {
                 data.skipped = parsed.reason || '解析模型判断本楼无需出图';
                 commit(message, job.swipeId, data);
@@ -262,10 +297,30 @@ async function runJob(message, job, options) {
             data.parserPresetName = parserPrompt.preset.name;
             data.promptMode = parserPrompt.mode;
         } else if (mode === 'edit') {
+            if (otherMode) {
+                // The other mode's preset ids mean nothing here: use this mode's preset for the same character.
+                const preset = floorPreset(data);
+                data.presetId = preset?.id ?? null;
+                data.fixed = {
+                    appearance: resolveMacros(preset?.appearance || ''),
+                    trigger: resolveMacros(preset?.trigger || ''),
+                    preset: preset ? resolveMacros(preset.name) : '',
+                };
+                // The other mode's negative prompt (Krea 2's is usually empty) does not fit this model.
+                data.negative = buildNegativePrompt(preset);
+                data.debug.notes.push(`这一楼上次是 ${modeLabel(floorMode(previous))} 模式画的，这次用 ${modeLabel(modelMode)} 模式的设置出图`);
+            }
+            data.modelMode = modelMode;
             // Sent exactly as typed, so it can be compared with the same text in ComfyUI.
             data.prompt = String(options.prompt ?? '');
+            data.promptEdited = true;
             data.editOverrides = overrides ?? undefined;
             data.debug.notes.push('提示词由用户手动编辑（原样发送）');
+        } else if (!data.promptEdited && !data.editOverrides) {
+            // 🔄 keeps the prompt, but trigger words added or changed since then are put in (not into an edited prompt).
+            const finished = finishPrompt(data.prompt);
+            if (finished !== data.prompt) data.debug.notes.push('补上了本模式的触发词');
+            data.prompt = finished;
         }
         data.skipped = null;
         if (!String(data.prompt ?? '').trim()) throw new Error('最终提示词为空');
@@ -284,17 +339,19 @@ async function runJob(message, job, options) {
         const ownSeed = mode === 'edit' && Number.isFinite(overrides?.seed) && overrides.seed >= 0 ? overrides.seed : null;
         const seed = ownSeed ?? (mode !== 'reroll' && fixedSeed >= 0 ? fixedSeed : randomSeed());
         if (plan.sizeFromPreset) data.debug.notes.push(`分辨率来自解析预设：${width}×${height}`);
+        // A cleared field falls back to the mode's default (Krea 2 Turbo: 8 steps, CFG 1; Anima: 30 steps, CFG 4).
+        const defaults = modeDefaults(modelMode).comfy;
         const values = {
             prompt: data.prompt,
             negative_prompt: data.negative || '',
             width,
             height,
             seed,
-            steps: Number(comfy.steps) || 8,
-            cfg: Number(comfy.cfg) || 1,
-            scale: Number(comfy.cfg) || 1,
-            sampler: comfy.sampler || 'euler',
-            scheduler: comfy.scheduler || 'simple',
+            steps: Number(comfy.steps) || defaults.steps,
+            cfg: Number(comfy.cfg) || defaults.cfg,
+            scale: Number(comfy.cfg) || defaults.cfg,
+            sampler: comfy.sampler || defaults.sampler,
+            scheduler: comfy.scheduler || defaults.scheduler,
             denoise: 1,
             unet: comfy.unet,
             model: comfy.unet,
@@ -304,11 +361,12 @@ async function runJob(message, job, options) {
             lora_strength: plan.styleLoraStrength,
             char_lora: plan.charLora,
             char_lora_strength: plan.charLoraStrength,
-            filename_prefix: comfy.filenamePrefix || 'ST_portrait',
+            filename_prefix: comfy.filenamePrefix || defaults.filenamePrefix,
             batch_size: 1,
         };
 
-        const template = await getWorkflowTemplate(comfy, profile);
+        const template = await getWorkflowTemplate(comfy, profile, modelMode);
+        assertMode(modelMode);
         const { workflow, notes } = prepareWorkflow(template.text, values);
         data.debug.notes.push(...notes);
         if (template.refine) {
@@ -317,6 +375,7 @@ async function runJob(message, job, options) {
                 : 'ComfyUI 端提示词扩写已开启：实际用来出图的是扩写后的文字（「酒馆后端代理」模式拿不到扩写结果，切到「浏览器直连」可以在调试里看到）');
         }
         data.params = {
+            modelMode,
             renderProfile: profile?.name || '',
             refine: !!template.refine,
             workflow: template.name,
@@ -338,6 +397,7 @@ async function runJob(message, job, options) {
 
         const started = performance.now();
         const image = await runWorkflow(workflow, signal, text => setStage(job, message, 'drawing', text));
+        assertMode(modelMode);
         data.comfyMs = Math.round(performance.now() - started);
         data.refinedPrompt = template.refine && image.texts?.length ? truncate(image.texts.join('\n'), 4000) : '';
 
@@ -352,7 +412,8 @@ async function runJob(message, job, options) {
             data.debug.notes.push(`${error.message}，图片改为 base64 内嵌在聊天记录中`);
         }
 
-        data.images.push({ src, path, seed, width, height, prompt: data.prompt, negative: data.negative || '', refined: data.refinedPrompt || undefined, time: Date.now() });
+        data.images.push({ src, path, seed, width, height, prompt: data.prompt, negative: data.negative || '', refined: data.refinedPrompt || undefined, mode: modelMode, time: Date.now() });
+        data.modelMode = modelMode;
         const maxVersions = Math.max(1, Number(settings.maxVersions) || 10);
         while (data.images.length > maxVersions) data.images.shift();
         data.index = data.images.length - 1;
@@ -362,7 +423,7 @@ async function runJob(message, job, options) {
         log(`#${mesId} 完成`, data);
     } catch (error) {
         if (isAbortError(error)) {
-            toastr.info('已取消配图');
+            toastr.info(error.modeChanged || currentMode() !== modelMode ? '切换了模型模式，已取消这次配图' : '已取消配图');
             return;
         }
         console.error('[ComfyPortrait]', error);
@@ -381,9 +442,11 @@ async function runJob(message, job, options) {
 export async function dryRun(mesId, targetOverride) {
     const message = ctx().chat[mesId];
     if (!message) throw new Error(`没有 #${mesId} 楼`);
+    const modelMode = currentMode();
     let target = resolveTarget(message, targetOverride);
     const parserPrompt = await buildParserPrompt(mesId, target);
     const { reply, parsed: raw } = await requestParse(parserPrompt.system, parserPrompt.user);
+    if (currentMode() !== modelMode) throw new Error('试运行期间切换了模型模式，结果已丢弃');
     if (target.auto && !raw.skip) target = settleAutoTarget(target, raw.target, message);
     const notes = [...parserPrompt.notes];
     const built = raw.skip ? { parsed: raw, prompt: '' } : promptFromParse(target.preset, raw, parserPrompt, notes);

@@ -201,6 +201,56 @@
 }
 
 /* ---------- settings panel ---------- */
+/* Image model mode switch, above everything else */
+.ctp-settings .ctp-mode-bar {
+    border: 1px solid var(--SmartThemeQuoteColor);
+    border-radius: 8px;
+    padding: 6px 8px;
+    margin: 4px 0 8px;
+}
+
+.ctp-settings .ctp-mode-row {
+    align-items: center;
+    column-gap: 10px;
+}
+
+.ctp-settings .ctp-mode-caption {
+    font-weight: bold;
+}
+
+.ctp-settings .ctp-mode-switch {
+    display: inline-flex;
+    flex: 1 1 auto;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.ctp-settings .ctp-mode-option {
+    flex: 1 1 0;
+    text-align: center;
+    padding: 4px 12px;
+    cursor: pointer;
+    user-select: none;
+    opacity: 0.65;
+}
+
+.ctp-settings .ctp-mode-option + .ctp-mode-option {
+    border-left: 1px solid var(--SmartThemeBorderColor);
+}
+
+.ctp-settings .ctp-mode-option.active {
+    background-color: var(--SmartThemeQuoteColor);
+    color: var(--SmartThemeBodyColor);
+    font-weight: bold;
+    opacity: 1;
+}
+
+.ctp-settings .ctp-mode-option:focus-visible {
+    outline: 2px solid var(--SmartThemeQuoteColor);
+    outline-offset: -2px;
+}
+
 /* Always-visible header: the switches used most often */
 .ctp-settings .ctp-top {
     padding-bottom: 4px;

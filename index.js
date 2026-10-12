@@ -1,4 +1,4 @@
-import { EXTRA_KEY, LOG_PREFIX, TARGET_AUTO, TARGET_CHAR, TARGET_USER } from './src/constants.js';
+import { EXTRA_KEY, LOG_PREFIX, MODEL_LABELS, MODEL_MODES, TARGET_AUTO, TARGET_CHAR, TARGET_USER } from './src/constants.js';
 import { lastFloorId, showFloorDebug } from './src/debug.js';
 import { openEditDialog } from './src/editDialog.js';
 import { captureHints, hintsEnabled, pendingHints, removeHint, stripHints, stripOutgoingChat } from './src/hints.js';
@@ -6,9 +6,10 @@ import { resetPanelForChat, showInPanel } from './src/panel.js';
 import { cancelAllJobs, cancelJob, enqueue, getJob, setImageAddedHandler, setRenderer } from './src/pipeline.js';
 import { onLayoutChange, renderAll, renderMessage } from './src/render.js';
 import { updateStatusPrompt } from './src/statusBar.js';
+import { currentMode, modeLabel } from './src/modes.js';
 import { findParserPreset } from './src/parserPresets.js';
 import { findPresetByName, findPresetById, initPersonaTracking } from './src/targets.js';
-import { initSettingsUi, onPersonaChanged, refreshTargetSelect, syncSettingsUi } from './src/ui.js';
+import { initSettingsUi, onPersonaChanged, refreshTargetSelect, switchModelMode, syncSettingsUi } from './src/ui.js';
 import { ctx, getMessageData, getSettings, log, saveSettings, setMessageData } from './src/utils.js';
 
 let lastStoppedAt = 0;
@@ -75,7 +76,10 @@ async function maybeAutoGenerate(mesId, type) {
     const minTokens = Math.max(0, Number(settings.minReplyTokens) || 0);
     if (minTokens > 0 && !hasHints) {
         const swipeId = message.swipe_id ?? 0;
+        const modelMode = currentMode();
         const tokens = await replyTokenCount(message);
+        // The rules above were the old mode's; after a mode switch meanwhile, leave it to the new mode's.
+        if (currentMode() !== modelMode) return;
         if (tokens < minTokens) {
             log(`#${mesId} 正文只有 ${tokens} token（少于 ${minTokens}），不自动配图`);
             return;
@@ -382,6 +386,25 @@ function registerSlashCommands() {
             syncSettingsUi();
             toastr.success(wanted === 'ai' ? '提示词生成方式：AI 写完整提示词' : '提示词生成方式：固定外貌 + AI 补充');
             return wanted;
+        },
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'ctimg-model',
+        helpString: '切换模型模式：krea2 或 anima（两个模式的设置分开保存，API 设置共用）。不带参数时返回当前模式。',
+        unnamedArgumentList: [
+            SlashCommandArgument.fromProps({ description: 'krea2 / anima', typeList: [ARGUMENT_TYPE.STRING], isRequired: false }),
+        ],
+        callback: async (_args, value) => {
+            const wanted = String(value || '').trim().toLowerCase().replace(/[\s_-]/g, '');
+            if (!wanted) return currentMode();
+            const mode = MODEL_MODES.find(item => item === wanted || MODEL_LABELS[item].toLowerCase().replace(/\s/g, '') === wanted);
+            if (!mode) {
+                toastr.warning('只能是 krea2 或 anima');
+                return currentMode();
+            }
+            if (!switchModelMode(mode)) toastr.info(`已经是 ${modeLabel(mode)} 模式`);
+            return mode;
         },
     }));
 

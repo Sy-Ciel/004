@@ -1,30 +1,61 @@
-import { fetchModelLists, loadBuiltinWorkflow, parseWorkflow, prepareWorkflow, testConnection } from './comfy.js';
+import { builtinWorkflowName, fetchModelLists, loadBuiltinWorkflow, parseWorkflow, prepareWorkflow, testConnection } from './comfy.js';
 import {
-    DEFAULT_SETTINGS,
+    ANIMA_NEGATIVE,
+    ANIMA_TURBO,
     EXTRA_KEY,
+    MODEL_ANIMA,
+    MODEL_KREA2,
+    MODEL_MODES,
+    OFFICIAL_ANIMA,
     OFFICIAL_KREA2_TURBO,
-    RESOLUTION_PRESETS,
     TARGET_AUTO,
     TARGET_CHAR,
     TARGET_USER,
     makeId,
+    modeDefaults,
+    normalizeMode,
+    resolutionPresets,
 } from './constants.js';
 import { lastFloorId, showChatDebug, showDryRun, showParserPreview } from './debug.js';
-import { resetPanelGeometry } from './panel.js';
+import { currentMode, modeLabel, swapModeSettings } from './modes.js';
+import { resetPanelForMode, resetPanelGeometry } from './panel.js';
 import { bindPickers, getPath, readInput, registerPickerOwner, renderPicker, renderPickers, setPath, writeInput } from './form.js';
 import { initParserPresetUi, refreshParserPresetUi } from './ui-parser-presets.js';
-import { initRenderProfileUi, refreshRenderProfileUi, refreshRenderProfileUsage } from './ui-render-profiles.js';
+import { initRenderProfileUi, refreshRenderProfileUi, refreshRenderProfileUsage, resetRenderProfileSelection } from './ui-render-profiles.js';
 import { renderProfileFor, sanitizeRenderProfile } from './renderProfiles.js';
 import { buildStatusInstruction, updateStatusPrompt } from './statusBar.js';
 import { callParser, parseExtraBody } from './parser.js';
-import { builtinParserPreset } from './parserPresets.js';
-import { enqueue } from './pipeline.js';
+import { cancelAllJobs, enqueue, hasActiveJobs } from './pipeline.js';
 import { renderAll } from './render.js';
 import { currentPersona, findUserPreset, personaList, presetName, resolveUserPreset } from './targets.js';
 import { ctx, errorMessage, escapeHtml, getSettings, roundTo16, saveSettings, truncate } from './utils.js';
 
 const SETTINGS_URL = new URL('../settings.html', import.meta.url);
 const UI_WORKFLOW_URL = new URL('../workflows/krea2_turbo_t2i_lora_ui.json', import.meta.url);
+
+/** Texts of the settings panel that depend on the image model mode. */
+const MODE_TEXT = {
+    [MODEL_KREA2]: {
+        megapixels: 'Krea 2 Turbo 适合约 1–2 MP',
+        maxMegapixels: 4.2,
+        official: '恢复为官方 Krea 2 Turbo 模板的设置',
+        negativePlaceholder: '内置 Krea 2 Turbo 工作流用 CFG 1，不使用反向提示词',
+        negativeHint: '',
+        triggerPlaceholder: '例：风格 LoRA 的触发词（留空 = 不加）',
+    },
+    [MODEL_ANIMA]: {
+        megapixels: 'Anima 按约 1 MP 训练，太大容易重复人物、多出肢体',
+        maxMegapixels: 1.6,
+        official: '恢复为官方 Anima 模板的设置',
+        negativePlaceholder: ANIMA_NEGATIVE,
+        negativeHint: 'Anima 用真正的反向提示词（CFG 4）；默认是官方模板的那一段。用 Turbo LoRA（CFG 1）时反向提示词基本不起作用。',
+        triggerPlaceholder: '例：LoRA 触发词、@画师名（留空 = 不加）',
+    },
+};
+
+function modeText() {
+    return MODE_TEXT[currentMode()];
+}
 
 let selectedPresetId = null;
 
@@ -38,9 +69,11 @@ function updateMegapixels() {
     const { width, height } = getSettings().comfy;
     const mp = (Number(width) * Number(height)) / 1e6;
     const element = $('#ctp_mp');
-    const base = `${width}×${height} ≈ ${mp.toFixed(2)} MP。会自动对齐到 16 的倍数，Krea 2 Turbo 适合约 1–2 MP。`;
-    element.text(mp > 4.2 ? `${base} 当前远超推荐范围，容易出现重复人物、多余肢体，也更慢。` : base);
-    element.toggleClass('ctp-warn', mp > 4.2);
+    const text = modeText();
+    const base = `${width}×${height} ≈ ${mp.toFixed(2)} MP。会自动对齐到 16 的倍数，${text.megapixels}。`;
+    const tooBig = mp > text.maxMegapixels;
+    element.text(tooBig ? `${base} 当前远超推荐范围，容易出现重复人物、多余肢体，也更慢。` : base);
+    element.toggleClass('ctp-warn', tooBig);
 }
 
 function validateExtraBody() {
@@ -91,7 +124,7 @@ function bindSettings(root) {
         link.addEventListener('click', event => {
             event.preventDefault();
             const path = link.dataset.reset;
-            setPath(getSettings(), path, getPath(DEFAULT_SETTINGS, path));
+            setPath(getSettings(), path, structuredClone(getPath(modeDefaults(currentMode()), path)));
             saveSettings();
             const input = root.querySelector(`[data-ctp="${path}"]`);
             if (input) writeInput(input, getPath(getSettings(), path));
@@ -104,7 +137,7 @@ function bindSettings(root) {
         const input = document.getElementById(id);
         input.addEventListener('change', () => {
             const key = id === 'ctp_width' ? 'width' : 'height';
-            const rounded = roundTo16(input.value, DEFAULT_SETTINGS.comfy[key]);
+            const rounded = roundTo16(input.value, modeDefaults(currentMode()).comfy[key]);
             if (String(rounded) !== input.value) {
                 input.value = String(rounded);
                 toastr.info(`已对齐到 16 的倍数：${rounded}`);
@@ -151,18 +184,24 @@ function updateWorkflowVisibility() {
 
 function syncResolutionSelect() {
     const { width, height } = getSettings().comfy;
-    const match = RESOLUTION_PRESETS.findIndex(preset => preset.w === Number(width) && preset.h === Number(height));
+    const match = resolutionPresets(currentMode()).findIndex(preset => preset.w === Number(width) && preset.h === Number(height));
     $('#ctp_resolution').val(match >= 0 ? String(match) : 'custom');
+}
+
+/** The size list of the active mode (Anima's are all about 1 MP). */
+function renderResolutionOptions() {
+    $('#ctp_resolution').html([
+        '<option value="custom">自定义</option>',
+        ...resolutionPresets(currentMode()).map((preset, index) => `<option value="${index}">${preset.label}</option>`),
+    ].join(''));
+    syncResolutionSelect();
 }
 
 function initResolution() {
     const select = $('#ctp_resolution');
-    select.html([
-        '<option value="custom">自定义</option>',
-        ...RESOLUTION_PRESETS.map((preset, index) => `<option value="${index}">${preset.label}</option>`),
-    ].join(''));
+    renderResolutionOptions();
     select.on('change', () => {
-        const preset = RESOLUTION_PRESETS[Number(select.val())];
+        const preset = resolutionPresets(currentMode())[Number(select.val())];
         if (!preset) return;
         getSettings().comfy.width = preset.w;
         getSettings().comfy.height = preset.h;
@@ -171,7 +210,6 @@ function initResolution() {
         saveSettings();
         updateMegapixels();
     });
-    syncResolutionSelect();
 }
 
 /* ---------------- target & presets ---------------- */
@@ -459,11 +497,12 @@ function initPresets() {
 
     $('#ctp_preset_export').on('click', () => {
         const { presets, renderProfiles } = getSettings();
+        const modelMode = currentMode();
         // Render profiles go along so imported presets keep their models and LoRAs.
-        const blob = new Blob([JSON.stringify({ type: 'comfy_portrait_presets', presets, renderProfiles }, null, 2)], { type: 'application/json' });
+        const blob = new Blob([JSON.stringify({ type: 'comfy_portrait_presets', modelMode, presets, renderProfiles }, null, 2)], { type: 'application/json' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = 'comfy_portrait_presets.json';
+        link.download = `comfy_portrait_presets_${modelMode}.json`;
         link.click();
         setTimeout(() => URL.revokeObjectURL(link.href), 1000);
     });
@@ -478,6 +517,13 @@ function initPresets() {
             const list = Array.isArray(json) ? json : Array.isArray(json?.presets) ? json.presets : [json];
             const imported = list.filter(item => item && typeof item === 'object').map(sanitizePreset);
             if (!imported.length) throw new Error('文件里没有角色预设');
+            // The two modes are kept apart: say so when a file of the other mode's presets comes in.
+            const fileMode = typeof json?.modelMode === 'string' ? normalizeMode(json.modelMode) : null;
+            if (fileMode && fileMode !== currentMode()) {
+                const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
+                const answer = await callGenericPopup(`这个文件是从 ${modeLabel(fileMode)} 模式导出的，当前是 ${modeLabel()} 模式。<br>里面的角色 LoRA、渲染配置（模型、工作流）是给 ${modeLabel(fileMode)} 用的，导入后请逐个检查。仍然导入到 ${modeLabel()} 模式？`, POPUP_TYPE.CONFIRM);
+                if (answer !== POPUP_RESULT.AFFIRMATIVE) return;
+            }
             const settings = getSettings();
             const known = new Set(settings.renderProfiles.map(profile => profile.id));
             const profiles = (Array.isArray(json?.renderProfiles) ? json.renderProfiles : [])
@@ -629,24 +675,49 @@ function validateWorkflow(text = getSettings().comfy.workflow) {
     }
 }
 
-async function resetToOfficial() {
-    const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
-    const confirmed = await callGenericPopup(
-        '恢复为 ComfyUI 官方 Krea 2 Turbo 模板的设置？<br>内置工作流、官方模型文件、不用风格 LoRA、1024×1024、8 步、CFG 1、euler / simple、随机种子，关闭 ComfyUI 端提示词扩写（官方模板默认开着扩写，需要时自己勾选）。<br>ComfyUI 地址、连接方式、渲染配置、角色预设（角色 LoRA、触发词）不变。',
-        POPUP_TYPE.CONFIRM);
-    if (confirmed !== POPUP_RESULT.AFFIRMATIVE) return;
-    Object.assign(getSettings().comfy, structuredClone(OFFICIAL_KREA2_TURBO));
-    saveSettings();
+/** Shows the comfy settings, resolution and workflow controls again after they were changed in code. */
+function refreshComfyUi() {
     syncSettingsUi();
     syncResolutionSelect();
     updateMegapixels();
     updateWorkflowVisibility();
-    toastr.success('已恢复为官方 Krea 2 Turbo 模板的设置');
+}
+
+async function resetToOfficial() {
+    const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
+    const anima = currentMode() === MODEL_ANIMA;
+    const text = anima
+        ? '恢复为 ComfyUI 官方 Anima Base v1 模板的设置？<br>内置工作流、官方模型文件（anima-base-v1.0、qwen_3_06b_base、qwen_image_vae）、不用风格 LoRA、1024×1024、30 步、CFG 4、euler / simple、随机种子，反向提示词换成官方模板的那一段。<br>ComfyUI 地址、连接方式、渲染配置、角色预设（角色 LoRA、触发词）不变。'
+        : '恢复为 ComfyUI 官方 Krea 2 Turbo 模板的设置？<br>内置工作流、官方模型文件、不用风格 LoRA、1024×1024、8 步、CFG 1、euler / simple、随机种子，关闭 ComfyUI 端提示词扩写（官方模板默认开着扩写，需要时自己勾选）。<br>ComfyUI 地址、连接方式、渲染配置、角色预设（角色 LoRA、触发词）不变。';
+    const confirmed = await callGenericPopup(text, POPUP_TYPE.CONFIRM);
+    if (confirmed !== POPUP_RESULT.AFFIRMATIVE) return;
+    const settings = getSettings();
+    Object.assign(settings.comfy, structuredClone(anima ? OFFICIAL_ANIMA : OFFICIAL_KREA2_TURBO));
+    if (anima) settings.negativePrompt = ANIMA_NEGATIVE;
+    saveSettings();
+    refreshComfyUi();
+    toastr.success(anima ? '已恢复为官方 Anima 模板的设置' : '已恢复为官方 Krea 2 Turbo 模板的设置');
+}
+
+/** The official Anima template's turbo switch: its turbo LoRA as the style LoRA, 8 steps, CFG 1. */
+async function useAnimaTurbo() {
+    const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
+    const confirmed = await callGenericPopup(
+        '改用官方 Anima Turbo 设置？<br>风格 LoRA 换成 anima-turbo-lora-v0.2.safetensors（强度 1）、8 步、CFG 1、euler / simple。<br>要先把这个 LoRA 下载到 ComfyUI 的 models/loras；想换回来点「恢复为官方 Anima 模板的设置」。',
+        POPUP_TYPE.CONFIRM);
+    if (confirmed !== POPUP_RESULT.AFFIRMATIVE) return;
+    Object.assign(getSettings().comfy, structuredClone(ANIMA_TURBO));
+    saveSettings();
+    refreshComfyUi();
+    toastr.success('已改用 Anima Turbo LoRA：8 步、CFG 1');
 }
 
 async function loadBuiltinIntoEditor() {
+    const mode = currentMode();
     try {
-        const text = await loadBuiltinWorkflow();
+        const text = await loadBuiltinWorkflow(mode);
+        // The first load is a fetch; a mode switch meanwhile must not put this mode's graph into the other's.
+        if (currentMode() !== mode) return;
         getSettings().comfy.workflow = text;
         $('[data-ctp="comfy.workflow"]').val(text);
         saveSettings();
@@ -661,50 +732,140 @@ async function loadBuiltinIntoEditor() {
 const KEEP_PARSER = ['source', 'customUrl', 'customKey', 'customModel', 'extraBody', 'models', 'profileId'];
 const KEEP_COMFY = ['url', 'browserUrl', 'mode', 'lists'];
 
-/** Puts every setting back to its default, optionally keeping the user's presets and connection details. */
+/**
+ * What "keep presets" keeps of a mode's settings: character presets (with persona bindings), render profiles,
+ * the fallback preset and the user's own parser presets (built-in ones go back to their default text).
+ */
+function keptPresets(own, mode) {
+    const builtins = modeDefaults(mode).parserPresets;
+    const builtinIds = new Set(builtins.map(preset => preset.id));
+    return {
+        presets: own.presets,
+        renderProfiles: own.renderProfiles,
+        userFallbackPresetId: own.userFallbackPresetId,
+        parserPresets: [...structuredClone(builtins), ...(own.parserPresets || []).filter(preset => !builtinIds.has(preset.id))],
+    };
+}
+
+/**
+ * Puts the active mode's settings back to their defaults, optionally keeping the user's presets and the shared
+ * connection details; the other mode's settings stay unless that is reset too.
+ */
 async function resetAllSettings() {
+    const mode = currentMode();
+    const other = MODEL_MODES.find(item => item !== mode);
     const root = document.createElement('div');
     root.innerHTML = `
         <h3>全部恢复默认值</h3>
-        <p>把这个扩展的所有设置恢复成刚安装时的样子。聊天里已经生成的图片和配图记录不受影响。</p>
+        <p>把这个扩展在 <b>${modeLabel(mode)}</b> 模式下的所有设置恢复成刚安装时的样子。聊天里已经生成的图片和配图记录不受影响。</p>
         <label class="checkbox_label"><input type="checkbox" data-keep="presets" checked> 保留角色预设、人设绑定、渲染配置和自己建的配图风格</label>
-        <label class="checkbox_label"><input type="checkbox" data-keep="parser" checked> 保留解析模型的 API 地址、Key、模型和连接配置</label>
-        <label class="checkbox_label"><input type="checkbox" data-keep="comfy" checked> 保留 ComfyUI 地址、连接方式和已读取的模型列表</label>
-        <small class="ctp-hint">三项都不勾 = 完全恢复成刚安装的样子，角色预设和 API Key 也会清掉；建议先在「角色预设」里导出备份。</small>`;
+        <label class="checkbox_label"><input type="checkbox" data-keep="parser" checked> 保留解析模型的 API 地址、Key、模型和连接配置（两个模式共用）</label>
+        <label class="checkbox_label"><input type="checkbox" data-keep="comfy" checked> 保留 ComfyUI 地址、连接方式和已读取的模型列表（两个模式共用）</label>
+        <label class="checkbox_label"><input type="checkbox" data-keep="reset-other"> ${modeLabel(other)} 模式的设置也恢复默认（同样按第一项保留角色预设）</label>
+        <small class="ctp-hint">前三项都不勾 = 完全恢复成刚安装的样子，角色预设和 API Key 也会清掉；建议先在「角色预设」里导出备份。</small>`;
     const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
     const result = await callGenericPopup(root, POPUP_TYPE.CONFIRM, '', { okButton: '恢复默认值', cancelButton: '取消' });
     if (result !== POPUP_RESULT.AFFIRMATIVE) return;
     const keep = name => root.querySelector(`[data-keep="${name}"]`).checked;
+    // The popup can stay open across a mode switch (slash command); reset the mode it was opened for only.
+    if (currentMode() !== mode) {
+        toastr.warning('模型模式已经切换，没有恢复任何设置');
+        return;
+    }
 
     const settings = getSettings();
-    const fresh = structuredClone(DEFAULT_SETTINGS);
-    if (keep('presets')) {
-        fresh.presets = settings.presets;
-        fresh.renderProfiles = settings.renderProfiles;
-        fresh.userFallbackPresetId = settings.userFallbackPresetId;
-        // Built-in styles go back to their default text; the user's own styles stay.
-        fresh.parserPresets.push(...settings.parserPresets.filter(preset => !builtinParserPreset(preset.id)));
-    }
+    const fresh = structuredClone(modeDefaults(mode));
+    fresh.modelMode = mode;
+    if (keep('presets')) Object.assign(fresh, keptPresets(settings, mode));
     if (keep('parser')) for (const key of KEEP_PARSER) fresh.parser[key] = settings.parser[key];
     if (keep('comfy')) for (const key of KEEP_COMFY) fresh.comfy[key] = settings.comfy[key];
+    const store = settings.modeStore;
+    if (keep('reset-other')) {
+        const saved = store[other];
+        delete store[other];
+        if (keep('presets') && saved && typeof saved === 'object') store[other] = keptPresets(saved, other);
+    }
+    fresh.modeStore = store;
     // Same object, new contents: other modules read it through getSettings().
     for (const key of Object.keys(settings)) delete settings[key];
     Object.assign(settings, fresh);
     saveSettings();
 
+    refreshAllSettingsUi();
+    toastr.success(keep('reset-other') ? '两个模式都已恢复默认值' : `${modeLabel(mode)} 模式已恢复默认值`);
+}
+
+/* ---------------- image model mode ---------------- */
+
+/** Labels, hints and controls that differ between the modes. */
+function applyModeChrome() {
+    const mode = currentMode();
+    const text = MODE_TEXT[mode];
+    $('#ctp_mode_title').text(`(${modeLabel(mode)})`);
+    $('#ctp_model_mode .ctp-mode-option').each(function () {
+        const active = this.dataset.mode === mode;
+        this.classList.toggle('active', active);
+        this.setAttribute('aria-checked', String(active));
+    });
+    $('.ctp-settings .ctp-mode-only').each(function () {
+        $(this).toggle(this.dataset.mode === mode);
+    });
+    $('#ctp_workflow_builtin_option').text(builtinWorkflowName(mode).replace(/^内置\s*/, '内置：'));
+    $('#ctp_reset_official').text(text.official);
+    $('#ctp_negative').attr('placeholder', text.negativePlaceholder);
+    $('#ctp_negative_hint').text(text.negativeHint).toggle(!!text.negativeHint);
+    $('#ctp_trigger_words').attr('placeholder', text.triggerPlaceholder);
+}
+
+/** Re-reads every control after the whole settings object changed (mode switch, reset to defaults). */
+function refreshAllSettingsUi() {
+    // Editors show the first item of the new lists, and pickers belong to them.
     selectedPresetId = null;
+    resetRenderProfileSelection();
+    applyModeChrome();
     syncSettingsUi();
     refreshPresetSelect();
-    syncResolutionSelect();
+    renderResolutionOptions();
     updateMegapixels();
     updateSourceVisibility();
     updateWorkflowVisibility();
     updateSideOptionsVisibility();
     validateExtraBody();
     $('#ctp_lists_status').text(listsSummary());
+    // A persona switch is noticed against the new mode's {{user}} preset.
+    lastUserKey = `${currentPersona()}|${findUserPreset()?.id ?? ''}`;
     updateStatusPrompt();
     renderAll();
-    toastr.success('已全部恢复默认值');
+}
+
+/**
+ * Switches the image model mode (Krea 2 / Anima): every setting except the API ones changes with it. Pictures
+ * being made are cancelled first, so none is parsed with one mode and drawn with the other.
+ */
+export function switchModelMode(target) {
+    const to = normalizeMode(target);
+    if (to === currentMode()) return false;
+    const busy = hasActiveJobs();
+    cancelAllJobs();
+    resetPanelForMode();
+    swapModeSettings(to);
+    saveSettings();
+    refreshAllSettingsUi();
+    toastr.success(`已切换到 ${modeLabel(to)} 模式${busy ? '，正在进行的配图已取消' : ''}`, 'ComfyUI 角色配图');
+    return true;
+}
+
+function initModeSwitch() {
+    const options = $('#ctp_model_mode .ctp-mode-option');
+    options.on('click', function () {
+        switchModelMode(this.dataset.mode);
+    });
+    options.on('keydown', function (event) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        switchModelMode(this.dataset.mode);
+    });
+    applyModeChrome();
 }
 
 /* ---------------- collapsible groups ---------------- */
@@ -792,6 +953,7 @@ export async function initSettingsUi() {
 
     bindSettings(root);
     bindPickers(root);
+    initModeSwitch();
     initSubSections(root);
     initParserPresetUi();
     initResolution();
@@ -820,6 +982,7 @@ export async function initSettingsUi() {
     $('#ctp_status_preview').on('click', previewStatusInstruction);
     $('#ctp_workflow_load_builtin').on('click', loadBuiltinIntoEditor);
     $('#ctp_reset_official').on('click', resetToOfficial);
+    $('#ctp_anima_turbo').on('click', useAnimaTurbo);
     $('#ctp_reset_all').on('click', resetAllSettings);
     $('#ctp_debug_chat').on('click', showChatDebug);
     $('#ctp_debug_preview').on('click', showParserPreview);

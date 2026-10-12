@@ -1,5 +1,4 @@
 import {
-    DEFAULT_SETTINGS,
     EXTRA_KEY,
     LEGACY_PARSER_SYSTEM,
     LEGACY_PARSER_USER,
@@ -9,17 +8,19 @@ import {
     V3_PARSER_SYSTEM,
     V3_PARSER_USER,
     makeId,
+    modeDefaults,
+    normalizeMode,
 } from './constants.js';
-import { BUILTIN_PARSER_PRESETS } from './parserPresetDefaults.js';
+import { BUILTIN_PARSER_PRESETS, builtinParserPresets } from './parserPresetDefaults.js';
 
 export const ctx = () => SillyTavern.getContext();
 
-function isPlainObject(value) {
+export function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /** Fills missing keys of `target` from `defaults`, recursing into plain objects. */
-function fillDefaults(target, defaults) {
+export function fillDefaults(target, defaults) {
     for (const [key, value] of Object.entries(defaults)) {
         if (!(key in target) || target[key] === undefined || target[key] === null) {
             target[key] = structuredClone(value);
@@ -30,6 +31,10 @@ function fillDefaults(target, defaults) {
     return target;
 }
 
+/**
+ * One-time changes for settings saved by older versions. These all predate the Anima mode, so only the flat
+ * (Krea 2) settings need them; a future migration must also update the other mode's copy in modeStore.
+ */
 function migrateSettings(settings) {
     const version = Number(settings.settingsVersion) || 1;
     if (version < 2) {
@@ -69,15 +74,20 @@ export function getSettings() {
     if (all[MODULE].settingsVersion !== SETTINGS_VERSION) {
         migrateSettings(all[MODULE]);
     }
-    fillDefaults(all[MODULE], DEFAULT_SETTINGS);
+    // The flat settings are the active mode's (see modes.js), so missing keys get that mode's defaults.
+    const mode = normalizeMode(all[MODULE].modelMode);
+    all[MODULE].modelMode = mode;
+    if (!isPlainObject(all[MODULE].modeStore)) all[MODULE].modeStore = {};
+    const defaults = modeDefaults(mode);
+    fillDefaults(all[MODULE], defaults);
     if (!Array.isArray(all[MODULE].presets)) {
-        all[MODULE].presets = structuredClone(DEFAULT_SETTINGS.presets);
+        all[MODULE].presets = structuredClone(defaults.presets);
     }
     if (!Array.isArray(all[MODULE].parserPresets)) {
         all[MODULE].parserPresets = [];
     }
     // Built-in parser presets are always available (they can be edited and reset, not deleted).
-    for (const builtin of BUILTIN_PARSER_PRESETS) {
+    for (const builtin of builtinParserPresets(mode)) {
         if (!all[MODULE].parserPresets.some(preset => preset.id === builtin.id)) {
             all[MODULE].parserPresets.push(structuredClone(builtin));
         }
@@ -122,7 +132,9 @@ export function sleep(ms, signal) {
 export function withTimeout(parentSignal, timeoutSec) {
     const controller = new AbortController();
     const onAbort = () => controller.abort(parentSignal?.reason);
-    parentSignal?.addEventListener('abort', onAbort, { once: true });
+    // An abort listener added after the fact never fires, so a job cancelled meanwhile stops here.
+    if (parentSignal?.aborted) onAbort();
+    else parentSignal?.addEventListener('abort', onAbort, { once: true });
     const timer = timeoutSec > 0
         ? setTimeout(() => controller.abort(new Error(`超时（${timeoutSec} 秒）`)), timeoutSec * 1000)
         : null;

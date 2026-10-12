@@ -1,31 +1,45 @@
-import { EMPTY_LISTS, KREA2_REFINE_INSTRUCTIONS } from './constants.js';
+import { EMPTY_LISTS, KREA2_REFINE_INSTRUCTIONS, MODEL_ANIMA, MODEL_KREA2, normalizeMode } from './constants.js';
+import { currentMode } from './modes.js';
 import { ctx, errorMessage, getSettings, sleep, truncate, withTimeout } from './utils.js';
 
-const BUILTIN_WORKFLOW_URL = new URL('../workflows/krea2_turbo_t2i_lora_api.json', import.meta.url);
-let builtinWorkflowCache = null;
+/** Each image model mode has its own built-in workflow. */
+const BUILTIN_WORKFLOWS = {
+    [MODEL_KREA2]: { name: '内置 Krea 2 Turbo 文生图 + LoRA', url: new URL('../workflows/krea2_turbo_t2i_lora_api.json', import.meta.url) },
+    [MODEL_ANIMA]: { name: '内置 Anima Base 文生图 + LoRA', url: new URL('../workflows/anima_base_t2i_lora_api.json', import.meta.url) },
+};
+const builtinWorkflowCache = new Map();
 
-export async function loadBuiltinWorkflow() {
-    if (!builtinWorkflowCache) {
-        const response = await fetch(BUILTIN_WORKFLOW_URL, { cache: 'no-cache' });
+export function builtinWorkflowName(mode = currentMode()) {
+    return BUILTIN_WORKFLOWS[normalizeMode(mode)].name;
+}
+
+/** The API-format JSON of a mode's built-in workflow (the active mode's by default). */
+export async function loadBuiltinWorkflow(mode = currentMode()) {
+    const key = normalizeMode(mode);
+    if (!builtinWorkflowCache.has(key)) {
+        const response = await fetch(BUILTIN_WORKFLOWS[key].url, { cache: 'no-cache' });
         if (!response.ok) throw new Error(`无法读取内置工作流 (${response.status})`);
-        builtinWorkflowCache = await response.text();
+        builtinWorkflowCache.set(key, await response.text());
     }
-    return builtinWorkflowCache;
+    return builtinWorkflowCache.get(key);
 }
 
 /**
  * @param {object} [comfy] ComfyUI settings, possibly with a render profile's overrides (see effectiveComfy)
  * @param {object} [profile] The render profile those overrides came from
+ * @param {string} [mode] Image model mode whose built-in workflow to use (the active one by default)
  */
-export async function getWorkflowTemplate(comfy = getSettings().comfy, profile = null) {
+export async function getWorkflowTemplate(comfy = getSettings().comfy, profile = null, mode = currentMode()) {
     if (comfy.workflowSource === 'custom' && comfy.workflow.trim()) {
         const own = profile && String(profile.workflow ?? '').trim();
         return { name: own ? `渲染配置「${profile.name}」的工作流` : '自定义工作流', text: comfy.workflow, refine: false };
     }
-    const text = await loadBuiltinWorkflow();
-    if (!comfy.refinePrompt) return { name: '内置 Krea 2 Turbo 文生图 + LoRA', text, refine: false };
+    const text = await loadBuiltinWorkflow(mode);
+    const name = builtinWorkflowName(mode);
+    // The refine step is Krea 2's (its Qwen3-VL text encoder writes the new prompt); Anima's template has none.
+    if (!comfy.refinePrompt || normalizeMode(mode) !== MODEL_KREA2) return { name, text, refine: false };
     const workflow = addPromptRefine(JSON.parse(text));
-    return { name: '内置 Krea 2 Turbo 文生图 + LoRA + 提示词扩写', text: JSON.stringify(workflow), refine: true };
+    return { name: `${name} + 提示词扩写`, text: JSON.stringify(workflow), refine: true };
 }
 
 /**
