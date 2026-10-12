@@ -272,6 +272,7 @@ function refreshPresetSelect() {
             .map(([id, label]) => `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`).join(''))
         .val(fallback);
     loadPresetEditor();
+    refreshLoraEditor();
     refreshTargetSelect();
 }
 
@@ -279,7 +280,46 @@ function currentPreset() {
     return getSettings().presets.find(preset => preset.id === selectedPresetId) ?? null;
 }
 
-registerPickerOwner('presetPicker', currentPreset);
+/* ---------------- character LoRA (in 出图参数) ---------------- */
+
+/** Preset whose LoRA is shown in the 出图参数 group; separate from the preset editor's selection. */
+let loraPresetId = null;
+
+function loraPreset() {
+    return getSettings().presets.find(preset => preset.id === loraPresetId) ?? null;
+}
+
+registerPickerOwner('charloraPicker', loraPreset);
+
+function refreshLoraEditor() {
+    const presets = getSettings().presets;
+    if (!presets.some(preset => preset.id === loraPresetId)) {
+        loraPresetId = presets.some(preset => preset.id === selectedPresetId) ? selectedPresetId : presets[0]?.id ?? null;
+    }
+    $('#ctp_lora_preset')
+        .html(presets.map(preset => `<option value="${escapeHtml(preset.id)}">${escapeHtml(displayName(preset))}</option>`).join(''))
+        .val(loraPresetId);
+    const preset = loraPreset();
+    $('#ctp_lora_editor').toggle(!!preset);
+    if (!preset) return;
+    document.querySelectorAll('#ctp_lora_editor [data-charlora]').forEach(element => writeInput(element, preset[element.dataset.charlora]));
+    document.querySelectorAll('#ctp_lora_editor [data-charlora-picker]').forEach(renderPicker);
+}
+
+function initLoraEditor() {
+    $('#ctp_lora_preset').on('change', function () {
+        loraPresetId = String($(this).val());
+        refreshLoraEditor();
+    });
+    document.querySelectorAll('#ctp_lora_editor [data-charlora]').forEach(element => {
+        element.addEventListener('input', () => {
+            const preset = loraPreset();
+            if (!preset) return;
+            preset[element.dataset.charlora] = readInput(element);
+            saveSettings();
+        });
+    });
+}
 
 /** Options of the preset editor's render profile select (default + every profile). */
 function renderPresetRenderOptions() {
@@ -300,7 +340,6 @@ function loadPresetEditor() {
     });
     // A deleted or unknown profile shows as the default.
     $('#ctp_preset_render').val(renderProfileFor(preset)?.id ?? '');
-    document.querySelectorAll('#ctp_preset_editor [data-preset-picker]').forEach(renderPicker);
     renderPersonaBindings();
 }
 
@@ -457,6 +496,7 @@ function initPresets() {
             if (element.dataset.preset === 'name') {
                 $('#ctp_preset_select option:selected').text(presetLabel(preset));
                 refreshTargetSelect();
+                refreshLoraEditor();
             }
             if (element.dataset.preset === 'name' || element.dataset.preset === 'renderProfileId') refreshRenderProfileUsage();
         });
@@ -824,6 +864,7 @@ function applyModeChrome() {
 function refreshAllSettingsUi() {
     // Editors show the first item of the new lists, and pickers belong to them.
     selectedPresetId = null;
+    loraPresetId = null;
     resetRenderProfileSelection();
     applyModeChrome();
     syncSettingsUi();
@@ -964,6 +1005,7 @@ export async function initSettingsUi() {
     validateExtraBody();
     $('#ctp_lists_status').text(listsSummary());
     initPresets();
+    initLoraEditor();
     initRenderProfileUi({ onChange: renderPresetRenderOptions, validateWorkflow });
     refreshPresetSelect();
     updateSourceVisibility();

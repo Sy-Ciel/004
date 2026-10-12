@@ -38,7 +38,7 @@ const MANUAL = '__ctp_manual__';
 
 /**
  * Pickers edit a settings path (data-picker="comfy.unet") or a field of the object an editor has open
- * (data-preset-picker="lora" → the selected character preset). Editors register that object here.
+ * (data-charlora-picker="lora" → the character preset picked in 出图参数). Editors register that object here.
  * @type {Record<string, () => object | null>}
  */
 const owners = {};

@@ -137,16 +137,12 @@
                         <label>固定外貌（英文：发型、发色、瞳色、五官、体型等，不写服装动作）
                             <textarea class="text_pole" rows="4" data-preset="appearance"></textarea>
                         </label>
-                        <label>LoRA 触发词（放在提示词最前）<input type="text" class="text_pole" data-preset="trigger"></label>
-                        <div class="ctp-row">
-                            <label class="flex1">角色 LoRA <select class="text_pole" data-preset-picker="lora" data-list="lora" data-none="1"></select></label>
-                            <label class="ctp-narrow">强度 <input type="number" class="text_pole" step="0.05" data-preset="loraStrength" data-type="float"></label>
-                        </div>
+                        <small class="ctp-hint">这个角色的 LoRA、强度和触发词在「出图参数 → LoRA」里设置。</small>
                         <label>额外反向提示词 <input type="text" class="text_pole" data-preset="negative"></label>
                         <label>渲染配置（这个角色用的模型 / LoRA）
                             <select class="text_pole" data-preset="renderProfileId" id="ctp_preset_render"></select>
                         </label>
-                        <small class="ctp-hint">「默认」= 用「出图参数」里的模型和 LoRA；渲染配置在「渲染配置」一节新建。人设绑定了这个预设时，切换人设会连同模型和 LoRA 一起切换。</small>
+                        <small class="ctp-hint">「默认」= 用「出图参数」里的模型和 LoRA；渲染配置在「出图参数」里新建。人设绑定了这个预设时，切换人设会连同模型和 LoRA 一起切换。</small>
                     </div>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="continuity"> 状态延续（把同一角色上一张图的服装 / 场景交给解析模型参考）</label>
                 </div>
@@ -395,7 +391,7 @@
             <!-- ============ 出图参数（默认） ============ -->
             <div class="inline-drawer ctp-sub" data-sub="render">
                 <div class="inline-drawer-toggle inline-drawer-header">
-                    <span><b>出图参数</b> <small>默认的模型 · LoRA · 分辨率 · 采样</small></span>
+                    <span><b>出图参数</b> <small>模型 · LoRA（风格 / 角色）· 分辨率 · 采样 · 渲染配置</small></span>
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
@@ -413,10 +409,23 @@
                     <label>扩散模型 (diffusion_models) <select class="text_pole" data-picker="comfy.unet" data-list="unet"></select></label>
                     <label>文本编码器 (text_encoders) <select class="text_pole" data-picker="comfy.clip" data-list="clip"></select></label>
                     <label>VAE <select class="text_pole" data-picker="comfy.vae" data-list="vae"></select></label>
+
+                    <h4>LoRA</h4>
                     <div class="ctp-row">
-                        <label class="flex1">风格 LoRA <select class="text_pole" data-picker="comfy.lora" data-list="lora" data-none="1"></select></label>
+                        <label class="flex1">风格 LoRA（所有图） <select class="text_pole" data-picker="comfy.lora" data-list="lora" data-none="1"></select></label>
                         <label class="ctp-narrow">强度 <input type="number" class="text_pole" step="0.05" data-ctp="comfy.loraStrength" data-type="float"></label>
                     </div>
+                    <label>角色 LoRA：选择角色预设
+                        <select class="text_pole" id="ctp_lora_preset"></select>
+                    </label>
+                    <div id="ctp_lora_editor">
+                        <div class="ctp-row">
+                            <label class="flex1">角色 LoRA <select class="text_pole" data-charlora-picker="lora" data-list="lora" data-none="1"></select></label>
+                            <label class="ctp-narrow">强度 <input type="number" class="text_pole" step="0.05" data-charlora="loraStrength" data-type="float"></label>
+                        </div>
+                        <label>LoRA 触发词（放在提示词最前）<input type="text" class="text_pole" data-charlora="trigger"></label>
+                    </div>
+                    <small class="ctp-hint">风格 LoRA 每张图都加；角色 LoRA 只在画这个角色时加，两个同时用。角色预设在「角色预设」一节新建。</small>
 
                     <h4>分辨率</h4>
                     <div class="ctp-row">
@@ -437,22 +446,8 @@
                         <label class="flex1">调度器 <select class="text_pole" data-picker="comfy.scheduler" data-list="scheduler"></select></label>
                     </div>
 
-                    <h4>其他</h4>
-                    <div class="ctp-row">
-                        <label class="flex1">文件名前缀 <input type="text" class="text_pole" data-ctp="comfy.filenamePrefix"></label>
-                        <label>超时(秒) <input type="number" class="text_pole" min="0" step="10" data-ctp="comfy.timeoutSec" data-type="int"></label>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ============ 渲染配置 ============ -->
-            <div class="inline-drawer ctp-sub" data-sub="profiles">
-                <div class="inline-drawer-toggle inline-drawer-header">
-                    <span><b>渲染配置</b> <small>不同角色用不同的模型 / LoRA</small></span>
-                    <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
-                </div>
-                <div class="inline-drawer-content">
-                    <small class="ctp-hint">「出图参数」里的是默认值。在这里建渲染配置，再到「角色预设」里给角色选一个：画这个角色时换成配置里的设置，没填的项用默认值。</small>
+                    <h4>渲染配置（不同角色用不同的模型 / LoRA）</h4>
+                    <small class="ctp-hint">上面的是默认值。在这里建渲染配置，再到「角色预设」里给角色选一个：画这个角色时换成配置里的设置，没填的项用默认值。</small>
                     <div class="ctp-row">
                         <select class="text_pole flex1" id="ctp_rp_select"></select>
                         <div class="menu_button fa-solid fa-plus" id="ctp_rp_add" title="新建"></div>
@@ -470,7 +465,7 @@
                             <label class="flex1">风格 LoRA <select class="text_pole" data-profile-picker="lora" data-list="lora" data-inherit="comfy.lora" data-none="1"></select></label>
                             <label class="ctp-narrow">强度 <input type="number" class="text_pole" step="0.05" data-rp="loraStrength" data-type="float"></label>
                         </div>
-                        <small class="ctp-hint">强度只在这里选了 LoRA 时生效。角色 LoRA 在角色预设里设置，和风格 LoRA 同时使用。</small>
+                        <small class="ctp-hint">强度只在这里选了 LoRA 时生效。角色 LoRA 在上面「LoRA」里设置，和风格 LoRA 同时使用。</small>
                         <div class="ctp-row">
                             <label>步数（0 = 默认） <input type="number" class="text_pole" min="0" step="1" data-rp="steps" data-type="int"></label>
                             <label>CFG（0 = 默认） <input type="number" class="text_pole" min="0" step="0.1" data-rp="cfg" data-type="float"></label>
@@ -486,6 +481,12 @@
                                 <div class="menu_button" id="ctp_rp_validate">校验</div>
                             </div>
                         </details>
+                    </div>
+
+                    <h4>其他</h4>
+                    <div class="ctp-row">
+                        <label class="flex1">文件名前缀 <input type="text" class="text_pole" data-ctp="comfy.filenamePrefix"></label>
+                        <label>超时(秒) <input type="number" class="text_pole" min="0" step="10" data-ctp="comfy.timeoutSec" data-type="int"></label>
                     </div>
                 </div>
             </div>
