@@ -595,3 +595,30 @@
 .ctp-edit .ctp-edit-extras {
     margin: 6px 0;
 }
+
+/* "更多 LoRA" rows and the LoRA summary in 出图参数 */
+.ctp-settings .ctp-extra-lora {
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.ctp-settings .ctp-extra-lora select[data-list] {
+    flex: 2 1 160px;
+}
+
+.ctp-settings .ctp-extra-lora .ctp-extra-preset {
+    flex: 1 1 110px;
+}
+
+.ctp-settings .ctp-extra-lora input[type="number"] {
+    width: 5em;
+    flex: 0 0 auto;
+}
+
+.ctp-settings .ctp-lora-summary {
+    font-size: 0.9em;
+    line-height: 1.5;
+    padding: 4px 8px;
+    border-left: 3px solid var(--SmartThemeQuoteColor);
+    white-space: pre-wrap;
+}

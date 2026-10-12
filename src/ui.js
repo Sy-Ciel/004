@@ -25,9 +25,9 @@ import { initRenderProfileUi, refreshRenderProfileUi, refreshRenderProfileUsage,
 import { renderProfileFor, sanitizeRenderProfile } from './renderProfiles.js';
 import { buildStatusInstruction, updateStatusPrompt } from './statusBar.js';
 import { callParser, parseExtraBody } from './parser.js';
-import { cancelAllJobs, enqueue, hasActiveJobs } from './pipeline.js';
+import { cancelAllJobs, enqueue, hasActiveJobs, planLoraLines, renderPlan } from './pipeline.js';
 import { renderAll } from './render.js';
-import { currentPersona, findUserPreset, personaList, presetName, resolveUserPreset } from './targets.js';
+import { currentPersona, findPresetById, findUserPreset, personaList, presetForName, presetName, resolveUserPreset } from './targets.js';
 import { ctx, errorMessage, escapeHtml, getSettings, roundTo16, saveSettings, truncate } from './utils.js';
 
 const SETTINGS_URL = new URL('../settings.html', import.meta.url);
@@ -255,6 +255,7 @@ export function refreshTargetSelect() {
         settings.targetMode = TARGET_USER;
     }
     select.val(settings.targetMode);
+    updateLoraSummary();
 }
 
 function refreshPresetSelect() {
@@ -274,6 +275,8 @@ function refreshPresetSelect() {
     loadPresetEditor();
     refreshLoraEditor();
     refreshTargetSelect();
+    renderExtraLoras();
+    updateLoraSummary();
 }
 
 function currentPreset() {
@@ -304,6 +307,94 @@ function refreshLoraEditor() {
     if (!preset) return;
     document.querySelectorAll('#ctp_lora_editor [data-charlora]').forEach(element => writeInput(element, preset[element.dataset.charlora]));
     document.querySelectorAll('#ctp_lora_editor [data-charlora-picker]').forEach(renderPicker);
+}
+
+/* ---------------- 更多 LoRA ---------------- */
+
+function renderExtraLoras() {
+    const settings = getSettings();
+    if (!Array.isArray(settings.comfy.extraLoras)) settings.comfy.extraLoras = [];
+    const presets = settings.presets;
+    const container = document.getElementById('ctp_extra_loras');
+    if (!container) return;
+    container.innerHTML = settings.comfy.extraLoras.map((lora, index) => `
+        <div class="ctp-row ctp-extra-lora" data-index="${index}">
+            <input type="checkbox" data-extra="enabled" title="使用" ${lora.enabled !== false ? 'checked' : ''}>
+            <select class="text_pole" data-picker="comfy.extraLoras.${index}.name" data-list="lora"></select>
+            <input type="number" class="text_pole" step="0.05" data-extra="strength" title="强度" value="${escapeHtml(String(lora.strength ?? 1))}">
+            <select class="text_pole ctp-extra-preset" data-extra="presetId" title="用于">
+                ${[['', '所有图'], ...presets.map(preset => [preset.id, `只画${displayName(preset)}时`])]
+                    .map(([id, label]) => `<option value="${escapeHtml(id)}" ${id === (lora.presetId || '') ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
+            </select>
+            <div class="menu_button fa-solid fa-trash-can" data-extra-remove title="删除"></div>
+        </div>`).join('');
+    bindPickers(container);
+}
+
+function initExtraLoras() {
+    const container = $('#ctp_extra_loras');
+    const entry = element => getSettings().comfy.extraLoras[Number($(element).closest('.ctp-extra-lora').data('index'))];
+    container.on('input change', '[data-extra]', function () {
+        const lora = entry(this);
+        if (!lora) return;
+        const key = this.dataset.extra;
+        lora[key] = key === 'enabled' ? this.checked : key === 'strength' ? Number(this.value) || 0 : String(this.value);
+        saveSettings();
+    });
+    container.on('click', '[data-extra-remove]', function () {
+        const index = Number($(this).closest('.ctp-extra-lora').data('index'));
+        getSettings().comfy.extraLoras.splice(index, 1);
+        saveSettings();
+        renderExtraLoras();
+        updateLoraSummary();
+    });
+    $('#ctp_extra_lora_add').on('click', () => {
+        getSettings().comfy.extraLoras.push({ name: '', strength: 1, presetId: '', enabled: true });
+        saveSettings();
+        renderExtraLoras();
+    });
+    renderExtraLoras();
+}
+
+/* ---------------- summary of the LoRAs that will be used ---------------- */
+
+/** The character "画谁" points at, when it is fixed (not "auto"). */
+function targetPresetForSummary() {
+    const { targetMode } = getSettings();
+    if (targetMode === TARGET_AUTO) return { auto: true };
+    if (targetMode === TARGET_USER) return { preset: resolveUserPreset().preset, name: ctx().name1 || '{{user}}' };
+    if (targetMode === TARGET_CHAR) return { preset: presetForName(ctx().name2), name: ctx().name2 || '{{char}}' };
+    const preset = findPresetById(targetMode);
+    return { preset, name: preset ? presetName(preset) || preset.name : '' };
+}
+
+function summaryFor(preset, name) {
+    const plan = renderPlan({ modelMode: currentMode(), presetId: preset?.id ?? null, target: name });
+    const lines = planLoraLines(plan);
+    const head = preset ? `画${displayName(preset)}` : `画「${name}」（没有角色预设）`;
+    const profile = plan.profile ? `，渲染配置「${plan.profile.name}」` : '';
+    return `${head}${profile}：\n${lines.length ? lines.map(line => `  · ${line}`).join('\n') : '  · 不加 LoRA'}`;
+}
+
+let summaryTimer = null;
+
+/** "会使用的 LoRA" at the bottom of 出图参数: every LoRA and strength a picture of the current target would get. */
+function updateLoraSummary() {
+    clearTimeout(summaryTimer);
+    summaryTimer = setTimeout(() => {
+        const element = document.getElementById('ctp_lora_summary');
+        if (!element) return;
+        const { comfy } = getSettings();
+        const blocks = [];
+        const target = targetPresetForSummary();
+        if (target.auto) blocks.push('画谁 = 自动：由解析模型挑出的角色决定，用那个角色的预设。');
+        else blocks.push(summaryFor(target.preset, target.name));
+        const editing = loraPreset();
+        if (editing && editing.id !== target.preset?.id) blocks.push(summaryFor(editing, presetName(editing) || editing.name));
+        const custom = comfy.workflowSource === 'custom' ? '\n自定义工作流：角色 / 风格 LoRA 要有 %char_lora% / %lora% 占位符才会生效，「更多 LoRA」会自动接上。' : '';
+        blocks.push(`强度作用于：${comfy.loraClip ? '模型 + 文本编码器（加载 LoRA，模型和 CLIP 强度相同）' : '仅模型（LoRA 加载器（仅模型））'}${custom}`);
+        element.textContent = blocks.join('\n\n');
+    }, 50);
 }
 
 function initLoraEditor() {
@@ -708,7 +799,7 @@ function validateWorkflow(text = getSettings().comfy.workflow) {
         const { notes } = prepareWorkflow(text, {
             prompt: 'test', negative_prompt: '', width: 1024, height: 1024, seed: 1, steps: 8, cfg: 1, scale: 1,
             sampler: 'euler', scheduler: 'simple', denoise: 1, unet: 'a', model: 'a', clip: 'b', vae: 'c',
-            lora: '', lora_strength: 0, char_lora: '', char_lora_strength: 0, filename_prefix: 'x', batch_size: 1,
+            lora: '', lora_strength: 0, lora_clip_strength: 0, char_lora: '', char_lora_strength: 0, char_lora_clip_strength: 0, filename_prefix: 'x', batch_size: 1,
         });
         const placeholders = [...new Set(text.match(/%\w+%/g) || [])];
         toastr.success(`${placeholders.length ? `占位符：${placeholders.join(' ')}` : '无占位符，将使用自动注入'}${notes.length ? `\n${notes.join('\n')}` : ''}`, '工作流可用', { timeOut: 8000 });
@@ -879,6 +970,7 @@ function refreshAllSettingsUi() {
     // A persona switch is noticed against the new mode's {{user}} preset.
     lastUserKey = `${currentPersona()}|${findUserPreset()?.id ?? ''}`;
     updateStatusPrompt();
+    updateLoraSummary();
     renderAll();
 }
 
@@ -1006,6 +1098,9 @@ export async function initSettingsUi() {
     $('#ctp_lists_status').text(listsSummary());
     initPresets();
     initLoraEditor();
+    initExtraLoras();
+    // Any change in the panel can change which LoRAs are used.
+    $(root).on('input change', updateLoraSummary);
     initRenderProfileUi({ onChange: renderPresetRenderOptions, validateWorkflow });
     refreshPresetSelect();
     updateSourceVisibility();

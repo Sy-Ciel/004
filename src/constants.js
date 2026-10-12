@@ -377,6 +377,10 @@ export const DEFAULT_SETTINGS = {
         vae: 'qwen_image_vae.safetensors',
         lora: '',
         loraStrength: 0.8,
+        /** LoRAs also patch the text encoder (ComfyUI's "Load LoRA" node) instead of only the model. */
+        loraClip: false,
+        /** More LoRAs: [{ name, strength, presetId }] — presetId '' = every picture, else only that character's. */
+        extraLoras: [],
         // Let ComfyUI rewrite the prompt first, like the official template's "Refine Prompt?" (built-in workflow only).
         refinePrompt: false,
         filenamePrefix: 'ST_portrait',
@@ -399,6 +403,8 @@ const ANIMA_DEFAULTS = {
         width: 832,
         height: 1248,
         filenamePrefix: 'ST_anima',
+        // Like ComfyUI's usual "Load LoRA" node: Anima LoRAs often train the text encoder too.
+        loraClip: true,
     },
 };
 

@@ -245,6 +245,56 @@ export function prepareWorkflow(templateText, values) {
     return { workflow, notes };
 }
 
+function nextNodeId(workflow) {
+    let id = Math.max(99, ...Object.keys(workflow).map(Number).filter(Number.isFinite)) + 1;
+    while (String(id) in workflow) id++;
+    return String(id);
+}
+
+/**
+ * Adds LoRAs on top of a prepared workflow (the "更多 LoRA" list): a chain of loaders between the model that
+ * feeds the sampler and the sampler, like stacking "Load LoRA" nodes in ComfyUI. With `withClip` they also patch
+ * the text encoder (LoraLoader), otherwise only the model (LoraLoaderModelOnly).
+ * @param {{ name: string, strength: number }[]} loras
+ */
+export function addExtraLoras(workflow, loras, withClip, notes = []) {
+    const list = (loras || []).filter(lora => String(lora?.name || '').trim());
+    if (!list.length) return workflow;
+    const sampler = Object.values(workflow).find(node => SAMPLER_TYPES.includes(node.class_type) && isLink(node.inputs?.model));
+    if (!sampler) {
+        notes.push('没有找到 KSampler 的模型输入，「更多 LoRA」没有加上');
+        return workflow;
+    }
+    let model = sampler.inputs.model;
+    const encoders = Object.values(workflow).filter(node => node.class_type === 'CLIPTextEncode' && isLink(node.inputs?.clip));
+    const clipSources = [...new Set(encoders.map(node => JSON.stringify(node.inputs.clip)))];
+    // Text-encoder patching needs one clip that all prompts are encoded with.
+    const clipOn = withClip && clipSources.length === 1;
+    let clip = clipOn ? JSON.parse(clipSources[0]) : null;
+    const originalModel = JSON.stringify(model);
+    const originalClip = clip && JSON.stringify(clip);
+    for (const lora of list) {
+        const id = nextNodeId(workflow);
+        const strength = Number(lora.strength) || 0;
+        workflow[id] = clipOn
+            ? { class_type: 'LoraLoader', inputs: { model, clip, lora_name: lora.name.trim(), strength_model: strength, strength_clip: strength }, _meta: { title: '更多 LoRA' } }
+            : { class_type: 'LoraLoaderModelOnly', inputs: { model, lora_name: lora.name.trim(), strength_model: strength }, _meta: { title: '更多 LoRA' } };
+        model = [id, 0];
+        if (clipOn) clip = [id, 1];
+    }
+    const added = new Set(Object.keys(workflow).slice(-list.length));
+    for (const [id, node] of Object.entries(workflow)) {
+        if (added.has(id)) continue;
+        for (const [key, value] of Object.entries(node.inputs || {})) {
+            if (!isLink(value)) continue;
+            if (JSON.stringify(value) === originalModel && key === 'model') node.inputs[key] = model;
+            else if (clipOn && JSON.stringify(value) === originalClip && key === 'clip') node.inputs[key] = clip;
+        }
+    }
+    notes.push(`更多 LoRA：${list.map(lora => `${lora.name} @ ${Number(lora.strength) || 0}`).join('、')}${clipOn ? '（模型 + 文本编码器）' : '（仅模型）'}`);
+    return workflow;
+}
+
 /** ComfyUI address as seen from the SillyTavern server (proxy mode). */
 function comfyBase() {
     const url = getSettings().comfy.url.trim().replace(/\/+$/, '');

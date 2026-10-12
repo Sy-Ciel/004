@@ -375,7 +375,7 @@
                             <div class="menu_button" id="ctp_workflow_load_builtin">载入内置工作流</div>
                             <div class="menu_button" id="ctp_workflow_validate">校验</div>
                         </div>
-                        <small class="ctp-hint">占位符：%prompt% %negative_prompt% %width% %height% %seed% %steps% %cfg% %sampler% %scheduler% %unet% %clip% %vae% %lora% %lora_strength% %char_lora% %char_lora_strength% %filename_prefix%。LoRA 名为空的 LoRA 节点自动旁路；没有 %prompt% 时尝试自动注入。</small>
+                        <small class="ctp-hint">占位符：%prompt% %negative_prompt% %width% %height% %seed% %steps% %cfg% %sampler% %scheduler% %unet% %clip% %vae% %lora% %lora_strength% %lora_clip_strength% %char_lora% %char_lora_strength% %char_lora_clip_strength% %filename_prefix%。LoRA 名为空的 LoRA 节点自动旁路；没有 %prompt% 时尝试自动注入。</small>
                     </div>
                     <div class="ctp-mode-only" data-mode="krea2">
                     <label class="checkbox_label"><input type="checkbox" data-ctp="comfy.refinePrompt"> ComfyUI 端提示词扩写（官方 Krea 2 Turbo 模板默认开启）</label>
@@ -426,6 +426,14 @@
                         <label>LoRA 触发词（放在提示词最前）<input type="text" class="text_pole" data-charlora="trigger"></label>
                     </div>
                     <small class="ctp-hint">风格 LoRA 每张图都加；角色 LoRA 只在画这个角色时加，两个同时用。角色预设在「角色预设」一节新建。</small>
+                    <h4>更多 LoRA</h4>
+                    <div id="ctp_extra_loras"></div>
+                    <div class="ctp-row">
+                        <div class="menu_button" id="ctp_extra_lora_add"><i class="fa-solid fa-plus"></i> 添加 LoRA</div>
+                    </div>
+                    <small class="ctp-hint">可以叠加任意多个，按顺序接在角色 LoRA、风格 LoRA 后面。「用于」选某个角色预设 = 只在画这个角色时加，选「所有图」= 每张都加；取消勾选 = 暂时不用。自定义工作流也会自动接上。</small>
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="comfy.loraClip"> LoRA 同时作用于文本编码器（和 ComfyUI 的「加载 LoRA」节点一样，强度相同）</label>
+                    <small class="ctp-hint">ComfyUI 里常用的「加载 LoRA」(LoraLoader) 会同时改模型和文本编码器；关掉这一项 = 「LoRA 加载器（仅模型）」。在 ComfyUI 里用哪种节点，这里就选哪种，否则同样的设置出的图会不一样。Anima 模式默认打开；Krea 2 的内置工作流只支持仅模型。</small>
 
                     <h4>分辨率</h4>
                     <div class="ctp-row">
@@ -488,6 +496,9 @@
                         <label class="flex1">文件名前缀 <input type="text" class="text_pole" data-ctp="comfy.filenamePrefix"></label>
                         <label>超时(秒) <input type="number" class="text_pole" min="0" step="10" data-ctp="comfy.timeoutSec" data-type="int"></label>
                     </div>
+
+                    <h4>会使用的 LoRA</h4>
+                    <div class="ctp-lora-summary" id="ctp_lora_summary"></div>
                 </div>
             </div>
 

@@ -39,6 +39,9 @@ export async function openEditDialog(mesId) {
     if (comfy.lora) {
         extras.push(checkbox('styleLora', `风格 LoRA：${escapeHtml(comfy.lora)} @ ${plan.styleLoraStrength}`, previous.styleLora !== false));
     }
+    if (plan.extraLoras.length) {
+        extras.push(checkbox('extraLoras', `更多 LoRA：${escapeHtml(plan.extraLoras.map(lora => `${lora.name} @ ${lora.strength}`).join('、'))}`, previous.extraLoras !== false));
+    }
     if (plan.boundProfile) {
         extras.push(checkbox('profile', `渲染配置「${escapeHtml(plan.boundProfile.name)}」（换掉模型、LoRA、采样）`, previous.profile !== false));
     }

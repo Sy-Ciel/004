@@ -5,7 +5,9 @@
             "unet_name": "%unet%",
             "weight_dtype": "default"
         },
-        "_meta": { "title": "Anima Base 1.0 扩散模型" }
+        "_meta": {
+            "title": "Anima Base 1.0 扩散模型"
+        }
     },
     "2": {
         "class_type": "CLIPLoader",
@@ -14,48 +16,82 @@
             "type": "stable_diffusion",
             "device": "default"
         },
-        "_meta": { "title": "Qwen3 0.6B 文本编码器" }
+        "_meta": {
+            "title": "Qwen3 0.6B 文本编码器"
+        }
     },
     "3": {
         "class_type": "VAELoader",
         "inputs": {
             "vae_name": "%vae%"
         },
-        "_meta": { "title": "Qwen Image VAE" }
+        "_meta": {
+            "title": "Qwen Image VAE"
+        }
     },
     "4": {
-        "class_type": "LoraLoaderModelOnly",
+        "class_type": "LoraLoader",
         "inputs": {
-            "model": ["1", 0],
+            "model": [
+                "1",
+                0
+            ],
+            "clip": [
+                "2",
+                0
+            ],
             "lora_name": "%char_lora%",
-            "strength_model": "%char_lora_strength%"
+            "strength_model": "%char_lora_strength%",
+            "strength_clip": "%char_lora_clip_strength%"
         },
-        "_meta": { "title": "角色 LoRA（来自角色预设，留空自动旁路）" }
+        "_meta": {
+            "title": "角色 LoRA（加载 LoRA：模型 + 文本编码器；留空自动旁路）"
+        }
     },
     "5": {
-        "class_type": "LoraLoaderModelOnly",
+        "class_type": "LoraLoader",
         "inputs": {
-            "model": ["4", 0],
+            "model": [
+                "4",
+                0
+            ],
+            "clip": [
+                "4",
+                1
+            ],
             "lora_name": "%lora%",
-            "strength_model": "%lora_strength%"
+            "strength_model": "%lora_strength%",
+            "strength_clip": "%lora_clip_strength%"
         },
-        "_meta": { "title": "全局/风格 LoRA（留空自动旁路；Turbo LoRA 也放这里）" }
+        "_meta": {
+            "title": "风格 LoRA（加载 LoRA：模型 + 文本编码器；留空自动旁路）"
+        }
     },
     "6": {
         "class_type": "CLIPTextEncode",
         "inputs": {
-            "clip": ["2", 0],
+            "clip": [
+                "5",
+                1
+            ],
             "text": "%prompt%"
         },
-        "_meta": { "title": "正向提示词" }
+        "_meta": {
+            "title": "正向提示词"
+        }
     },
     "7": {
         "class_type": "CLIPTextEncode",
         "inputs": {
-            "clip": ["2", 0],
+            "clip": [
+                "5",
+                1
+            ],
             "text": "%negative_prompt%"
         },
-        "_meta": { "title": "负向提示词" }
+        "_meta": {
+            "title": "负向提示词"
+        }
     },
     "8": {
         "class_type": "EmptyLatentImage",
@@ -64,15 +100,29 @@
             "height": "%height%",
             "batch_size": 1
         },
-        "_meta": { "title": "自定义分辨率（约 1MP）" }
+        "_meta": {
+            "title": "自定义分辨率（约 1MP）"
+        }
     },
     "9": {
         "class_type": "KSampler",
         "inputs": {
-            "model": ["5", 0],
-            "positive": ["6", 0],
-            "negative": ["7", 0],
-            "latent_image": ["8", 0],
+            "model": [
+                "5",
+                0
+            ],
+            "positive": [
+                "6",
+                0
+            ],
+            "negative": [
+                "7",
+                0
+            ],
+            "latent_image": [
+                "8",
+                0
+            ],
             "seed": "%seed%",
             "steps": "%steps%",
             "cfg": "%cfg%",
@@ -80,22 +130,37 @@
             "scheduler": "%scheduler%",
             "denoise": 1
         },
-        "_meta": { "title": "KSampler" }
+        "_meta": {
+            "title": "KSampler"
+        }
     },
     "10": {
         "class_type": "VAEDecode",
         "inputs": {
-            "samples": ["9", 0],
-            "vae": ["3", 0]
+            "samples": [
+                "9",
+                0
+            ],
+            "vae": [
+                "3",
+                0
+            ]
         },
-        "_meta": { "title": "VAE 解码" }
+        "_meta": {
+            "title": "VAE 解码"
+        }
     },
     "11": {
         "class_type": "SaveImage",
         "inputs": {
-            "images": ["10", 0],
+            "images": [
+                "10",
+                0
+            ],
             "filename_prefix": "%filename_prefix%"
         },
-        "_meta": { "title": "保存图片" }
+        "_meta": {
+            "title": "保存图片"
+        }
     }
 }

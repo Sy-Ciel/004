@@ -1,5 +1,5 @@
 import { EXTRA_KEY, modeDefaults } from './constants.js';
-import { getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
+import { addExtraLoras, getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
 import { currentMode, floorMode, modeLabel } from './modes.js';
 import { buildParserPrompt, parserLabel, requestParse } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution } from './parserPresets.js';
@@ -191,7 +191,26 @@ export function renderPlan(data, overrides = null) {
         charLoraStrength: Number(preset?.loraStrength) || 0,
         styleLora: overrides?.styleLora === false ? '' : comfy.lora || '',
         styleLoraStrength: Number(comfy.loraStrength) || 0,
+        // "更多 LoRA": the ones for every picture plus this character's.
+        extraLoras: overrides?.extraLoras === false ? [] : extraLorasFor(preset),
+        loraClip: !!getSettings().comfy.loraClip,
     };
+}
+
+/** The "更多 LoRA" entries used for a character preset (entries for every picture and the preset's own). */
+export function extraLorasFor(preset) {
+    return (getSettings().comfy.extraLoras || [])
+        .filter(lora => String(lora?.name || '').trim() && lora.enabled !== false && (!lora.presetId || lora.presetId === preset?.id))
+        .map(lora => ({ name: String(lora.name).trim(), strength: Number(lora.strength) || 0 }));
+}
+
+/** Every LoRA a plan uses, in order, as "name @ strength" lines (for the summary and the debug view). */
+export function planLoraLines(plan) {
+    return [
+        plan.charLora ? `角色 LoRA：${plan.charLora} @ ${plan.charLoraStrength}` : '',
+        plan.styleLora ? `风格 LoRA：${plan.styleLora} @ ${plan.styleLoraStrength}` : '',
+        ...plan.extraLoras.map(lora => `更多 LoRA：${lora.name} @ ${lora.strength}`),
+    ].filter(Boolean);
 }
 
 function describeOverrides(overrides) {
@@ -200,6 +219,7 @@ function describeOverrides(overrides) {
     if (overrides.width && overrides.height) parts.push(`${overrides.width}×${overrides.height}`);
     if (overrides.charLora === false) parts.push('不加角色 LoRA');
     if (overrides.styleLora === false) parts.push('不加风格 LoRA');
+    if (overrides.extraLoras === false) parts.push('不加更多 LoRA');
     if (overrides.profile === false) parts.push('不用渲染配置');
     if (overrides.refine === false) parts.push('不扩写');
     if (overrides.refine === true) parts.push('ComfyUI 端扩写');
@@ -395,6 +415,9 @@ async function runJob(message, job, options) {
             lora_strength: plan.styleLoraStrength,
             char_lora: plan.charLora,
             char_lora_strength: plan.charLoraStrength,
+            // Text-encoder strength of the LoRA loaders (0 = model only, like "LoraLoaderModelOnly").
+            lora_clip_strength: plan.loraClip ? plan.styleLoraStrength : 0,
+            char_lora_clip_strength: plan.loraClip ? plan.charLoraStrength : 0,
             filename_prefix: comfy.filenamePrefix || defaults.filenamePrefix,
             batch_size: 1,
         };
@@ -402,6 +425,7 @@ async function runJob(message, job, options) {
         const template = await getWorkflowTemplate(comfy, profile, modelMode);
         assertMode(modelMode);
         const { workflow, notes } = prepareWorkflow(template.text, values);
+        addExtraLoras(workflow, plan.extraLoras, plan.loraClip, notes);
         data.debug.notes.push(...notes);
         if (template.refine) {
             data.debug.notes.push(comfy.mode === 'direct'
@@ -425,6 +449,8 @@ async function runJob(message, job, options) {
             vae: values.vae,
             lora: values.lora ? `${values.lora} @ ${values.lora_strength}` : '',
             charLora: values.char_lora ? `${values.char_lora} @ ${values.char_lora_strength}` : '',
+            extraLoras: plan.extraLoras.map(lora => `${lora.name} @ ${lora.strength}`).join('、'),
+            loraClip: plan.loraClip,
         };
         if (settings.debug) data.debug.workflow = workflow;
         else delete data.debug.workflow;
