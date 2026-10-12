@@ -1,7 +1,7 @@
 import { PARSED_FIELDS, STATE_FIELDS } from './constants.js';
 import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
-import { currentMode, floorMode, modeLabel } from './modes.js';
+import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
 import { activeParserPreset, outputRules, parseFixedFields, promptMode } from './parserPresets.js';
 import { triggerWordList } from './prompt.js';
 import { findStatusBar, withoutStatusBar } from './statusBar.js';
@@ -99,7 +99,9 @@ function formatOutputs(records, includePrompt) {
             if (data.parsed[field]) lines.push(`${field}: ${data.parsed[field]}`);
         }
         if (includePrompt) {
-            const image = data.images?.[currentIndex(data)];
+            // The selected version may be an older picture of the other mode (its prompt is for another model).
+            const selected = data.images?.[currentIndex(data)];
+            const image = selected && imageMode(selected) === currentMode() ? selected : null;
             const prompt = image?.prompt || data.prompt;
             if (prompt) {
                 const edited = image?.prompt && data.prompt && image.prompt !== data.prompt ? '（用户选中的版本）' : '';

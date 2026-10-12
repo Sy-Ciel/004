@@ -37,6 +37,11 @@ export function floorMode(data) {
     return normalizeMode(data?.modelMode);
 }
 
+/** The mode one picture version was drawn in (pictures from before the Anima mode are Krea 2's). */
+export function imageMode(image) {
+    return normalizeMode(image?.mode);
+}
+
 /** A copy of one mode's own settings: everything except the shared keys. */
 export function extractModeSettings(settings) {
     const own = {};

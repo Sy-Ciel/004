@@ -17,7 +17,7 @@ import {
     resolutionPresets,
 } from './constants.js';
 import { lastFloorId, showChatDebug, showDryRun, showParserPreview } from './debug.js';
-import { currentMode, modeLabel, swapModeSettings } from './modes.js';
+import { SHARED_COMFY_KEYS, SHARED_PARSER_KEYS, currentMode, modeLabel, swapModeSettings } from './modes.js';
 import { resetPanelForMode, resetPanelGeometry } from './panel.js';
 import { bindPickers, getPath, readInput, registerPickerOwner, renderPicker, renderPickers, setPath, writeInput } from './form.js';
 import { initParserPresetUi, refreshParserPresetUi } from './ui-parser-presets.js';
@@ -518,7 +518,9 @@ function initPresets() {
             const imported = list.filter(item => item && typeof item === 'object').map(sanitizePreset);
             if (!imported.length) throw new Error('文件里没有角色预设');
             // The two modes are kept apart: say so when a file of the other mode's presets comes in.
-            const fileMode = typeof json?.modelMode === 'string' ? normalizeMode(json.modelMode) : null;
+            // Files exported before the Anima mode existed hold Krea 2 presets.
+            const fileMode = typeof json?.modelMode === 'string' ? normalizeMode(json.modelMode)
+                : json?.type === 'comfy_portrait_presets' ? MODEL_KREA2 : null;
             if (fileMode && fileMode !== currentMode()) {
                 const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
                 const answer = await callGenericPopup(`这个文件是从 ${modeLabel(fileMode)} 模式导出的，当前是 ${modeLabel()} 模式。<br>里面的角色 LoRA、渲染配置（模型、工作流）是给 ${modeLabel(fileMode)} 用的，导入后请逐个检查。仍然导入到 ${modeLabel()} 模式？`, POPUP_TYPE.CONFIRM);
@@ -729,8 +731,6 @@ async function loadBuiltinIntoEditor() {
 
 /* ---------------- reset everything ---------------- */
 
-const KEEP_PARSER = ['source', 'customUrl', 'customKey', 'customModel', 'extraBody', 'models', 'profileId'];
-const KEEP_COMFY = ['url', 'browserUrl', 'mode', 'lists'];
 
 /**
  * What "keep presets" keeps of a mode's settings: character presets (with persona bindings), render profiles,
@@ -759,7 +759,7 @@ async function resetAllSettings() {
         <h3>全部恢复默认值</h3>
         <p>把这个扩展在 <b>${modeLabel(mode)}</b> 模式下的所有设置恢复成刚安装时的样子。聊天里已经生成的图片和配图记录不受影响。</p>
         <label class="checkbox_label"><input type="checkbox" data-keep="presets" checked> 保留角色预设、人设绑定、渲染配置和自己建的配图风格</label>
-        <label class="checkbox_label"><input type="checkbox" data-keep="parser" checked> 保留解析模型的 API 地址、Key、模型和连接配置（两个模式共用）</label>
+        <label class="checkbox_label"><input type="checkbox" data-keep="parser" checked> 保留「解析模型」的 API 设置：地址、Key、模型、连接配置、温度、最大输出、超时、重试（两个模式共用）</label>
         <label class="checkbox_label"><input type="checkbox" data-keep="comfy" checked> 保留 ComfyUI 地址、连接方式和已读取的模型列表（两个模式共用）</label>
         <label class="checkbox_label"><input type="checkbox" data-keep="reset-other"> ${modeLabel(other)} 模式的设置也恢复默认（同样按第一项保留角色预设）</label>
         <small class="ctp-hint">前三项都不勾 = 完全恢复成刚安装的样子，角色预设和 API Key 也会清掉；建议先在「角色预设」里导出备份。</small>`;
@@ -777,9 +777,12 @@ async function resetAllSettings() {
     const fresh = structuredClone(modeDefaults(mode));
     fresh.modelMode = mode;
     if (keep('presets')) Object.assign(fresh, keptPresets(settings, mode));
-    if (keep('parser')) for (const key of KEEP_PARSER) fresh.parser[key] = settings.parser[key];
-    if (keep('comfy')) for (const key of KEEP_COMFY) fresh.comfy[key] = settings.comfy[key];
+    // The API settings are shared by both modes: kept as a whole, so resetting one mode does not change the other.
+    if (keep('parser')) for (const key of SHARED_PARSER_KEYS) fresh.parser[key] = structuredClone(settings.parser[key]);
+    if (keep('comfy')) for (const key of SHARED_COMFY_KEYS) fresh.comfy[key] = structuredClone(settings.comfy[key]);
     const store = settings.modeStore;
+    // "Enabled" is shared too; it goes back to on only when both modes are reset.
+    if (!keep('reset-other')) fresh.enabled = settings.enabled;
     if (keep('reset-other')) {
         const saved = store[other];
         delete store[other];

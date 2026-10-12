@@ -14,7 +14,17 @@ function cleanLine(line) {
         .trim();
 }
 
+/**
+ * Tidies one part of an Anima (tag) prompt. Only spacing and empty tags change: cleanLine's punctuation rules are
+ * for sentences and would break tags such as ":d", ":3" or ";)".
+ */
+function cleanTags(text) {
+    return String(text ?? '').replace(/\s+/g, ' ').split(',').map(tag => tag.trim()).filter(Boolean).join(', ');
+}
+
 const SENTENCE_END = /[.!?。！？]$/;
+/** In a tag prompt only a full stop ends a sentence: "love live!" or "!?" are tags. */
+const TAG_SENTENCE_END = /[.。]$/;
 
 function closeSentence(text) {
     return SENTENCE_END.test(text) ? text : `${text}.`;
@@ -26,7 +36,7 @@ function closeSentence(text) {
  */
 function joinParts(parts, tags) {
     const text = tags
-        ? parts.reduce((out, part) => (!out ? part : SENTENCE_END.test(out) ? `${out} ${part}` : `${out}, ${part}`), '')
+        ? parts.reduce((out, part) => (!out ? part : TAG_SENTENCE_END.test(out) ? `${out} ${part}` : `${out}, ${part}`), '')
         : parts.map(closeSentence).join(' ');
     return text.replace(/\s+/g, ' ').trim();
 }
@@ -55,10 +65,15 @@ function escapeRegExp(text) {
     return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Escaped parentheses read as plain ones, so "x \\(y\\)" and "x (y)" are the same words. */
+function unescapeParens(text) {
+    return String(text).replace(/\\([()])/g, '$1');
+}
+
 /** Whether `word` is in `text` as a whole word or tag (case-insensitive; escaped parentheses count as plain). */
 function containsWord(text, word) {
-    const plain = text.replace(/\\([()])/g, '$1');
-    return new RegExp(`(?:^|[^\\p{L}\\p{N}_])${escapeRegExp(word)}(?=$|[^\\p{L}\\p{N}_])`, 'iu').test(plain);
+    const pattern = escapeRegExp(unescapeParens(word));
+    return new RegExp(`(?:^|[^\\p{L}\\p{N}_])${pattern}(?=$|[^\\p{L}\\p{N}_])`, 'iu').test(unescapeParens(text));
 }
 
 /**
@@ -72,17 +87,65 @@ export function withTriggerWords(prompt, words = triggerWordList()) {
     return text ? `${missing.join(', ')}, ${text}` : missing.join(', ');
 }
 
-/** A ComfyUI weight like "(smile:1.2)"; those keep their parentheses. */
-const WEIGHT = /(?<!\\)\([^()]*?:\s*-?\d+(?:\.\d+)?\s*\)/g;
+/** The end of a ComfyUI weight group's text: ":1.2", ": 0.8", ":.5", ":-1". */
+const WEIGHT_END = /:\s*-?(?:\d+(?:\.\d*)?|\.\d+)\s*$/;
 
 /**
  * Escapes ( ) so ComfyUI keeps them as text: unescaped, it reads them as emphasis and drops them, which breaks
- * Danbooru tags like "artoria pendragon (fate)". Explicit weights such as "(smile:1.2)" are left alone.
+ * Danbooru tags like "artoria pendragon (fate)". Weight groups are kept: "(smile:1.2)", "(artoria pendragon
+ * (fate):1.2)" (only the inner pair is escaped) and a pair that just wraps one, "((smile:1.2))". Parentheses
+ * that are already escaped are left alone.
  */
 export function escapeParens(text) {
-    const kept = [];
-    const masked = String(text ?? '').replace(WEIGHT, match => `\u0001${kept.push(match) - 1}\u0001`);
-    return masked.replace(/(?<!\\)[()]/g, '\\$&').replace(/\u0001(\d+)\u0001/g, (_, index) => kept[Number(index)]);
+    const source = String(text ?? '');
+    const escape = new Set();
+    const kept = new Set();
+    const open = [];
+    for (let i = 0; i < source.length; i++) {
+        const char = source[i];
+        if (char === '\\') {
+            i++;
+            continue;
+        }
+        if (char === '(') {
+            open.push(i);
+        } else if (char === ')') {
+            if (!open.length) {
+                escape.add(i);
+                continue;
+            }
+            const start = open.pop();
+            const inner = source.slice(start + 1, i);
+            const innerStart = start + 1 + (inner.length - inner.trimStart().length);
+            const innerEnd = start + inner.trimEnd().length;
+            const wrapsKept = kept.has(innerStart) && kept.has(innerEnd) && matchingClose(source, innerStart) === innerEnd;
+            if (WEIGHT_END.test(inner) || wrapsKept) {
+                kept.add(start);
+                kept.add(i);
+            } else {
+                escape.add(start);
+                escape.add(i);
+            }
+        }
+    }
+    for (const index of open) escape.add(index);
+    let out = '';
+    for (let i = 0; i < source.length; i++) out += escape.has(i) ? `\\${source[i]}` : source[i];
+    return out;
+}
+
+/** Index of the ")" closing the "(" at `start`, skipping escaped parentheses. */
+function matchingClose(source, start) {
+    let depth = 0;
+    for (let i = start; i < source.length; i++) {
+        if (source[i] === '\\') {
+            i++;
+            continue;
+        }
+        if (source[i] === '(') depth++;
+        else if (source[i] === ')' && --depth === 0) return i;
+    }
+    return -1;
 }
 
 /** Last step for every generated prompt: the mode's trigger words, then escaping if the mode wants it. */
@@ -108,9 +171,10 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
     const tags = isAnimaMode();
     const prefix = [settings.prefix, parserPreset?.prefix].map(text => resolveMacros(text || '')).filter(Boolean).join(tags ? ', ' : ' ');
 
+    const clean = tags ? cleanTags : text => cleanLine(String(text || ''));
     if (mode === 'ai' && parsed?.prompt) {
         const parts = [resolveMacros(preset?.trigger || ''), prefix, parsed.prompt, resolveMacros(settings.suffix || '')]
-            .map(text => cleanLine(String(text || '')))
+            .map(clean)
             .filter(Boolean);
         return finishPrompt(joinParts(parts, tags));
     }
@@ -131,7 +195,7 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
     for (const line of templateFor(String(settings.promptTemplate || ''), !!vars.others, tags).split('\n')) {
         const keys = [...line.matchAll(/\{\{(\w+)\}\}/g)].map(match => match[1]).filter(key => Object.hasOwn(vars, key));
         if (keys.length && keys.every(key => !vars[key])) continue;
-        const cleaned = cleanLine(fillTemplate(line, vars));
+        const cleaned = clean(fillTemplate(line, vars));
         // Lines are joined into one paragraph, so each is closed (sentences) or comma-separated (tags).
         if (cleaned) lines.push(cleaned);
     }

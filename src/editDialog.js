@@ -3,8 +3,9 @@
  * can be reproduced, or compared with the same prompt and seed in ComfyUI's own template.
  */
 import { MODEL_KREA2 } from './constants.js';
-import { currentMode, floorMode, modeLabel } from './modes.js';
+import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
 import { enqueue, renderPlan } from './pipeline.js';
+import { buildNegativePrompt } from './prompt.js';
 import { ctx, escapeHtml, getMessageData } from './utils.js';
 
 function intOrNull(value) {
@@ -23,7 +24,8 @@ export async function openEditDialog(mesId) {
     const data = getMessageData(message);
     const index = Math.max(0, data?.index ?? 0);
     const image = data?.images?.[index];
-    const previous = data?.editOverrides ?? {};
+    // Edit choices of the other mode (its sizes, LoRA switches) do not carry over.
+    const previous = data && floorMode(data) === currentMode() ? data.editOverrides ?? {} : {};
     // What would be used without any override, to describe the choices.
     const plan = renderPlan(data);
     const comfy = plan.comfy;
@@ -44,8 +46,10 @@ export async function openEditDialog(mesId) {
     if (currentMode() === MODEL_KREA2) {
         extras.push(checkbox('refine', 'ComfyUI 端提示词扩写', typeof previous.refine === 'boolean' ? previous.refine : !!comfy.refinePrompt));
     }
-    const drawnIn = data ? floorMode(data) : currentMode();
-    const modeNote = drawnIn !== currentMode()
+    // The prompt shown is the selected version's, which may be an older picture of the other mode.
+    const drawnIn = image ? imageMode(image) : data ? floorMode(data) : currentMode();
+    const sameMode = drawnIn === currentMode();
+    const modeNote = !sameMode
         ? `<p class="ctp-warn">这一楼上次是 ${modeLabel(drawnIn)} 模式画的，下面的提示词是给 ${modeLabel(drawnIn)} 写的；这次会用 ${modeLabel()} 模式的模型、工作流和角色预设出图。</p>`
         : '';
 
@@ -60,11 +64,16 @@ export async function openEditDialog(mesId) {
             <label>宽 <input type="number" class="text_pole" min="256" step="16" data-edit="width"></label>
             <label>高 <input type="number" class="text_pole" min="256" step="16" data-edit="height"></label>
         </div>
-        <small class="ctp-hint">默认填的是当前这张图的种子和尺寸。提示词原样发送，不会加任何前后缀。</small>
+        <label>反向提示词${currentMode() === MODEL_KREA2 ? '（内置 Krea 2 工作流 CFG 1，不使用反向提示词）' : ''}
+            <input type="text" class="text_pole" data-edit="negative">
+        </label>
+        <small class="ctp-hint">默认填的是当前这张图的种子、尺寸和反向提示词。提示词和反向提示词原样发送，不会加任何前后缀。</small>
         <div class="ctp-edit-extras">${extras.join('')}</div>
         <small class="ctp-hint">模型和采样（「出图参数」）：${sampling(plain)}${plan.boundProfile ? `<br>勾选渲染配置时换成：${sampling(comfy)}` : ''}<br>
-            想和 ComfyUI 官方 ${modeLabel()} 模板（${currentMode() === MODEL_KREA2 ? '关掉 LoRA、关掉扩写' : '不加 LoRA'}）出一样的图：提示词、种子、尺寸填一样的，上面的勾全部去掉，并确认「出图参数」里的模型和采样${currentMode() === MODEL_KREA2 ? '' : '、反向提示词'}和 ComfyUI 一致。</small>`;
+            想和 ComfyUI 官方 ${modeLabel()} 模板（${currentMode() === MODEL_KREA2 ? '关掉 LoRA、关掉扩写' : '不加 LoRA'}）出一样的图：提示词、${currentMode() === MODEL_KREA2 ? '' : '反向提示词、'}种子、尺寸填一样的，上面的勾全部去掉，并确认「出图参数」里的模型和采样和 ComfyUI 一致。</small>`;
     root.querySelector('.ctp-edit-prompt').value = image?.prompt || data?.prompt || '';
+    // Another model's negative prompt does not fit: then this mode's current one.
+    root.querySelector('[data-edit="negative"]').value = sameMode ? image?.negative ?? data?.negative ?? '' : buildNegativePrompt(plan.preset);
     root.querySelector('[data-edit="seed"]').value = Number.isFinite(image?.seed) ? String(image.seed) : '';
     root.querySelector('[data-edit="width"]').value = String(image?.width || plan.width);
     root.querySelector('[data-edit="height"]').value = String(image?.height || plan.height);
@@ -89,5 +98,6 @@ export async function openEditDialog(mesId) {
     root.querySelectorAll('input[type="checkbox"][data-edit]').forEach(box => {
         overrides[box.dataset.edit] = box.checked;
     });
-    enqueue(mesId, { mode: 'edit', prompt, overrides });
+    const negative = root.querySelector('[data-edit="negative"]').value;
+    enqueue(mesId, { mode: 'edit', prompt, negative, overrides });
 }

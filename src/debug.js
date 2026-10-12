@@ -1,5 +1,5 @@
-import { PARSED_FIELDS, STATE_FIELDS } from './constants.js';
-import { floorMode, modeLabel } from './modes.js';
+import { PARSED_FIELDS, STATE_FIELDS, normalizeMode } from './constants.js';
+import { floorMode, imageMode, modeLabel } from './modes.js';
 import { dryRun } from './pipeline.js';
 import { buildParserPrompt } from './parser.js';
 import { resolveTarget } from './targets.js';
@@ -83,6 +83,10 @@ export async function showFloorDebug(mesId) {
     const status = data.error ? `失败：${data.error}` : data.skipped ? `跳过：${data.skipped}` : '完成';
     const parsedRows = PARSED_FIELDS.map(field => [`${FIELD_LABELS[field]} (${field})`, data.parsed?.[field]]);
     const params = data.params || {};
+    // The parameters are the latest run's; the selected version may be an older picture of the other mode.
+    const paramsNote = image && data.params && imageMode(image) !== normalizeMode(params.modelMode)
+        ? `（下面的模型和采样是最近一次出图的，${modeLabel(params.modelMode)} 模式；当前这张图是 ${modeLabel(imageMode(image))} 模式画的）`
+        : '';
 
     const html = `
         <h3>#${mesId} 楼 · ${escapeHtml(message?.name || '')}</h3>
@@ -112,9 +116,9 @@ export async function showFloorDebug(mesId) {
         ${data.debug?.parserSystem ? block('解析模型 · System 提示词', data.debug.parserSystem, { open: false }) : ''}
         ${data.debug?.parserUser ? block('解析模型 · 输入（剧情上下文）', data.debug.parserUser, { open: false }) : ''}
         ${!data.debug?.parserUser ? '<p class="ctp-muted">提示：开启「调试模式」后生成的楼层会额外记录解析模型的完整输入和最终工作流（失败的楼层总会记录输入）。</p>' : ''}
-        <h4>③ ComfyUI 参数</h4>
+        <h4>③ ComfyUI 参数${paramsNote}</h4>
         ${table([
-        ['模型模式', modeLabel(image?.mode ?? floorMode(data))],
+        ['模型模式', modeLabel(image ? imageMode(image) : floorMode(data))],
         ['渲染配置', data.params ? params.renderProfile || '默认（ComfyUI 设置）' : ''],
         ['提示词扩写', params.refine ? 'ComfyUI 端扩写（和官方模板的 Refine Prompt 一样）' : ''],
         ['工作流', params.workflow],

@@ -129,6 +129,7 @@ function imageFolder() {
  * @param {'reparse'|'reroll'|'edit'} [options.mode='reparse'] reparse = ask the parser again; reroll = same prompt, new seed; edit = use options.prompt
  * @param {string} [options.target] Target override
  * @param {string} [options.prompt] Prompt for edit mode
+ * @param {string} [options.negative] Negative prompt for edit mode (default: the floor's)
  * @param {boolean} [options.force] Tell the parser not to skip
  */
 export function enqueue(mesId, options = {}) {
@@ -205,6 +206,25 @@ function describeOverrides(overrides) {
     return parts.length ? `按编辑窗口的设置出图：${parts.join('、')}` : '';
 }
 
+/**
+ * A floor's picture state: what 🔄 and ✏️ reuse and what continuity reads. All of it belongs to one image model
+ * mode, data.modelMode (a Krea 2 sentence prompt or preset id means nothing to Anima, and the other way round).
+ */
+const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'parsed', 'prompt', 'negative', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
+
+/** Whether a floor has picture state of its own (a parse or a prompt), as opposed to nothing or only an error. */
+function hasFloorState(data) {
+    return !!(data?.prompt || data?.parsed);
+}
+
+/** Puts back the other mode's state after a run that did not replace it (failed or skipped), so it stays usable there. */
+function restoreFloorState(data, previous) {
+    for (const key of FLOOR_STATE_KEYS) {
+        if (key in previous) data[key] = structuredClone(previous[key]);
+        else delete data[key];
+    }
+}
+
 async function runJob(message, job, options) {
     const settings = getSettings();
     const signal = job.controller.signal;
@@ -214,8 +234,13 @@ async function runJob(message, job, options) {
     const mode = options.mode === 'edit' || options.mode === 'reroll' ? options.mode : 'reparse';
     // The whole job uses one image model mode; switching modes cancels it (see assertMode).
     const modelMode = currentMode();
-    // A prompt written for the other mode's model (sentences vs tags) is not reused by 🔄.
-    const otherMode = !!previous && floorMode(previous) !== modelMode && !!previous.prompt;
+    // The floor's state was made in the other mode: 🔄 parses it again instead of reusing that model's prompt, and
+    // the state only changes over to this mode once this run has replaced it (`converted`).
+    const otherMode = !!previous && floorMode(previous) !== modelMode && hasFloorState(previous);
+    let converted = !otherMode;
+    if (converted) data.modelMode = modelMode;
+    // The user asked for a picture: a 🔄 that has to parse again must not be skipped.
+    const force = !!options.force || (mode === 'reroll' && otherMode);
 
     try {
         if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -225,9 +250,10 @@ async function runJob(message, job, options) {
         data.error = null;
         data.debug = { ...(data.debug || {}), notes: [] };
         // Edit-dialog choices stay with the floor for 🔄 (new seed, same settings) until it is parsed again.
-        const overrides = mode === 'edit' ? options.overrides ?? null : mode === 'reroll' ? data.editOverrides ?? null : null;
+        let overrides = mode === 'edit' ? options.overrides ?? null : mode === 'reroll' ? data.editOverrides ?? null : null;
 
         if (mode === 'reparse' || !data.prompt || (mode === 'reroll' && otherMode)) {
+            overrides = null;
             delete data.editOverrides;
             delete data.promptEdited;
             if (mode === 'reroll' && otherMode) data.debug.notes.push(`这一楼上次是 ${modeLabel(floorMode(previous))} 模式画的，已按 ${modeLabel(modelMode)} 模式重新解析`);
@@ -245,7 +271,7 @@ async function runJob(message, job, options) {
             // Recorded before the request so a failed floor still shows who it was for.
             applyTarget(target);
             const parserPrompt = await buildParserPrompt(mesId, target);
-            if (options.force) parserPrompt.user += FORCE_NOTE;
+            if (force) parserPrompt.user += FORCE_NOTE;
             data.debug.notes.push(...parserPrompt.notes);
             // Kept on failure for diagnosis; dropped after a success unless debug mode is on.
             data.debug.parserSystem = parserPrompt.system;
@@ -275,8 +301,9 @@ async function runJob(message, job, options) {
                 delete data.debug.parserSystem;
                 delete data.debug.parserUser;
             }
-            data.modelMode = modelMode;
-            if (parsed.skip && !options.force) {
+            if (parsed.skip && !force) {
+                // A skip in this mode leaves the other mode's picture state as it was.
+                if (!converted) restoreFloorState(data, previous);
                 data.skipped = parsed.reason || '解析模型判断本楼无需出图';
                 commit(message, job.swipeId, data);
                 log(`#${mesId} 跳过:`, data.skipped);
@@ -290,6 +317,8 @@ async function runJob(message, job, options) {
                 data.debug.notes.push(`没有找到「${target.name}」的角色预设，固定外貌为空`);
             }
             const built = promptFromParse(target.preset, parsed, parserPrompt, data.debug.notes);
+            data.modelMode = modelMode;
+            converted = true;
             data.parsed = built.parsed;
             data.prompt = built.prompt;
             data.negative = buildNegativePrompt(target.preset);
@@ -298,6 +327,8 @@ async function runJob(message, job, options) {
             data.promptMode = parserPrompt.mode;
         } else if (mode === 'edit') {
             if (otherMode) {
+                // The other mode's parse results must not reach this mode's parser as earlier outputs.
+                for (const key of ['parsed', 'parserPresetId', 'parserPresetName', 'promptMode']) delete data[key];
                 // The other mode's preset ids mean nothing here: use this mode's preset for the same character.
                 const preset = floorPreset(data);
                 data.presetId = preset?.id ?? null;
@@ -311,6 +342,9 @@ async function runJob(message, job, options) {
                 data.debug.notes.push(`这一楼上次是 ${modeLabel(floorMode(previous))} 模式画的，这次用 ${modeLabel(modelMode)} 模式的设置出图`);
             }
             data.modelMode = modelMode;
+            converted = true;
+            // The dialog shows the negative prompt too and sends it as typed.
+            if (typeof options.negative === 'string') data.negative = options.negative;
             // Sent exactly as typed, so it can be compared with the same text in ComfyUI.
             data.prompt = String(options.prompt ?? '');
             data.promptEdited = true;
@@ -411,6 +445,8 @@ async function runJob(message, job, options) {
             src = `data:image/${image.format};base64,${image.data}`;
             data.debug.notes.push(`${error.message}，图片改为 base64 内嵌在聊天记录中`);
         }
+        // A switch during the upload cancelled this picture: the floor is not touched.
+        assertMode(modelMode);
 
         data.images.push({ src, path, seed, width, height, prompt: data.prompt, negative: data.negative || '', refined: data.refinedPrompt || undefined, mode: modelMode, time: Date.now() });
         data.modelMode = modelMode;
@@ -427,6 +463,8 @@ async function runJob(message, job, options) {
             return;
         }
         console.error('[ComfyPortrait]', error);
+        // A failure in this mode leaves the other mode's picture state usable there.
+        if (!converted) restoreFloorState(data, previous);
         data.error = errorMessage(error);
         commit(message, job.swipeId, data);
         const where = job.stage === 'parsing' ? '（解析模型）' : job.stage === 'drawing' ? '（ComfyUI）' : '';
