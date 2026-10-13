@@ -108,6 +108,7 @@ export async function showFloorDebug(mesId) {
         <h4>① 固定部分（角色预设）</h4>
         ${table([['外貌', data.fixed?.appearance || '（空）'], ['触发词', data.fixed?.trigger]])}
         ${data.parsed?.prompt ? block('AI 写的完整提示词（prompt 字段）', data.parsed.prompt) : ''}
+        ${data.parsed?.negative ? block('AI 补充的反向提示词（negative 字段，已加在反向提示词末尾）', data.parsed.negative) : ''}
         <h4>② AI 解析部分${data.error && data.parsed ? '（以下是最近一次成功的解析，本次失败的输出见下方「原始输出」）' : ''}</h4>
         ${stateTable(data.parsed)}
         ${table(parsedRows) || '<p class="ctp-muted">无</p>'}
@@ -217,6 +218,7 @@ export async function showDryRun() {
             ${block('最终正向提示词', result.prompt)}
             ${result.parsed.prompt ? block('AI 写的完整提示词（prompt 字段）', result.parsed.prompt, { open: false }) : ''}
             ${block('反向提示词', result.negative)}
+            ${result.parsed.negative ? block('AI 补充的反向提示词（negative 字段）', result.parsed.negative, { open: false }) : ''}
             ${stateTable(result.parsed)}
             ${table(PARSED_FIELDS.map(field => [`${FIELD_LABELS[field]} (${field})`, result.parsed[field]]))}
             ${block('解析模型原始输出', result.reply.content || '（空）')}

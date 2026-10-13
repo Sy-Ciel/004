@@ -341,7 +341,7 @@ async function runJob(message, job, options) {
             converted = true;
             data.parsed = built.parsed;
             data.prompt = built.prompt;
-            data.negative = buildNegativePrompt(target.preset);
+            data.negative = buildNegativePrompt(target.preset, built.parsed, built.prompt);
             data.parserPresetId = parserPrompt.preset.id;
             data.parserPresetName = parserPrompt.preset.name;
             data.promptMode = parserPrompt.mode;
@@ -521,6 +521,6 @@ export async function dryRun(mesId, targetOverride) {
         parsed: built.parsed,
         notes,
         prompt: built.prompt,
-        negative: buildNegativePrompt(target.preset),
+        negative: buildNegativePrompt(target.preset, built.parsed, built.prompt),
     };
 }

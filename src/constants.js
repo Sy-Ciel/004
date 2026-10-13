@@ -362,6 +362,8 @@ export const DEFAULT_SETTINGS = {
     prefix: '',
     suffix: '',
     negativePrompt: '',
+    /** The parser also writes a negative prompt for each picture, added after negativePrompt (on in Anima). */
+    parserNegative: false,
 
     comfy: {
         url: 'http://127.0.0.1:8188',
@@ -401,6 +403,7 @@ const ANIMA_DEFAULTS = {
     promptTemplate: ANIMA_PROMPT_TEMPLATE,
     prefix: 'masterpiece, best quality, score_7',
     negativePrompt: ANIMA_NEGATIVE,
+    parserNegative: true,
     comfy: {
         ...OFFICIAL_ANIMA,
         // Portrait 2:3 at 1 MP, like Krea 2's portrait default.

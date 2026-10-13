@@ -255,6 +255,8 @@ export async function buildParserPrompt(mesId, target) {
     const preset = activeParserPreset();
     const mode = promptMode();
     const allowOthers = !!preset.allowOthers;
+    // The parser writes the picture's negative prompt too (Anima: a real negative prompt at CFG 4).
+    const negative = !!settings.parserNegative;
     const chat = chatUpTo(mesId);
     const laterFloors = ctx().chat.length - chat.length;
     const depth = Math.max(0, Number(settings.parser.contextDepth) || 0);
@@ -283,7 +285,7 @@ export async function buildParserPrompt(mesId, target) {
         target: target.auto ? '（由你从候选角色中选择）' : target.name,
         appearance: [referenceBlock(target, mode), allowOthers ? othersReference(mesId, target) : ''].filter(Boolean).join('\n'),
         fixed_fields: fixedFieldsBlock(preset),
-        output_rules: outputRules(mode, allowOthers),
+        output_rules: outputRules(mode, allowOthers, negative),
         candidates,
         last_state: target.auto ? '（自动模式下不提供）' : formatState(lastState, shownFloors),
         prev_outputs: prevOutputs,
@@ -311,7 +313,7 @@ export async function buildParserPrompt(mesId, target) {
     // A custom system prompt without {{output_rules}} keeps its own output format in "fixed" mode; the
     // "AI writes the prompt" mode and "allow other people" need the rules that ask for `prompt` / `others`.
     let systemTemplate = String(preset.system || '');
-    if ((mode === 'ai' || allowOthers) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += '\n\n{{output_rules}}';
+    if ((mode === 'ai' || allowOthers || negative) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += '\n\n{{output_rules}}';
 
     const triggerRule = triggerWordsRule(mode);
     return {
@@ -322,6 +324,7 @@ export async function buildParserPrompt(mesId, target) {
         notes: [
             `${modeLabel()} 模式 · 解析预设：${preset.name} · ${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`,
             triggerRule ? `触发词：${triggerWordList().join(', ')}` : '',
+            negative ? '解析模型补充反向提示词' : '',
             worldInfo.note,
             records.length ? `参考了之前 ${records.length} 次配图输出` : '',
             hints.length ? `用户画图指令 ${hints.reduce((sum, item) => sum + item.hints.length, 0)} 条` : '',
@@ -600,7 +603,7 @@ export function parseParserOutput(raw) {
         // Salvage fields from broken or truncated JSON, or from "key: value" lines. A quoted value only counts
         // when its closing quote is present, so a reply cut off mid-value does not leak half a phrase.
         object = {};
-        for (const key of ['skip', 'reason', 'target', 'prompt', ...STATE_FIELDS, ...PARSED_FIELDS]) {
+        for (const key of ['skip', 'reason', 'target', 'prompt', 'negative', ...STATE_FIELDS, ...PARSED_FIELDS]) {
             const quoted = text.match(new RegExp(`["']?${key}["']?\\s*[:：]\\s*"([^"\\n]*)"`, 'i'));
             const line = text.match(new RegExp(`^\\s*${key}\\s*[:：]\\s*([^"{}\\n]+)$`, 'im'));
             if (quoted) object[key] = quoted[1];
@@ -623,6 +626,8 @@ export function parseParserOutput(raw) {
     }
     // Only present in the "AI writes the whole prompt" mode
     result.prompt = normalizeValue(object.prompt);
+    // Only when the parser is asked for a negative prompt
+    result.negative = normalizeValue(object.negative);
     if (!result.skip && !result.prompt && PARSED_FIELDS.every(field => !result[field])) {
         throw new Error('解析结果里没有任何画面字段');
     }

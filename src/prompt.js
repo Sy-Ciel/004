@@ -202,10 +202,35 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
     return finishPrompt(joinParts(lines, tags));
 }
 
-export function buildNegativePrompt(preset) {
+function tagSet(text) {
+    return new Set(unescapeParens(text).split(',').map(tag => tag.trim().toLowerCase()).filter(Boolean));
+}
+
+/**
+ * The negative prompt: the global one, the character preset's extra one and, when the parser is asked for one
+ * (parserNegative), the parser's tags for this picture. A parser tag that is already there, or that is in the
+ * positive prompt (it would cancel what the picture is meant to show), is left out.
+ * @param {object|null} preset Character preset
+ * @param {object|null} [parsed] Parser output (its `negative`)
+ * @param {string} [prompt] The positive prompt
+ */
+export function buildNegativePrompt(preset, parsed = null, prompt = '') {
     const settings = getSettings();
-    return [settings.negativePrompt, preset?.negative]
+    const base = [settings.negativePrompt, preset?.negative]
         .map(text => resolveMacros(text || ''))
         .filter(Boolean)
         .join(', ');
+    const fromParser = settings.parserNegative ? String(parsed?.negative || '') : '';
+    if (!fromParser.trim()) return base;
+    const taken = new Set([...tagSet(base), ...tagSet(prompt)]);
+    const tags = [];
+    for (const tag of fromParser.split(',').map(item => item.trim()).filter(Boolean)) {
+        const key = unescapeParens(tag).toLowerCase();
+        if (taken.has(key)) continue;
+        taken.add(key);
+        tags.push(tag);
+    }
+    if (!tags.length) return base;
+    const added = tags.join(', ');
+    return [base, settings.escapeParens ? escapeParens(added) : added].filter(Boolean).join(', ');
 }

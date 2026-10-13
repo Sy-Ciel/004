@@ -94,12 +94,28 @@ function promptRule(allowOthers, model) {
     return `除了上面的字段，还要写 prompt：一段完整、流畅的英文画面描述（自然语言，适合 Krea 2）。${order}；【固定内容】里的字段必须原样体现。不要写人名，不要要求画面里出现文字。`;
 }
 
-function outputFormat(mode, allowOthers) {
+/**
+ * Only when the parser fills in the negative prompt (setting parserNegative, on in Anima): what the picture must
+ * not show. The extension adds it after the global negative prompt and drops tags that are in the positive prompt.
+ */
+function negativeRules(model) {
+    const style = model === 'anima'
+        ? '英文 Danbooru 风格标签（小写，用空格代替下划线），逗号隔开'
+        : '英文短语，逗号隔开';
+    return `反向提示词：再写 negative，列出这张图里不该出现、模型容易画错的东西，${style}：
+- 按这个画面写：画面只有一个人时写 multiple girls、multiple boys 这类多人标签；角色此刻没穿戴、但模型容易加上的衣物或配饰；和场景、时间不符的东西；pending 里还没发生的动作或道具
+- 不要写画面本来就要画的内容（例如画面要画 smile，就不能写 smile），也不要写会和正向字段冲突的词
+- 画质类的通用反向词（worst quality、low quality、score_1、blurry 等）程序会自动加，不要写
+- 最多 15 个，没有需要补充的就留空`;
+}
+
+function outputFormat(mode, allowOthers, negative = false) {
     const fields = [
         '"skip": false', '"target": "目标角色名"', '"now_doing": ""', '"now_wearing": ""', '"pending": ""',
         '"outfit": ""', '"action": ""', '"expression": ""', '"demeanor": ""', '"scene": ""', '"camera": ""', '"lighting": ""',
     ];
     if (allowOthers) fields.push('"others": ""');
+    if (negative) fields.push('"negative": ""');
     if (mode === 'ai') fields.push('"prompt": "完整的英文提示词"');
     return `输出格式：\n{${fields.join(', ')}}`;
 }
@@ -110,14 +126,16 @@ function outputFormat(mode, allowOthers) {
  * - mode "ai": the appearance is handed to the model, which must work it into `prompt`.
  * - allowOthers: other people in the scene may be drawn too (field `others`).
  * - model: the image model mode ('krea2' natural language, 'anima' Danbooru tags).
+ * - negative: the parser also writes a negative prompt for this picture (field `negative`).
  */
-export function buildOutputRules(mode, allowOthers = false, model = 'krea2') {
+export function buildOutputRules(mode, allowOthers = false, model = 'krea2', negative = false) {
     return [
         TIMELINE_RULES,
         mode === 'ai' ? APPEARANCE_AI : APPEARANCE_FIXED,
         allowOthers ? othersRules(model) : '',
         mode === 'ai' ? promptRule(allowOthers, model) : '',
-        outputFormat(mode, allowOthers),
+        negative ? negativeRules(model) : '',
+        outputFormat(mode, allowOthers, negative),
     ].filter(Boolean).join('\n\n');
 }
 

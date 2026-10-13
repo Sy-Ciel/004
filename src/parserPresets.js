@@ -19,8 +19,8 @@ export function promptMode() {
     return getSettings().promptMode === 'ai' ? 'ai' : 'fixed';
 }
 
-export function outputRules(mode, allowOthers = false) {
-    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers, currentMode());
+export function outputRules(mode, allowOthers = false, negative = false) {
+    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers, currentMode(), negative);
 }
 
 /** The active image model mode's built-in preset with this id (each mode has its own wording). */
