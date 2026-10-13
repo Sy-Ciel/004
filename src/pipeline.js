@@ -4,6 +4,7 @@ import { currentMode, floorMode, modeLabel } from './modes.js';
 import { buildParserPrompt, parserLabel, requestParse } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution } from './parserPresets.js';
 import { buildImagePrompt, buildNegativePrompt, finishPrompt } from './prompt.js';
+import { baseSize } from './resolution.js';
 import { effectiveComfy, renderProfileFor } from './renderProfiles.js';
 import { findPresetById, presetForName, resolveTarget, settleAutoTarget } from './targets.js';
 import {
@@ -174,11 +175,14 @@ export function renderPlan(data, overrides = null) {
     const profile = overrides?.profile === false ? null : boundProfile;
     let comfy = effectiveComfy(profile);
     if (typeof overrides?.refine === 'boolean') comfy = { ...comfy, refinePrompt: overrides.refine };
-    // Resolution: the edit dialog, else the parser preset this floor was parsed with, else the global size.
+    // Resolution: the edit dialog, else the parser preset this floor was parsed with, else the global size
+    // (fixed width × height, or the resolution selector's ratio — the parser's pick when it chooses one).
     const presetSize = presetResolution(findParserPreset(data?.parserPresetId) ?? activeParserPreset());
+    const base = baseSize(comfy, data?.parsed?.aspect);
+    const fromBase = !overrides?.width && !presetSize;
     const defaults = modeDefaults(currentMode()).comfy;
-    const width = roundTo16(overrides?.width || presetSize?.width || comfy.width, defaults.width);
-    const height = roundTo16(overrides?.height || presetSize?.height || comfy.height, defaults.height);
+    const width = roundTo16(overrides?.width || presetSize?.width || base.width, defaults.width);
+    const height = roundTo16(overrides?.height || presetSize?.height || base.height, defaults.height);
     return {
         preset,
         profile,
@@ -187,6 +191,8 @@ export function renderPlan(data, overrides = null) {
         width,
         height,
         sizeFromPreset: !overrides?.width && !!presetSize,
+        aspect: fromBase ? base.aspect : '',
+        aspectFromParser: fromBase && base.fromParser,
         charLora: overrides?.charLora === false ? '' : preset?.lora || '',
         charLoraStrength: Number(preset?.loraStrength) || 0,
         styleLora: overrides?.styleLora === false ? '' : comfy.lora || '',
@@ -395,6 +401,7 @@ async function runJob(message, job, options) {
         const ownSeed = mode === 'edit' && Number.isFinite(overrides?.seed) && overrides.seed >= 0 ? overrides.seed : null;
         const seed = ownSeed ?? (mode !== 'reroll' && fixedSeed >= 0 ? fixedSeed : randomSeed());
         if (plan.sizeFromPreset) data.debug.notes.push(`分辨率来自解析预设：${width}×${height}`);
+        if (plan.aspectFromParser) data.debug.notes.push(`宽高比 ${plan.aspect} 由解析模型选择：${width}×${height}`);
         // A cleared field falls back to the mode's default (Krea 2 Turbo: 8 steps, CFG 1; Anima: 30 steps, CFG 4).
         const defaults = modeDefaults(modelMode).comfy;
         const values = {
@@ -442,6 +449,7 @@ async function runJob(message, job, options) {
             seed,
             width,
             height,
+            aspect: plan.aspect ? `${plan.aspect}${plan.aspectFromParser ? '（解析模型选的）' : ''}` : '',
             steps: values.steps,
             cfg: values.cfg,
             sampler: values.sampler,

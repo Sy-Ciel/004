@@ -125,6 +125,7 @@ export async function showFloorDebug(mesId) {
         ['工作流', params.workflow],
         ['种子', image?.seed ?? params.seed],
         ['分辨率', image ? `${image.width} × ${image.height}` : (params.width ? `${params.width} × ${params.height}` : '')],
+        ['宽高比', params.aspect],
         ['步数 / CFG', params.steps ? `${params.steps} / ${params.cfg}` : ''],
         ['采样器', params.sampler ? `${params.sampler} + ${params.scheduler}` : ''],
         ['扩散模型', params.unet],

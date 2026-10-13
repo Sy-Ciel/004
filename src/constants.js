@@ -227,6 +227,7 @@ export const OFFICIAL_KREA2_TURBO = {
     cfg: 1,
     sampler: 'euler',
     scheduler: 'simple',
+    sizeMode: 'fixed',
     width: 1024,
     height: 1024,
     seed: -1,
@@ -251,6 +252,7 @@ export const OFFICIAL_ANIMA = {
     cfg: 4,
     sampler: 'euler',
     scheduler: 'simple',
+    sizeMode: 'fixed',
     width: 1024,
     height: 1024,
     seed: -1,
@@ -384,6 +386,12 @@ export const DEFAULT_SETTINGS = {
         vae: 'qwen_image_vae.safetensors',
         lora: '',
         loraStrength: 0.8,
+        /** 'fixed' = width × height; 'selector' = aspectRatio × megapixels (see resolution.js). */
+        sizeMode: 'fixed',
+        aspectRatio: '2:3',
+        megapixels: 1,
+        /** In selector mode, the parser model picks the aspect ratio of each picture. */
+        parserAspect: false,
         /** LoRAs also patch the text encoder (ComfyUI's "Load LoRA" node) instead of only the model. */
         loraClip: false,
         /** More LoRAs: [{ name, strength, presetId }] — presetId '' = every picture, else only that character's. */

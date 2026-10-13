@@ -110,20 +110,38 @@ function negativeRules(model) {
 }
 
 /**
- * For a custom system prompt without {{output_rules}} that keeps its own output format: only the negative rule,
- * plus the field to add to that format.
+ * Only when the parser picks the picture's aspect ratio (resolution selector + parserAspect): the ratio list and
+ * which compositions suit which. The pixel count stays as set.
+ * @param {{ ratios: string[], fallback: string }} aspect
  */
-export function negativeOnlyRules(model) {
-    return `${negativeRules(model)}\n在你输出的 JSON 里再加一个 "negative" 字段（字符串，没有就写 ""）。`;
+function aspectRules(aspect) {
+    return `宽高比：再写 aspect，为这张图选一个最合适的宽高比，只能从 ${aspect.ratios.join('、')} 里选一个，原样写（例如 "2:3"）：
+- 全身、站姿 → 2:3 或 9:16；半身、上半身 → 3:4 或 2:3；脸部特写 → 1:1 或 3:4
+- 环境占比大、横向展开的场景、几个人并排 → 3:2、16:9 或 21:9
+- 拿不准就写 ${aspect.fallback}`;
 }
 
-function outputFormat(mode, allowOthers, negative = false) {
+/**
+ * For a custom system prompt without {{output_rules}} that keeps its own output format: only the rules of the
+ * extra fields asked for (negative, aspect), plus the fields to add to that format.
+ */
+export function extraOnlyRules(model, negative = false, aspect = null) {
+    const fields = [negative ? '"negative"（字符串，没有就写 ""）' : '', aspect ? '"aspect"（字符串，例如 "2:3"）' : ''].filter(Boolean);
+    return [
+        negative ? negativeRules(model) : '',
+        aspect ? aspectRules(aspect) : '',
+        `在你输出的 JSON 里再加 ${fields.join('、')} 字段。`,
+    ].filter(Boolean).join('\n\n');
+}
+
+function outputFormat(mode, allowOthers, negative = false, aspect = null) {
     const fields = [
         '"skip": false', '"target": "目标角色名"', '"now_doing": ""', '"now_wearing": ""', '"pending": ""',
         '"outfit": ""', '"action": ""', '"expression": ""', '"demeanor": ""', '"scene": ""', '"camera": ""', '"lighting": ""',
     ];
     if (allowOthers) fields.push('"others": ""');
     if (negative) fields.push('"negative": ""');
+    if (aspect) fields.push(`"aspect": "${aspect.fallback}"`);
     if (mode === 'ai') fields.push('"prompt": "完整的英文提示词"');
     return `输出格式：\n{${fields.join(', ')}}`;
 }
@@ -135,15 +153,17 @@ function outputFormat(mode, allowOthers, negative = false) {
  * - allowOthers: other people in the scene may be drawn too (field `others`).
  * - model: the image model mode ('krea2' natural language, 'anima' Danbooru tags).
  * - negative: the parser also writes a negative prompt for this picture (field `negative`).
+ * - aspect: { ratios, fallback } when the parser picks the aspect ratio (field `aspect`).
  */
-export function buildOutputRules(mode, allowOthers = false, model = 'krea2', negative = false) {
+export function buildOutputRules(mode, allowOthers = false, model = 'krea2', negative = false, aspect = null) {
     return [
         TIMELINE_RULES,
         mode === 'ai' ? APPEARANCE_AI : APPEARANCE_FIXED,
         allowOthers ? othersRules(model) : '',
         mode === 'ai' ? promptRule(allowOthers, model) : '',
         negative ? negativeRules(model) : '',
-        outputFormat(mode, allowOthers, negative),
+        aspect ? aspectRules(aspect) : '',
+        outputFormat(mode, allowOthers, negative, aspect),
     ].filter(Boolean).join('\n\n');
 }
 

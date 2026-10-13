@@ -27,6 +27,7 @@ import { buildStatusInstruction, updateStatusPrompt } from './statusBar.js';
 import { callParser, parseExtraBody } from './parser.js';
 import { cancelAllJobs, enqueue, hasActiveJobs, planLoraLines, renderPlan } from './pipeline.js';
 import { renderAll } from './render.js';
+import { baseSize } from './resolution.js';
 import { currentPersona, findPresetById, findUserPreset, personaList, presetForName, presetName, resolveUserPreset } from './targets.js';
 import { ctx, errorMessage, escapeHtml, getSettings, roundTo16, saveSettings, truncate } from './utils.js';
 
@@ -65,12 +66,21 @@ function listsSummary() {
     return `已缓存列表：扩散模型 ${count('unet')} · 文本编码器 ${count('clip')} · VAE ${count('vae')} · LoRA ${count('lora')} · 采样器 ${count('sampler')}`;
 }
 
+/** Fixed width × height, or the resolution selector (aspect ratio × pixel count). */
+function updateSizeVisibility() {
+    const selector = getSettings().comfy.sizeMode === 'selector';
+    $('#ctp_size_fixed').toggle(!selector);
+    $('#ctp_size_selector').toggle(selector);
+}
+
 function updateMegapixels() {
-    const { width, height } = getSettings().comfy;
+    const { comfy } = getSettings();
+    const { width, height } = baseSize(comfy);
     const mp = (Number(width) * Number(height)) / 1e6;
     const element = $('#ctp_mp');
     const text = modeText();
-    const base = `${width}×${height} ≈ ${mp.toFixed(2)} MP。会自动对齐到 16 的倍数，${text.megapixels}。`;
+    const selector = comfy.sizeMode === 'selector' ? `宽高比 ${baseSize(comfy).aspect} → ` : '';
+    const base = `${selector}${width}×${height} ≈ ${mp.toFixed(2)} MP。会自动对齐到 16 的倍数，${text.megapixels}。`;
     const tooBig = mp > text.maxMegapixels;
     element.text(tooBig ? `${base} 当前远超推荐范围，容易出现重复人物、多余肢体，也更慢。` : base);
     element.toggleClass('ctp-warn', tooBig);
@@ -113,6 +123,10 @@ function onSettingChanged(path) {
     if (path === 'statusBar.label') renderAll();
     if (path === 'comfy.width' || path === 'comfy.height') {
         syncResolutionSelect();
+        updateMegapixels();
+    }
+    if (['comfy.sizeMode', 'comfy.aspectRatio', 'comfy.megapixels'].includes(path)) {
+        updateSizeVisibility();
         updateMegapixels();
     }
 }
@@ -789,6 +803,7 @@ function validateWorkflow(text = getSettings().comfy.workflow) {
 /** Shows the comfy settings, resolution and workflow controls again after they were changed in code. */
 function refreshComfyUi() {
     syncSettingsUi();
+    updateSizeVisibility();
     syncResolutionSelect();
     updateMegapixels();
     updateWorkflowVisibility();
@@ -945,6 +960,7 @@ function refreshAllSettingsUi() {
     syncSettingsUi();
     refreshPresetSelect();
     renderResolutionOptions();
+    updateSizeVisibility();
     updateMegapixels();
     updateSourceVisibility();
     updateWorkflowVisibility();
@@ -1077,6 +1093,7 @@ export async function initSettingsUi() {
     initSubSections(root);
     initParserPresetUi();
     initResolution();
+    updateSizeVisibility();
     updateMegapixels();
     validateExtraBody();
     $('#ctp_lists_status').text(listsSummary());

@@ -2,7 +2,8 @@ import { PARSED_FIELDS, STATE_FIELDS } from './constants.js';
 import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
-import { activeParserPreset, negativeRule, outputRules, parseFixedFields, promptMode } from './parserPresets.js';
+import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode } from './parserPresets.js';
+import { ASPECT_RATIOS, parseAspect, parserPicksAspect } from './resolution.js';
 import { triggerWordList } from './prompt.js';
 import { findStatusBar, withoutStatusBar } from './statusBar.js';
 import { findUserPreset, presetForName, presetName, presetsMentioned } from './targets.js';
@@ -257,6 +258,10 @@ export async function buildParserPrompt(mesId, target) {
     const allowOthers = !!preset.allowOthers;
     // The parser writes the picture's negative prompt too (Anima: a real negative prompt at CFG 4).
     const negative = !!settings.parserNegative;
+    // The parser picks the aspect ratio (resolution selector), unless this parser preset sets its own size.
+    const aspect = parserPicksAspect(settings.comfy) && !presetResolution(preset)
+        ? { ratios: ASPECT_RATIOS, fallback: parseAspect(settings.comfy.aspectRatio) || '1:1' }
+        : null;
     const chat = chatUpTo(mesId);
     const laterFloors = ctx().chat.length - chat.length;
     const depth = Math.max(0, Number(settings.parser.contextDepth) || 0);
@@ -285,7 +290,7 @@ export async function buildParserPrompt(mesId, target) {
         target: target.auto ? '（由你从候选角色中选择）' : target.name,
         appearance: [referenceBlock(target, mode), allowOthers ? othersReference(mesId, target) : ''].filter(Boolean).join('\n'),
         fixed_fields: fixedFieldsBlock(preset),
-        output_rules: outputRules(mode, allowOthers, negative),
+        output_rules: outputRules(mode, allowOthers, negative, aspect),
         candidates,
         last_state: target.auto ? '（自动模式下不提供）' : formatState(lastState, shownFloors),
         prev_outputs: prevOutputs,
@@ -315,7 +320,7 @@ export async function buildParserPrompt(mesId, target) {
     let systemTemplate = String(preset.system || '');
     if ((mode === 'ai' || allowOthers) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += '\n\n{{output_rules}}';
     // Only the negative is asked for: such a prompt keeps its own format and just gets the negative field.
-    else if (negative && !systemTemplate.includes('{{output_rules}}')) systemTemplate += `\n\n${negativeRule()}`;
+    else if ((negative || aspect) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += `\n\n${extraFieldRules(negative, aspect)}`;
 
     const triggerRule = triggerWordsRule(mode);
     return {
@@ -327,6 +332,7 @@ export async function buildParserPrompt(mesId, target) {
             `${modeLabel()} 模式 · 解析预设：${preset.name} · ${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`,
             triggerRule ? `触发词：${triggerWordList().join(', ')}` : '',
             negative ? '解析模型补充反向提示词' : '',
+            aspect ? '解析模型选择宽高比' : '',
             worldInfo.note,
             records.length ? `参考了之前 ${records.length} 次配图输出` : '',
             hints.length ? `用户画图指令 ${hints.reduce((sum, item) => sum + item.hints.length, 0)} 条` : '',
@@ -605,7 +611,7 @@ export function parseParserOutput(raw) {
         // Salvage fields from broken or truncated JSON, or from "key: value" lines. A quoted value only counts
         // when its closing quote is present, so a reply cut off mid-value does not leak half a phrase.
         object = {};
-        for (const key of ['skip', 'reason', 'target', 'prompt', 'negative', 'negative_prompt', ...STATE_FIELDS, ...PARSED_FIELDS]) {
+        for (const key of ['skip', 'reason', 'target', 'prompt', 'negative', 'negative_prompt', 'aspect', ...STATE_FIELDS, ...PARSED_FIELDS]) {
             // Whole keys only: "prompt" must not match the end of "negative_prompt".
             const quoted = text.match(new RegExp(`(?<![\\w])["']?${key}["']?\\s*[:：]\\s*"([^"\\n]*)"`, 'i'));
             const line = text.match(new RegExp(`^\\s*${key}\\s*[:：]\\s*([^"{}\\n]+)$`, 'im'));
@@ -632,6 +638,8 @@ export function parseParserOutput(raw) {
     // Only when the parser is asked for a negative prompt
     // "negative_prompt" is the usual Stable Diffusion name; models sometimes use it.
     result.negative = normalizeValue(object.negative ?? object.negative_prompt);
+    // Only when the parser picks the aspect ratio
+    result.aspect = normalizeValue(object.aspect ?? object.aspect_ratio);
     if (!result.skip && !result.prompt && PARSED_FIELDS.every(field => !result[field])) {
         throw new Error('解析结果里没有任何画面字段');
     }

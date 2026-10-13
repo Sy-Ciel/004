@@ -1,6 +1,6 @@
 import { PARSED_FIELDS } from './constants.js';
 import { currentMode } from './modes.js';
-import { buildOutputRules, builtinParserPresets, negativeOnlyRules } from './parserPresetDefaults.js';
+import { buildOutputRules, builtinParserPresets, extraOnlyRules } from './parserPresetDefaults.js';
 import { getSettings, resolveMacros } from './utils.js';
 
 /** Chinese names accepted in a preset's "fixed content" lines. */
@@ -19,13 +19,13 @@ export function promptMode() {
     return getSettings().promptMode === 'ai' ? 'ai' : 'fixed';
 }
 
-export function outputRules(mode, allowOthers = false, negative = false) {
-    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers, currentMode(), negative);
+export function outputRules(mode, allowOthers = false, negative = false, aspect = null) {
+    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers, currentMode(), negative, aspect);
 }
 
-/** Just the negative-prompt rule, for custom system prompts that keep their own output format. */
-export function negativeRule() {
-    return negativeOnlyRules(currentMode());
+/** Just the extra fields' rules (negative, aspect), for custom system prompts that keep their own format. */
+export function extraFieldRules(negative, aspect) {
+    return extraOnlyRules(currentMode(), negative, aspect);
 }
 
 /** The active image model mode's built-in preset with this id (each mode has its own wording). */

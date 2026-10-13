@@ -369,10 +369,35 @@
                     <small class="ctp-hint">ComfyUI 里常用的「加载 LoRA」(LoraLoader) 会同时改模型和文本编码器；关掉这一项 = 「LoRA 加载器（仅模型）」。在 ComfyUI 里用哪种节点，这里就选哪种，否则同样的设置出的图会不一样。Anima 模式默认打开；Krea 2 的内置工作流只支持仅模型。</small>
 
                     <h4>分辨率</h4>
-                    <div class="ctp-row">
+                    <label>分辨率方式
+                        <select class="text_pole" data-ctp="comfy.sizeMode">
+                            <option value="fixed">固定宽高</option>
+                            <option value="selector">分辨率选择器（宽高比 + 像素数）</option>
+                        </select>
+                    </label>
+                    <div class="ctp-row" id="ctp_size_fixed">
                         <select class="text_pole flex1" id="ctp_resolution"></select>
                         <label>宽 <input type="number" class="text_pole" step="16" min="256" data-ctp="comfy.width" data-type="int" id="ctp_width"></label>
                         <label>高 <input type="number" class="text_pole" step="16" min="256" data-ctp="comfy.height" data-type="int" id="ctp_height"></label>
+                    </div>
+                    <div id="ctp_size_selector">
+                        <div class="ctp-row">
+                            <label class="flex1">宽高比
+                                <select class="text_pole" data-ctp="comfy.aspectRatio">
+                                    <option value="1:1">1:1 方图</option>
+                                    <option value="2:3">2:3 竖图</option>
+                                    <option value="3:4">3:4 竖图</option>
+                                    <option value="9:16">9:16 竖图</option>
+                                    <option value="3:2">3:2 横图</option>
+                                    <option value="4:3">4:3 横图</option>
+                                    <option value="16:9">16:9 横图</option>
+                                    <option value="21:9">21:9 宽银幕</option>
+                                </select>
+                            </label>
+                            <label>像素数 (MP) <input type="number" class="text_pole" min="0.25" max="4" step="0.05" data-ctp="comfy.megapixels" data-type="float"></label>
+                        </div>
+                        <label class="checkbox_label"><input type="checkbox" data-ctp="comfy.parserAspect"> 让解析模型按画面选择宽高比（只调整宽高比，像素数不变）</label>
+                        <small class="ctp-hint">和 ComfyUI 的 Resolution Selector 节点一样：宽高 = 像素数 × 1024² 按宽高比分配，对齐到 16 的倍数（例：2:3、1 MP → 832×1248）。打开解析模型选择后，全身图会选竖图、横向场景会选横图，上面的宽高比是它拿不准时的默认值；配图风格自己设了分辨率时以配图风格为准。</small>
                     </div>
                     <small class="ctp-hint" id="ctp_mp">会自动对齐到 16 的倍数。Krea 2 Turbo 适合约 1–2 MP。</small>
 
