@@ -109,19 +109,18 @@
             <!-- ============ 角色预设 ============ -->
             <div class="inline-drawer ctp-sub" data-sub="presets">
                 <div class="inline-drawer-toggle inline-drawer-header">
-                    <span><b>角色预设</b> <small>固定外貌 · 角色 LoRA · 人设绑定 · 渲染配置</small></span>
+                    <span><b>角色预设</b> <small>固定外貌 · 别名 · 渲染配置</small></span>
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
-                    <label>没有配置的人设使用
+                    <label>{{user}} 没有同名预设时使用
                         <select class="text_pole" id="ctp_user_fallback"></select>
                     </label>
-                    <small class="ctp-hint">切换用户人设时，{{user}} 先用勾选绑定了这个人设的预设，再找同名的预设；都没有（比如新建的人设）就用这里选的预设，连同它的角色 LoRA 和渲染配置。选「不使用角色预设」= 不加固定外貌，模型和风格 LoRA 用「出图参数」里的默认值。</small>
+                    <small class="ctp-hint">画 {{user}} 时用名字和当前人设一样的预设（名字写 {{user}} 的预设总能对上）；没有就用这里选的预设。选「不使用角色预设」= 不加固定外貌，模型和风格 LoRA 用「出图参数」里的默认值。每个用户人设有自己的一套预设（见最上面的「每个用户人设使用独立档案」）。</small>
                     <label>编辑预设
                         <select class="text_pole" id="ctp_preset_select"></select>
                     </label>
                     <div class="ctp-row ctp-wrap-row">
-                        <div class="menu_button fa-solid fa-user-plus" id="ctp_preset_for_persona" title="为当前人设新建预设（自动绑定当前人设）"></div>
                         <div class="menu_button fa-solid fa-plus" id="ctp_preset_add" title="新建"></div>
                         <div class="menu_button fa-solid fa-clone" id="ctp_preset_clone" title="复制"></div>
                         <div class="menu_button fa-solid fa-trash-can" id="ctp_preset_delete" title="删除"></div>
@@ -132,10 +131,6 @@
                     <div id="ctp_preset_editor">
                         <label>名字（可用 {{user}} / {{char}}）<input type="text" class="text_pole" data-preset="name"></label>
                         <label>别名（逗号分隔，用于匹配剧情里的称呼）<input type="text" class="text_pole" data-preset="aliases"></label>
-                        <div class="ctp-persona-block">
-                            <div>绑定用户人设（切换到勾选的人设时，{{user}} 自动使用这个预设）</div>
-                            <div id="ctp_preset_personas" class="ctp-persona-list"></div>
-                        </div>
                         <label>固定外貌（英文：发型、发色、瞳色、五官、体型等，不写服装动作）
                             <textarea class="text_pole" rows="4" data-preset="appearance"></textarea>
                         </label>
@@ -144,7 +139,7 @@
                         <label>渲染配置（这个角色用的模型 / LoRA）
                             <select class="text_pole" data-preset="renderProfileId" id="ctp_preset_render"></select>
                         </label>
-                        <small class="ctp-hint">「默认」= 用「出图参数」里的模型和 LoRA；渲染配置在「出图参数」里新建。人设绑定了这个预设时，切换人设会连同模型和 LoRA 一起切换。</small>
+                        <small class="ctp-hint">「默认」= 用「出图参数」里的模型和 LoRA；渲染配置在「出图参数」里新建。</small>
                     </div>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="continuity"> 状态延续（把同一角色上一张图的服装 / 场景交给解析模型参考）</label>
                 </div>
@@ -185,16 +180,14 @@
                             <label>高 <input type="number" class="text_pole" step="16" min="0" data-pp="height" data-type="int"></label>
                         </div>
                         <small class="ctp-hint">分辨率填 0 = 用「出图参数」里的分辨率。立绘适合竖图（如 832×1216），小说插画适合横图（如 1216×832）。</small>
-                        <details class="ctp-details">
-                            <summary>解析提示词（高级）</summary>
-                            <label>System 提示词
-                                <textarea class="text_pole" rows="14" data-pp="system"></textarea>
-                            </label>
-                            <label>User 模板
-                                <textarea class="text_pole" rows="10" data-pp="user"></textarea>
-                            </label>
-                            <small class="ctp-hint">System 里的 {{output_rules}} 会按生成方式换成时间线、外貌、人物规则和 JSON 输出格式。User 模板可用变量：{{target}} {{appearance}} {{candidates}} {{world_info}} {{fixed_fields}} {{last_state}} {{prev_outputs}} {{history}} {{latest}} {{floor}} {{user_hints}}，以及酒馆宏；没写的块会自动插入。</small>
-                        </details>
+                        <h4>解析提示词</h4>
+                        <label>System 提示词
+                            <textarea class="text_pole" rows="14" data-pp="system"></textarea>
+                        </label>
+                        <label>User 模板
+                            <textarea class="text_pole" rows="10" data-pp="user"></textarea>
+                        </label>
+                        <small class="ctp-hint">System 里的 {{output_rules}} 会按生成方式换成时间线、外貌、人物规则和 JSON 输出格式。User 模板可用变量：{{target}} {{appearance}} {{candidates}} {{world_info}} {{fixed_fields}} {{last_state}} {{prev_outputs}} {{history}} {{latest}} {{floor}} {{user_hints}}，以及酒馆宏；没写的块会自动插入。</small>
                     </div>
                 </div>
             </div>
@@ -236,56 +229,6 @@
                             <div class="menu_button" id="ctp_status_preview">预览发给正文 AI 的说明</div>
                         </div>
                     </details>
-                </div>
-            </div>
-
-            <!-- ============ 解析模型（API） ============ -->
-            <div class="inline-drawer ctp-sub" data-sub="parser">
-                <div class="inline-drawer-toggle inline-drawer-header">
-                    <span><b>解析模型</b> <small>读剧情、写服装 / 动作 / 表情的额外模型 · API 连接</small></span>
-                    <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
-                </div>
-                <div class="inline-drawer-content">
-                    <label>来源
-                        <select class="text_pole" data-ctp="parser.source" id="ctp_parser_source">
-                            <option value="custom">独立 API（OpenAI 兼容，经酒馆后端转发）</option>
-                            <option value="profile">酒馆连接配置（Connection Profile）</option>
-                            <option value="main">酒馆当前 API（和正文共用）</option>
-                        </select>
-                    </label>
-                    <div class="ctp-source" data-source="custom">
-                        <label>API 地址（到 /v1 为止）<input type="text" class="text_pole" data-ctp="parser.customUrl" placeholder="https://api.deepseek.com/v1"></label>
-                        <label>API Key <input type="password" class="text_pole" data-ctp="parser.customKey" autocomplete="off"></label>
-                        <div class="ctp-row">
-                            <label class="flex1">模型 <select class="text_pole" data-picker="parser.customModel" data-list="parserModels"></select></label>
-                            <div class="menu_button" id="ctp_parser_models">获取模型</div>
-                        </div>
-                        <label>附加请求参数（JSON，可选）
-                            <textarea class="text_pole ctp-mono" rows="2" data-ctp="parser.extraBody" id="ctp_extra_body" placeholder='例：GLM 关闭思考 {"thinking": {"type": "disabled"}}'></textarea>
-                        </label>
-                        <small class="ctp-hint" id="ctp_extra_body_hint">会合并进请求体。思考模型（GLM、DeepSeek-R1 等）容易把输出额度用在思考上导致返回空内容，可以在这里关闭思考。Key 保存在酒馆扩展设置里，经酒馆后端转发。</small>
-                    </div>
-                    <div class="ctp-source" data-source="profile">
-                        <div class="ctp-row">
-                            <select class="text_pole flex1" id="ctp_profile"></select>
-                            <div class="menu_button fa-solid fa-rotate" id="ctp_profile_refresh" title="刷新"></div>
-                        </div>
-                    </div>
-                    <div class="ctp-source" data-source="main">
-                        <small class="ctp-hint">直接用正文正在用的 API 和模型，会额外占用一次请求。</small>
-                    </div>
-                    <div class="ctp-row">
-                        <label>温度 <input type="number" class="text_pole" step="0.05" min="0" max="2" data-ctp="parser.temperature" data-type="float"></label>
-                        <label>最大输出 <input type="number" class="text_pole" step="50" min="100" data-ctp="parser.maxTokens" data-type="int"></label>
-                    </div>
-                    <div class="ctp-row">
-                        <label>超时(秒) <input type="number" class="text_pole" step="5" min="0" data-ctp="parser.timeoutSec" data-type="int"></label>
-                        <label>失败自动重试次数 <input type="number" class="text_pole" min="0" max="5" step="1" data-ctp="parser.retries" data-type="int"></label>
-                    </div>
-                    <small class="ctp-hint">接口偶尔报错（如 <code>Invalid API parameter</code>、429、502）或没返回可用的 JSON 时自动重试；取消、超时、设置填错、输出被截断不重试。GLM 的温度一般要在 0–1 之间。</small>
-                    <div class="ctp-row">
-                        <div class="menu_button" id="ctp_parser_test">测试解析模型</div>
-                    </div>
                 </div>
             </div>
 
@@ -346,27 +289,13 @@
                 </div>
             </div>
 
-            <!-- ============ ComfyUI 连接与工作流 ============ -->
+            <!-- ============ 工作流 ============ -->
             <div class="inline-drawer ctp-sub" data-sub="comfy">
                 <div class="inline-drawer-toggle inline-drawer-header">
-                    <span><b>ComfyUI 连接</b> <small>地址 · 连接方式 · 工作流</small></span>
+                    <span><b>工作流</b> <small>内置 / 自定义工作流 · 提示词扩写</small></span>
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
-                    <div class="ctp-row">
-                        <label class="flex1">地址 <input type="text" class="text_pole" data-ctp="comfy.url" placeholder="http://127.0.0.1:8188"></label>
-                        <div class="menu_button" id="ctp_comfy_test">测试连接</div>
-                    </div>
-                    <label>连接方式
-                        <select class="text_pole" data-ctp="comfy.mode">
-                            <option value="proxy">酒馆后端代理（推荐，无需 CORS）</option>
-                            <option value="direct">浏览器直连（需 --enable-cors-header，可看节点级报错）</option>
-                        </select>
-                    </label>
-                    <label>浏览器直连地址（可选）
-                        <input type="text" class="text_pole" data-ctp="comfy.browserUrl" placeholder="留空 = 同上。手机访问酒馆时填电脑的局域网地址，如 http://192.168.1.10:8188">
-                    </label>
-                    <small class="ctp-hint">读取 LoRA / 文本编码器列表和「浏览器直连」都由浏览器直接访问 ComfyUI：需要启动参数 <code>--listen --enable-cors-header</code>，且地址要能从浏览器所在设备访问到（手机上的 127.0.0.1 是手机自己）。</small>
                     <label>工作流
                         <select class="text_pole" data-ctp="comfy.workflowSource" id="ctp_workflow_source">
                             <option value="builtin" id="ctp_workflow_builtin_option">内置：Krea 2 Turbo 文生图 + LoRA</option>
@@ -488,7 +417,7 @@
                         </div>
                         <details class="ctp-details">
                             <summary>专用工作流（可选，换成另一类模型时用）</summary>
-                            <textarea class="text_pole ctp-mono" rows="8" data-rp="workflow" placeholder="留空 = 用「ComfyUI 连接」里的工作流。粘贴 API 格式 JSON，占位符相同"></textarea>
+                            <textarea class="text_pole ctp-mono" rows="8" data-rp="workflow" placeholder="留空 = 用「工作流」里选的工作流。粘贴 API 格式 JSON，占位符相同"></textarea>
                             <div class="ctp-row">
                                 <div class="menu_button" id="ctp_rp_validate">校验</div>
                             </div>
@@ -525,6 +454,81 @@
                 </div>
             </div>
 
+
+            <!-- ============ API 设置（最下面） ============ -->
+            <div class="ctp-api-caption">API 设置 <small>两个模式、所有人设共用</small></div>
+            <!-- ============ 解析模型（API） ============ -->
+            <div class="inline-drawer ctp-sub" data-sub="parser">
+                <div class="inline-drawer-toggle inline-drawer-header">
+                    <span><b>解析模型</b> <small>读剧情、写服装 / 动作 / 表情的额外模型 · API 连接</small></span>
+                    <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+                </div>
+                <div class="inline-drawer-content">
+                    <label>来源
+                        <select class="text_pole" data-ctp="parser.source" id="ctp_parser_source">
+                            <option value="custom">独立 API（OpenAI 兼容，经酒馆后端转发）</option>
+                            <option value="profile">酒馆连接配置（Connection Profile）</option>
+                            <option value="main">酒馆当前 API（和正文共用）</option>
+                        </select>
+                    </label>
+                    <div class="ctp-source" data-source="custom">
+                        <label>API 地址（到 /v1 为止）<input type="text" class="text_pole" data-ctp="parser.customUrl" placeholder="https://api.deepseek.com/v1"></label>
+                        <label>API Key <input type="password" class="text_pole" data-ctp="parser.customKey" autocomplete="off"></label>
+                        <div class="ctp-row">
+                            <label class="flex1">模型 <select class="text_pole" data-picker="parser.customModel" data-list="parserModels"></select></label>
+                            <div class="menu_button" id="ctp_parser_models">获取模型</div>
+                        </div>
+                        <label>附加请求参数（JSON，可选）
+                            <textarea class="text_pole ctp-mono" rows="2" data-ctp="parser.extraBody" id="ctp_extra_body" placeholder='例：GLM 关闭思考 {"thinking": {"type": "disabled"}}'></textarea>
+                        </label>
+                        <small class="ctp-hint" id="ctp_extra_body_hint">会合并进请求体。思考模型（GLM、DeepSeek-R1 等）容易把输出额度用在思考上导致返回空内容，可以在这里关闭思考。Key 保存在酒馆扩展设置里，经酒馆后端转发。</small>
+                    </div>
+                    <div class="ctp-source" data-source="profile">
+                        <div class="ctp-row">
+                            <select class="text_pole flex1" id="ctp_profile"></select>
+                            <div class="menu_button fa-solid fa-rotate" id="ctp_profile_refresh" title="刷新"></div>
+                        </div>
+                    </div>
+                    <div class="ctp-source" data-source="main">
+                        <small class="ctp-hint">直接用正文正在用的 API 和模型，会额外占用一次请求。</small>
+                    </div>
+                    <div class="ctp-row">
+                        <label>温度 <input type="number" class="text_pole" step="0.05" min="0" max="2" data-ctp="parser.temperature" data-type="float"></label>
+                        <label>最大输出 <input type="number" class="text_pole" step="50" min="100" data-ctp="parser.maxTokens" data-type="int"></label>
+                    </div>
+                    <div class="ctp-row">
+                        <label>超时(秒) <input type="number" class="text_pole" step="5" min="0" data-ctp="parser.timeoutSec" data-type="int"></label>
+                        <label>失败自动重试次数 <input type="number" class="text_pole" min="0" max="5" step="1" data-ctp="parser.retries" data-type="int"></label>
+                    </div>
+                    <small class="ctp-hint">接口偶尔报错（如 <code>Invalid API parameter</code>、429、502）或没返回可用的 JSON 时自动重试；取消、超时、设置填错、输出被截断不重试。GLM 的温度一般要在 0–1 之间。</small>
+                    <div class="ctp-row">
+                        <div class="menu_button" id="ctp_parser_test">测试解析模型</div>
+                    </div>
+                </div>
+            </div>
+            <!-- ============ ComfyUI 连接（API） ============ -->
+            <div class="inline-drawer ctp-sub" data-sub="comfyapi">
+                <div class="inline-drawer-toggle inline-drawer-header">
+                    <span><b>ComfyUI 连接</b> <small>地址 · 连接方式</small></span>
+                    <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+                </div>
+                <div class="inline-drawer-content">
+                    <div class="ctp-row">
+                        <label class="flex1">地址 <input type="text" class="text_pole" data-ctp="comfy.url" placeholder="http://127.0.0.1:8188"></label>
+                        <div class="menu_button" id="ctp_comfy_test">测试连接</div>
+                    </div>
+                    <label>连接方式
+                        <select class="text_pole" data-ctp="comfy.mode">
+                            <option value="proxy">酒馆后端代理（推荐，无需 CORS）</option>
+                            <option value="direct">浏览器直连（需 --enable-cors-header，可看节点级报错）</option>
+                        </select>
+                    </label>
+                    <label>浏览器直连地址（可选）
+                        <input type="text" class="text_pole" data-ctp="comfy.browserUrl" placeholder="留空 = 同上。手机访问酒馆时填电脑的局域网地址，如 http://192.168.1.10:8188">
+                    </label>
+                    <small class="ctp-hint">读取 LoRA / 文本编码器列表和「浏览器直连」都由浏览器直接访问 ComfyUI：需要启动参数 <code>--listen --enable-cors-header</code>，且地址要能从浏览器所在设备访问到（手机上的 127.0.0.1 是手机自己）。</small>
+                </div>
+            </div>
         </div>
     </div>
 </div>

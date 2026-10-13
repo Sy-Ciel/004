@@ -34,7 +34,7 @@ export async function initPersonaTracking() {
     try {
         personasModule = await import('../../../../personas.js');
     } catch (error) {
-        console.warn('[ComfyPortrait] personas.js not available, persona binding uses the change event only', error);
+        console.warn('[ComfyPortrait] personas.js not available, persona tracking uses the change event only', error);
     }
     const { eventSource, eventTypes } = ctx();
     if (eventTypes.PERSONA_CHANGED) {
@@ -53,34 +53,21 @@ export function personaList() {
     return Object.entries(personas).map(([id, name]) => ({ id, name: String(name || id) }));
 }
 
-function boundPersonas(preset) {
-    return Array.isArray(preset?.personas) ? preset.personas : [];
-}
-
-/** The preset bound to the active persona, if any. */
-export function findPersonaPreset(avatar = currentPersona()) {
-    if (!avatar) return null;
-    return getSettings().presets.find(preset => boundPersonas(preset).includes(avatar)) ?? null;
-}
-
-/** The preset chosen for personas that have none of their own (setting "没有配置的人设使用"), if it exists. */
+/** The preset {{user}} uses when no preset matches the persona name (setting "{{user}} 没有同名预设时使用"), if it exists. */
 export function fallbackUserPreset() {
     const id = getSettings().userFallbackPresetId;
     return id ? findPresetById(id) : null;
 }
 
 /**
- * Preset used for {{user}} and why: the one bound to the active persona; otherwise an unbound preset matching
- * the persona name (a preset bound to other personas never matches by name); otherwise the fallback preset.
- * @returns {{ preset: object|null, via: 'bound'|'name'|'fallback'|'none' }}
+ * Preset used for {{user}} and why: the preset matching the persona name (a preset named {{user}} always does);
+ * otherwise the fallback preset. Each persona has its own profile of presets (see modes.js), so switching
+ * persona brings its own {{user}} preset along.
+ * @returns {{ preset: object|null, via: 'name'|'fallback'|'none' }}
  */
 export function resolveUserPreset() {
-    const bound = findPersonaPreset();
-    if (bound) return { preset: bound, via: 'bound' };
     const needle = String(ctx().name1 || '').trim().toLowerCase();
-    const named = needle
-        ? getSettings().presets.find(preset => !boundPersonas(preset).length && presetNames(preset).includes(needle))
-        : null;
+    const named = needle ? getSettings().presets.find(preset => presetNames(preset).includes(needle)) : null;
     if (named) return { preset: named, via: 'name' };
     const fallback = fallbackUserPreset();
     return fallback ? { preset: fallback, via: 'fallback' } : { preset: null, via: 'none' };
@@ -90,10 +77,9 @@ export function findUserPreset() {
     return resolveUserPreset().preset;
 }
 
-/** A preset that describes "whoever the user currently is": bound to personas, named {{user}}, or the fallback. */
+/** A preset that describes "whoever the user currently is": named {{user}}, or the fallback. */
 function isUserPreset(preset) {
-    return boundPersonas(preset).length > 0
-        || String(preset?.name || '').trim().toLowerCase() === '{{user}}'
+    return String(preset?.name || '').trim().toLowerCase() === '{{user}}'
         || (!!preset?.id && preset.id === getSettings().userFallbackPresetId);
 }
 
@@ -104,7 +90,7 @@ export function presetsMentioned(text) {
     return getSettings().presets.filter(preset => !isUserPreset(preset) && presetNames(preset).some(name => haystack.includes(name)));
 }
 
-/** Name → preset, routing the user's own name through the persona binding. */
+/** Name → preset, routing the user's own name through the {{user}} preset. */
 export function presetForName(name) {
     const user = String(ctx().name1 || '').trim().toLowerCase();
     if (user && String(name || '').trim().toLowerCase() === user) return findUserPreset();
@@ -138,8 +124,7 @@ export function resolveTarget(message, override) {
 
     const byId = findPresetById(mode);
     if (byId) {
-        // A user preset follows persona switches: with persona A → B, B's bound preset takes over, and a persona
-        // without one gets the fallback preset (or none).
+        // A user preset follows persona switches: the preset matching the new persona's name, or the fallback.
         if (isUserPreset(byId)) {
             return { auto: false, name: ctx().name1, preset: findUserPreset(), candidates: [] };
         }

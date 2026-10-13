@@ -155,7 +155,6 @@ export function defaultPresets() {
             lora: '',
             loraStrength: 0.8,
             negative: '',
-            personas: [],
             renderProfileId: '',
         },
     ];
@@ -344,7 +343,7 @@ export const DEFAULT_SETTINGS = {
     presets: defaultPresets(),
     /** Named model / LoRA / sampling overrides that character presets can use (see renderProfiles.js). */
     renderProfiles: [],
-    /** Preset for user personas without a bound or same-named preset ('' = none: default model / LoRA only). */
+    /** Preset for {{user}} when no preset matches the persona's name ('' = none: default model / LoRA only). */
     userFallbackPresetId: 'user',
 
     /** Collapsible status block the main AI writes at the end of each reply; the parser reads it first. */

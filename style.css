@@ -622,3 +622,16 @@
     border-left: 3px solid var(--SmartThemeQuoteColor);
     white-space: pre-wrap;
 }
+
+/* Heading of the API groups at the bottom of the settings */
+.ctp-settings .ctp-api-caption {
+    margin: 14px 0 2px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--SmartThemeBorderColor);
+    font-weight: bold;
+}
+
+.ctp-settings .ctp-api-caption small {
+    font-weight: normal;
+    opacity: 0.6;
+}
