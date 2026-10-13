@@ -17,7 +17,7 @@ import {
     resolutionPresets,
 } from './constants.js';
 import { lastFloorId, showChatDebug, showDryRun, showParserPreview } from './debug.js';
-import { SHARED_COMFY_KEYS, SHARED_PARSER_KEYS, currentMode, modeLabel, swapModeSettings } from './modes.js';
+import { SHARED_COMFY_KEYS, SHARED_PARSER_KEYS, currentMode, modeLabel, otherSlotKey, slotKey, swapModeSettings, swapProfile } from './modes.js';
 import { resetPanelForMode, resetPanelGeometry } from './panel.js';
 import { bindPickers, getPath, readInput, registerPickerOwner, renderPicker, renderPickers, setPath, writeInput } from './form.js';
 import { initParserPresetUi, refreshParserPresetUi } from './ui-parser-presets.js';
@@ -94,6 +94,12 @@ function onSettingChanged(path) {
         resetPanelGeometry();
     }
     if (path === 'parser.source') updateSourceVisibility();
+    if (path === 'perPersonaProfiles') {
+        // Turning profiles on makes the current settings this persona's; off keeps them for everyone.
+        getSettings().profilePersona = getSettings().perPersonaProfiles ? currentPersona() || '' : '';
+        saveSettings();
+        updateProfileLabel();
+    }
     if (path === 'parser.extraBody') validateExtraBody();
     if (path === 'comfy.workflowSource') updateWorkflowVisibility();
     if (path === 'enabled' || path.startsWith('statusBar.')) {
@@ -496,8 +502,51 @@ function userSwitchText(preset, via) {
     return `${who}→ ${displayName(preset)}${render}`;
 }
 
+/**
+ * Per-persona profiles: when the user persona changed, put its own profile in place (everything except the API
+ * settings). Returns true when the profile was switched.
+ */
+export function syncPersonaProfile() {
+    const settings = getSettings();
+    const persona = currentPersona() || '';
+    if (!settings.perPersonaProfiles || !persona) return false;
+    // Settings from before profiles (or just turned on) become the current persona's profile.
+    if (!settings.profilePersona) {
+        settings.profilePersona = persona;
+        saveSettings();
+        updateProfileLabel();
+        return false;
+    }
+    if (settings.profilePersona === persona) return false;
+    const busy = hasActiveJobs();
+    cancelAllJobs();
+    resetPanelForMode();
+    const isNew = !settings.modeStore[slotKey(currentMode(), persona)];
+    swapProfile(currentMode(), persona);
+    saveSettings();
+    refreshAllSettingsUi();
+    const { preset, via } = resolveUserPreset();
+    if (preset) {
+        selectedPresetId = preset.id;
+        refreshPresetSelect();
+    }
+    if (settings.enabled) {
+        toastr.info(`已切换到人设「${personaName(persona)}」的配图档案${isNew ? '（第一次使用，复制了上一个人设的设置）' : ''}${busy ? '，正在进行的配图已取消' : ''}\n${userSwitchText(preset, via)}`, 'ComfyUI 角色配图');
+    }
+    return true;
+}
+
+function updateProfileLabel() {
+    const settings = getSettings();
+    $('#ctp_profile_label').text(settings.perPersonaProfiles && settings.profilePersona ? `当前档案：人设「${personaName(settings.profilePersona)}」` : '所有人设共用一套设置');
+}
+
 /** Called after a persona switch: show the new persona's preset and say what {{user}} now uses. */
 export function onPersonaChanged() {
+    if (syncPersonaProfile()) {
+        lastUserKey = `${currentPersona()}|${findUserPreset()?.id ?? ''}`;
+        return;
+    }
     const { preset, via } = resolveUserPreset();
     const key = `${currentPersona()}|${preset?.id ?? ''}`;
     const switched = lastUserKey !== undefined && key !== lastUserKey;
@@ -915,11 +964,15 @@ async function resetAllSettings() {
     // "Enabled" is shared too; it goes back to on only when both modes are reset.
     if (!keep('reset-other')) fresh.enabled = settings.enabled;
     if (keep('reset-other')) {
-        const saved = store[other];
-        delete store[other];
-        if (keep('presets') && saved && typeof saved === 'object') store[other] = keptPresets(saved, other);
+        const key = otherSlotKey(other);
+        const saved = store[key];
+        delete store[key];
+        if (keep('presets') && saved && typeof saved === 'object') store[key] = keptPresets(saved, other);
     }
     fresh.modeStore = store;
+    // Profiles stay as they are: this resets the current persona's profile only.
+    fresh.perPersonaProfiles = settings.perPersonaProfiles;
+    fresh.profilePersona = settings.profilePersona;
     // Same object, new contents: other modules read it through getSettings().
     for (const key of Object.keys(settings)) delete settings[key];
     Object.assign(settings, fresh);
@@ -958,6 +1011,7 @@ function refreshAllSettingsUi() {
     loraPresetId = null;
     resetRenderProfileSelection();
     applyModeChrome();
+    updateProfileLabel();
     syncSettingsUi();
     refreshPresetSelect();
     renderResolutionOptions();
@@ -1133,6 +1187,9 @@ export async function initSettingsUi() {
         else enqueue(mesId, { mode: 'reparse', force: true });
     });
     $('#ctp_clear_chat').on('click', clearChatData);
+    updateProfileLabel();
+    // The persona may have changed while the extension was not loaded.
+    syncPersonaProfile();
 }
 
 /** Re-reads values that can change outside the panel (slash commands, persona switch). */

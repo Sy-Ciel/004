@@ -286,6 +286,10 @@ export const DEFAULT_SETTINGS = {
     /** Active image model mode; the other mode's settings wait in modeStore (see modes.js). */
     modelMode: MODEL_KREA2,
     modeStore: {},
+    /** Each user persona gets its own profile of all settings except the API ones (see modes.js). */
+    perPersonaProfiles: true,
+    /** Persona whose profile is in the flat settings ('' = not assigned yet / profiles off). */
+    profilePersona: '',
     /** Words every prompt of this mode starts with (e.g. a style LoRA's trigger); the parser is told about them. */
     triggerWords: '',
     /** Escape ( ) in prompts so ComfyUI reads them as text, not as weights, e.g. "artoria pendragon \(fate\)". */

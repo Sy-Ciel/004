@@ -9,7 +9,7 @@ import { updateStatusPrompt } from './src/statusBar.js';
 import { currentMode, modeLabel } from './src/modes.js';
 import { findParserPreset } from './src/parserPresets.js';
 import { findPresetByName, findPresetById, initPersonaTracking } from './src/targets.js';
-import { initSettingsUi, onPersonaChanged, refreshTargetSelect, switchModelMode, syncSettingsUi } from './src/ui.js';
+import { initSettingsUi, onPersonaChanged, refreshTargetSelect, switchModelMode, syncPersonaProfile, syncSettingsUi } from './src/ui.js';
 import { ctx, getMessageData, getSettings, log, saveSettings, setMessageData } from './src/utils.js';
 
 let lastStoppedAt = 0;
@@ -269,6 +269,8 @@ function registerEvents() {
         resetPanelForChat();
         renderAllSoon();
         refreshTargetSelect();
+        // A chat locked to a persona switches it on load; its profile follows.
+        setTimeout(syncPersonaProfile, 0);
     });
     // Registered after initPersonaTracking's own listener, so the new persona is already known here.
     if (eventTypes.PERSONA_CHANGED) eventSource.on(eventTypes.PERSONA_CHANGED, onPersonaChanged);

@@ -10,7 +10,7 @@ import { MODEL_ANIMA, MODEL_LABELS, modeDefaults, normalizeMode } from './consta
 import { fillDefaults, getSettings, isPlainObject } from './utils.js';
 
 /** Top-level keys both modes share. */
-const SHARED_KEYS = ['settingsVersion', 'enabled', 'modelMode', 'modeStore'];
+const SHARED_KEYS = ['settingsVersion', 'enabled', 'modelMode', 'modeStore', 'perPersonaProfiles', 'profilePersona'];
 
 /**
  * Keys of parser / comfy both modes share: the API settings. The rest of those objects (what the parser reads,
@@ -89,33 +89,53 @@ function applyModeSettings(settings, own) {
 }
 
 /**
- * Makes `target` the active mode: the current mode's settings go into modeStore, the target's come out of it
- * (or start from that mode's defaults the first time). Synchronous and done on the settings object itself, so
- * nothing can read a half-swapped state. Returns false when `target` is already active.
+ * Where a profile is kept in modeStore. Each user persona has its own profile (when "每个用户人设使用独立档案" is
+ * on), and each profile has a Krea 2 and an Anima side: key "mode@persona". Without per-persona profiles the
+ * key is just the mode (also what versions before profiles stored).
  */
-export function swapModeSettings(target) {
+export function slotKey(mode, persona) {
+    return persona ? `${normalizeMode(mode)}@${persona}` : normalizeMode(mode);
+}
+
+/**
+ * Makes (mode, persona) the active profile: the current one goes into modeStore, the target comes out of it.
+ * A profile used for the first time starts as a copy of the current settings when only the persona changes
+ * (so a new persona keeps what was set up), or from the mode's stored / default settings when the mode changes.
+ * Synchronous and done on the settings object itself. Returns false when nothing changes.
+ */
+export function swapProfile(mode, persona) {
     const settings = getSettings();
-    const from = normalizeMode(settings.modelMode);
-    const to = normalizeMode(target);
+    const fromMode = normalizeMode(settings.modelMode);
+    const toMode = normalizeMode(mode);
+    const fromPersona = String(settings.profilePersona || '');
+    const toPersona = String(persona || '');
+    const from = slotKey(fromMode, fromPersona);
+    const to = slotKey(toMode, toPersona);
     if (from === to) return false;
     const store = settings.modeStore;
-    const saved = isPlainObject(store[to]) ? store[to] : {};
-    store[from] = extractModeSettings(settings);
-    delete store[to];
+    const current = extractModeSettings(settings);
+    let saved = isPlainObject(store[to]) ? store[to] : null;
+    if (!saved && toMode === fromMode) saved = current;
+    // A persona's first use of the other mode starts from that mode's settings from before profiles existed.
+    if (!saved && toPersona && isPlainObject(store[toMode])) saved = structuredClone(store[toMode]);
+    store[from] = current;
+    if (saved !== current) delete store[to];
     clearModeSettings(settings);
-    applyModeSettings(settings, saved);
-    settings.modelMode = to;
-    fillDefaults(settings, modeDefaults(to));
+    applyModeSettings(settings, saved ?? {});
+    settings.modelMode = toMode;
+    settings.profilePersona = toPersona;
+    fillDefaults(settings, modeDefaults(toMode));
     // Adds the mode's built-in parser presets if the stored copy lacks any.
     getSettings();
     return true;
 }
 
-/**
- * The other mode's stored settings, for "keep presets" when resetting: the character presets, render profiles
- * and the user's own parser presets, or null when that mode was never used.
- */
-export function storedModeSettings(mode) {
-    const own = getSettings().modeStore[normalizeMode(mode)];
-    return isPlainObject(own) ? own : null;
+/** Switches the image model mode within the current profile. */
+export function swapModeSettings(target) {
+    return swapProfile(target, getSettings().profilePersona);
+}
+
+/** Key of the other mode's copy within the current profile (for reset-all). */
+export function otherSlotKey(mode) {
+    return slotKey(mode, getSettings().profilePersona);
 }
