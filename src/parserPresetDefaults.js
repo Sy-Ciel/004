@@ -106,7 +106,15 @@ function negativeRules(model) {
 - 按这个画面写：画面只有一个人时写 multiple girls、multiple boys 这类多人标签；角色此刻没穿戴、但模型容易加上的衣物或配饰；和场景、时间不符的东西；pending 里还没发生的动作或道具
 - 不要写画面本来就要画的内容（例如画面要画 smile，就不能写 smile），也不要写会和正向字段冲突的词
 - 画质类的通用反向词（worst quality、low quality、score_1、blurry 等）程序会自动加，不要写
-- 最多 15 个，没有需要补充的就留空`;
+- 最多 15 个，没有需要补充的就写空字符串 ""（不要写「无」或 none）`;
+}
+
+/**
+ * For a custom system prompt without {{output_rules}} that keeps its own output format: only the negative rule,
+ * plus the field to add to that format.
+ */
+export function negativeOnlyRules(model) {
+    return `${negativeRules(model)}\n在你输出的 JSON 里再加一个 "negative" 字段（字符串，没有就写 ""）。`;
 }
 
 function outputFormat(mode, allowOthers, negative = false) {

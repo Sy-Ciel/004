@@ -202,6 +202,8 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
     return finishPrompt(joinParts(lines, tags));
 }
 
+const EMPTY_ANSWERS = new Set(['无', '没有', '空', '无需', 'none', 'n/a', 'na', 'null', 'false', '-']);
+
 function tagSet(text) {
     return new Set(unescapeParens(text).split(',').map(tag => tag.trim().toLowerCase()).filter(Boolean));
 }
@@ -226,7 +228,8 @@ export function buildNegativePrompt(preset, parsed = null, prompt = '') {
     const tags = [];
     for (const tag of fromParser.split(',').map(item => item.trim()).filter(Boolean)) {
         const key = unescapeParens(tag).toLowerCase();
-        if (taken.has(key)) continue;
+        // Placeholders for "nothing" are not tags.
+        if (taken.has(key) || EMPTY_ANSWERS.has(key)) continue;
         taken.add(key);
         tags.push(tag);
     }

@@ -108,7 +108,7 @@ export async function showFloorDebug(mesId) {
         <h4>① 固定部分（角色预设）</h4>
         ${table([['外貌', data.fixed?.appearance || '（空）'], ['触发词', data.fixed?.trigger]])}
         ${data.parsed?.prompt ? block('AI 写的完整提示词（prompt 字段）', data.parsed.prompt) : ''}
-        ${data.parsed?.negative ? block('AI 补充的反向提示词（negative 字段，已加在反向提示词末尾）', data.parsed.negative) : ''}
+        ${data.parsed?.negative ? block('AI 写的 negative 字段（重复的、和正向提示词相同的标签已去掉，实际发送的见上方「反向提示词」）', data.parsed.negative) : ''}
         <h4>② AI 解析部分${data.error && data.parsed ? '（以下是最近一次成功的解析，本次失败的输出见下方「原始输出」）' : ''}</h4>
         ${stateTable(data.parsed)}
         ${table(parsedRows) || '<p class="ctp-muted">无</p>'}

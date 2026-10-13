@@ -2,7 +2,7 @@ import { PARSED_FIELDS, STATE_FIELDS } from './constants.js';
 import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
-import { activeParserPreset, outputRules, parseFixedFields, promptMode } from './parserPresets.js';
+import { activeParserPreset, negativeRule, outputRules, parseFixedFields, promptMode } from './parserPresets.js';
 import { triggerWordList } from './prompt.js';
 import { findStatusBar, withoutStatusBar } from './statusBar.js';
 import { findUserPreset, presetForName, presetName, presetsMentioned } from './targets.js';
@@ -313,7 +313,9 @@ export async function buildParserPrompt(mesId, target) {
     // A custom system prompt without {{output_rules}} keeps its own output format in "fixed" mode; the
     // "AI writes the prompt" mode and "allow other people" need the rules that ask for `prompt` / `others`.
     let systemTemplate = String(preset.system || '');
-    if ((mode === 'ai' || allowOthers || negative) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += '\n\n{{output_rules}}';
+    if ((mode === 'ai' || allowOthers) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += '\n\n{{output_rules}}';
+    // Only the negative is asked for: such a prompt keeps its own format and just gets the negative field.
+    else if (negative && !systemTemplate.includes('{{output_rules}}')) systemTemplate += `\n\n${negativeRule()}`;
 
     const triggerRule = triggerWordsRule(mode);
     return {
@@ -603,8 +605,9 @@ export function parseParserOutput(raw) {
         // Salvage fields from broken or truncated JSON, or from "key: value" lines. A quoted value only counts
         // when its closing quote is present, so a reply cut off mid-value does not leak half a phrase.
         object = {};
-        for (const key of ['skip', 'reason', 'target', 'prompt', 'negative', ...STATE_FIELDS, ...PARSED_FIELDS]) {
-            const quoted = text.match(new RegExp(`["']?${key}["']?\\s*[:：]\\s*"([^"\\n]*)"`, 'i'));
+        for (const key of ['skip', 'reason', 'target', 'prompt', 'negative', 'negative_prompt', ...STATE_FIELDS, ...PARSED_FIELDS]) {
+            // Whole keys only: "prompt" must not match the end of "negative_prompt".
+            const quoted = text.match(new RegExp(`(?<![\\w])["']?${key}["']?\\s*[:：]\\s*"([^"\\n]*)"`, 'i'));
             const line = text.match(new RegExp(`^\\s*${key}\\s*[:：]\\s*([^"{}\\n]+)$`, 'im'));
             if (quoted) object[key] = quoted[1];
             else if (line) object[key] = line[1];
@@ -627,7 +630,8 @@ export function parseParserOutput(raw) {
     // Only present in the "AI writes the whole prompt" mode
     result.prompt = normalizeValue(object.prompt);
     // Only when the parser is asked for a negative prompt
-    result.negative = normalizeValue(object.negative);
+    // "negative_prompt" is the usual Stable Diffusion name; models sometimes use it.
+    result.negative = normalizeValue(object.negative ?? object.negative_prompt);
     if (!result.skip && !result.prompt && PARSED_FIELDS.every(field => !result[field])) {
         throw new Error('解析结果里没有任何画面字段');
     }

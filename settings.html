@@ -333,7 +333,7 @@
                     <label>反向提示词 <input type="text" class="text_pole" data-ctp="negativePrompt" id="ctp_negative"></label>
                     <small class="ctp-hint" id="ctp_negative_hint"></small>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="parserNegative"> 让解析模型按画面补充反向提示词（加在上面的反向提示词后面）</label>
-                    <small class="ctp-hint">解析模型在同一次请求里多写一个 negative 字段：这张图不该出现、容易画错的东西（只有一个人时的多人标签、没穿戴的衣物配饰、还没发生的动作等）。和上面重复的、和正向提示词冲突的标签会自动去掉。Anima 模式默认打开<span class="ctp-mode-only" data-mode="krea2">；Krea 2 的内置工作流（CFG 1）不使用反向提示词，只对带 %negative_prompt% 的自定义工作流有用</span>。</small>
+                    <small class="ctp-hint">解析模型在同一次请求里多写一个 negative 字段：这张图不该出现、容易画错的东西（只有一个人时的多人标签、没穿戴的衣物配饰、还没发生的动作等）。和上面重复的、和正向提示词里一模一样的标签会自动去掉。Anima 模式默认打开<span class="ctp-mode-only" data-mode="krea2">；Krea 2 的内置工作流（CFG 1）不使用反向提示词，只对会用到反向提示词的自定义工作流有用</span>。</small>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="escapeParens"> 把提示词里的括号转义成 <code>\(</code> <code>\)</code>（Anima 推荐）</label>
                     <small class="ctp-hint">ComfyUI 会把普通括号当成加权并去掉，Danbooru 标签里的括号（如 <code>artoria pendragon (fate)</code>）就丢了；打开后自动转义，写明权重的 <code>(smile:1.2)</code> 不受影响。</small>
                     <details class="ctp-details">

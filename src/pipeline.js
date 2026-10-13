@@ -363,8 +363,10 @@ async function runJob(message, job, options) {
             }
             data.modelMode = modelMode;
             converted = true;
-            // The dialog shows the negative prompt too and sends it as typed.
+            // The dialog shows the negative prompt too and sends it as typed. Without one (/ctimg prompt=...), the
+            // negative is built again so the parser's tags for this floor cannot work against the typed prompt.
             if (typeof options.negative === 'string') data.negative = options.negative;
+            else if (!otherMode) data.negative = buildNegativePrompt(floorPreset(data), data.parsed, data.prompt);
             // Sent exactly as typed, so it can be compared with the same text in ComfyUI.
             data.prompt = String(options.prompt ?? '');
             data.promptEdited = true;
