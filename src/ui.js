@@ -17,7 +17,7 @@ import {
     resolutionPresets,
 } from './constants.js';
 import { lastFloorId, showChatDebug, showDryRun, showParserPreview } from './debug.js';
-import { SHARED_COMFY_KEYS, SHARED_PARSER_KEYS, currentMode, modeLabel, otherSlotKey, slotKey, swapModeSettings, swapProfile } from './modes.js';
+import { SHARED_COMFY_KEYS, SHARED_PARSER_KEYS, currentMode, modeLabel, adoptProfile, hasProfile, otherSlotKey, personaMode, releaseProfile, swapModeSettings, swapProfile } from './modes.js';
 import { resetPanelForMode, resetPanelGeometry } from './panel.js';
 import { bindPickers, getPath, readInput, registerPickerOwner, renderPicker, renderPickers, setPath, writeInput } from './form.js';
 import { initParserPresetUi, refreshParserPresetUi } from './ui-parser-presets.js';
@@ -96,7 +96,11 @@ function onSettingChanged(path) {
     if (path === 'parser.source') updateSourceVisibility();
     if (path === 'perPersonaProfiles') {
         // Turning profiles on makes the current settings this persona's; off keeps them for everyone.
-        getSettings().profilePersona = getSettings().perPersonaProfiles ? currentPersona() || '' : '';
+        if (getSettings().perPersonaProfiles) {
+            if (currentPersona()) adoptProfile(currentPersona());
+        } else {
+            releaseProfile();
+        }
         saveSettings();
         updateProfileLabel();
     }
@@ -510,19 +514,23 @@ export function syncPersonaProfile() {
     const settings = getSettings();
     const persona = currentPersona() || '';
     if (!settings.perPersonaProfiles || !persona) return false;
-    // Settings from before profiles (or just turned on) become the current persona's profile.
-    if (!settings.profilePersona) {
-        settings.profilePersona = persona;
+    // Settings from before profiles (or just turned on) become the current persona's profile. The other mode's
+    // copy may still be under the plain mode key (v1.16): it is this persona's too.
+    if (!settings.profilePersona || MODEL_MODES.some(mode => settings.modeStore[mode])) {
+        const owner = settings.profilePersona || persona;
+        adoptProfile(owner);
         saveSettings();
         updateProfileLabel();
-        return false;
+        if (owner === persona) return false;
     }
     if (settings.profilePersona === persona) return false;
     const busy = hasActiveJobs();
     cancelAllJobs();
     resetPanelForMode();
-    const isNew = !settings.modeStore[slotKey(currentMode(), persona)];
-    swapProfile(currentMode(), persona);
+    const isNew = !hasProfile(persona);
+    // The persona's own mode comes with it: a persona last used with Anima switches to Anima.
+    const mode = personaMode(persona);
+    swapProfile(mode, persona);
     saveSettings();
     refreshAllSettingsUi();
     const { preset, via } = resolveUserPreset();
@@ -531,7 +539,7 @@ export function syncPersonaProfile() {
         refreshPresetSelect();
     }
     if (settings.enabled) {
-        toastr.info(`已切换到人设「${personaName(persona)}」的配图档案${isNew ? '（第一次使用，复制了上一个人设的设置）' : ''}${busy ? '，正在进行的配图已取消' : ''}\n${userSwitchText(preset, via)}`, 'ComfyUI 角色配图');
+        toastr.info(`已切换到人设「${personaName(persona)}」的配图档案 · ${modeLabel(mode)} 模式${isNew ? '（第一次使用，全部是默认设置）' : ''}${busy ? '，正在进行的配图已取消' : ''}\n${userSwitchText(preset, via)}`, 'ComfyUI 角色配图');
     }
     return true;
 }
@@ -973,6 +981,7 @@ async function resetAllSettings() {
     // Profiles stay as they are: this resets the current persona's profile only.
     fresh.perPersonaProfiles = settings.perPersonaProfiles;
     fresh.profilePersona = settings.profilePersona;
+    fresh.personaModes = settings.personaModes;
     // Same object, new contents: other modules read it through getSettings().
     for (const key of Object.keys(settings)) delete settings[key];
     Object.assign(settings, fresh);

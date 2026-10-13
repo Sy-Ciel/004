@@ -6,11 +6,11 @@
  * mode's wait in settings.modeStore[mode] until it is switched to. Shared by both: the switch itself, "enabled"
  * and the API settings (the parser model's connection and the ComfyUI server's address).
  */
-import { MODEL_ANIMA, MODEL_LABELS, modeDefaults, normalizeMode } from './constants.js';
+import { MODEL_ANIMA, MODEL_LABELS, MODEL_MODES, modeDefaults, normalizeMode } from './constants.js';
 import { fillDefaults, getSettings, isPlainObject } from './utils.js';
 
 /** Top-level keys both modes share. */
-const SHARED_KEYS = ['settingsVersion', 'enabled', 'modelMode', 'modeStore', 'perPersonaProfiles', 'profilePersona'];
+const SHARED_KEYS = ['settingsVersion', 'enabled', 'modelMode', 'modeStore', 'perPersonaProfiles', 'profilePersona', 'personaModes'];
 
 /**
  * Keys of parser / comfy both modes share: the API settings. The rest of those objects (what the parser reads,
@@ -99,8 +99,8 @@ export function slotKey(mode, persona) {
 
 /**
  * Makes (mode, persona) the active profile: the current one goes into modeStore, the target comes out of it.
- * A profile used for the first time starts as a copy of the current settings when only the persona changes
- * (so a new persona keeps what was set up), or from the mode's stored / default settings when the mode changes.
+ * A profile used for the first time (a new persona, or a mode a persona never used) starts from that mode's
+ * defaults. Each persona's mode is remembered, so switching to it switches the mode too.
  * Synchronous and done on the settings object itself. Returns false when nothing changes.
  */
 export function swapProfile(mode, persona) {
@@ -111,17 +111,14 @@ export function swapProfile(mode, persona) {
     const toPersona = String(persona || '');
     const from = slotKey(fromMode, fromPersona);
     const to = slotKey(toMode, toPersona);
+    if (toPersona) settings.personaModes[toPersona] = toMode;
     if (from === to) return false;
     const store = settings.modeStore;
-    const current = extractModeSettings(settings);
-    let saved = isPlainObject(store[to]) ? store[to] : null;
-    if (!saved && toMode === fromMode) saved = current;
-    // A persona's first use of the other mode starts from that mode's settings from before profiles existed.
-    if (!saved && toPersona && isPlainObject(store[toMode])) saved = structuredClone(store[toMode]);
-    store[from] = current;
-    if (saved !== current) delete store[to];
+    const saved = isPlainObject(store[to]) ? store[to] : {};
+    store[from] = extractModeSettings(settings);
+    delete store[to];
     clearModeSettings(settings);
-    applyModeSettings(settings, saved ?? {});
+    applyModeSettings(settings, saved);
     settings.modelMode = toMode;
     settings.profilePersona = toPersona;
     fillDefaults(settings, modeDefaults(toMode));
@@ -130,9 +127,52 @@ export function swapProfile(mode, persona) {
     return true;
 }
 
-/** Switches the image model mode within the current profile. */
+/** Switches the image model mode within the current profile (and remembers it for the persona). */
 export function swapModeSettings(target) {
     return swapProfile(target, getSettings().profilePersona);
+}
+
+/** The mode a persona used last; a persona never seen starts in the default mode (Krea 2). */
+export function personaMode(persona) {
+    const settings = getSettings();
+    const remembered = settings.personaModes[persona];
+    if (MODEL_MODES.includes(remembered)) return remembered;
+    // Profiles from before modes were remembered: the mode that has a stored copy.
+    const stored = MODEL_MODES.filter(mode => isPlainObject(settings.modeStore[slotKey(mode, persona)]));
+    return stored.length === 1 ? stored[0] : normalizeMode(modeDefaults(MODEL_MODES[0]).modelMode);
+}
+
+/** Whether a persona has a profile yet (in either mode). */
+export function hasProfile(persona) {
+    const settings = getSettings();
+    return settings.profilePersona === persona || MODEL_MODES.some(mode => isPlainObject(settings.modeStore[slotKey(mode, persona)]));
+}
+
+/**
+ * Profiles turned on (or settings from before profiles): the current settings become `persona`'s profile,
+ * including the other mode's copy kept under the plain mode key.
+ */
+export function adoptProfile(persona) {
+    const settings = getSettings();
+    const store = settings.modeStore;
+    for (const mode of MODEL_MODES) {
+        if (isPlainObject(store[mode]) && !isPlainObject(store[slotKey(mode, persona)])) store[slotKey(mode, persona)] = store[mode];
+        delete store[mode];
+    }
+    settings.profilePersona = persona;
+    settings.personaModes[persona] = normalizeMode(settings.modelMode);
+}
+
+/** Profiles turned off: the current persona's settings become everyone's, its other-mode copy included. */
+export function releaseProfile() {
+    const settings = getSettings();
+    const persona = settings.profilePersona;
+    if (!persona) return;
+    for (const mode of MODEL_MODES) {
+        const own = settings.modeStore[slotKey(mode, persona)];
+        if (isPlainObject(own)) settings.modeStore[mode] = structuredClone(own);
+    }
+    settings.profilePersona = '';
 }
 
 /** Key of the other mode's copy within the current profile (for reset-all). */

@@ -290,6 +290,8 @@ export const DEFAULT_SETTINGS = {
     perPersonaProfiles: true,
     /** Persona whose profile is in the flat settings ('' = not assigned yet / profiles off). */
     profilePersona: '',
+    /** The model mode each persona used last: { [persona]: 'krea2' | 'anima' }. */
+    personaModes: {},
     /** Words every prompt of this mode starts with (e.g. a style LoRA's trigger); the parser is told about them. */
     triggerWords: '',
     /** Escape ( ) in prompts so ComfyUI reads them as text, not as weights, e.g. "artoria pendragon \(fate\)". */

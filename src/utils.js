@@ -78,6 +78,7 @@ export function getSettings() {
     const mode = normalizeMode(all[MODULE].modelMode);
     all[MODULE].modelMode = mode;
     if (!isPlainObject(all[MODULE].modeStore)) all[MODULE].modeStore = {};
+    if (!isPlainObject(all[MODULE].personaModes)) all[MODULE].personaModes = {};
     const defaults = modeDefaults(mode);
     fillDefaults(all[MODULE], defaults);
     if (!Array.isArray(all[MODULE].presets)) {
