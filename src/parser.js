@@ -4,6 +4,7 @@ import { currentIndex } from './markup.js';
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode } from './parserPresets.js';
 import { ASPECT_RATIOS, parseAspect, parserPicksAspect } from './resolution.js';
+import { describeThinking, profileThinking, thinkingBody, thinkingMaxTokens } from './thinking.js';
 import { triggerWordList } from './prompt.js';
 import { findStatusBar, withoutStatusBar } from './statusBar.js';
 import { findUserPreset, presetForName, presetName, presetsMentioned } from './targets.js';
@@ -333,6 +334,7 @@ export async function buildParserPrompt(mesId, target) {
             triggerRule ? `触发词：${triggerWordList().join(', ')}` : '',
             negative ? '解析模型补充反向提示词' : '',
             aspect ? '解析模型选择宽高比' : '',
+            describeThinking(settings.parser),
             worldInfo.note,
             records.length ? `参考了之前 ${records.length} 次配图输出` : '',
             hints.length ? `用户画图指令 ${hints.reduce((sum, item) => sum + item.hints.length, 0)} 条` : '',
@@ -391,8 +393,9 @@ async function callCustom(system, user, signal) {
     const url = parser.customUrl.trim().replace(/\/+$/, '');
     if (!url) throw settingsError('未填写解析模型的 API 地址');
     if (!parser.customModel.trim()) throw settingsError('未填写解析模型名称');
-    const extraBody = parseExtraBody();
-    const maxTokens = Number(parser.maxTokens) || 2048;
+    // Thinking parameters first, so the user's own 「附加请求参数」 can override them.
+    const extraBody = { ...thinkingBody(parser), ...parseExtraBody() };
+    const maxTokens = thinkingMaxTokens(parser);
 
     const service = ctx().ChatCompletionService;
     if (service?.processRequest) {
@@ -405,7 +408,7 @@ async function callCustom(system, user, signal) {
             chat_completion_source: 'custom',
             custom_url: url,
             custom_include_headers: authHeaders(parser.customKey.trim()),
-            custom_include_body: extraBody ? JSON.stringify(extraBody) : undefined,
+            custom_include_body: Object.keys(extraBody).length ? JSON.stringify(extraBody) : undefined,
             max_tokens: maxTokens,
             temperature: Number(parser.temperature),
         }, {}, false, signal);
@@ -446,7 +449,7 @@ async function callProfile(system, user, signal) {
         messages,
         Number(parser.maxTokens) || 2048,
         { stream: false, signal, extractData: true, includePreset: true, includeInstruct: true },
-        { temperature: Number(parser.temperature) },
+        { temperature: Number(parser.temperature), ...profileThinking(parser) },
     );
     if (typeof result === 'string') return { content: result, reasoning: '', finish: '' };
     return { content: String(result?.content ?? ''), reasoning: String(result?.reasoning ?? ''), finish: '' };
@@ -537,7 +540,7 @@ export async function requestParse(system, user, signal, { onReply, onRetry } = 
     }
 }
 
-const THINKING_HINT = '如果是思考模型（GLM、DeepSeek-R1、Qwen3 等），通常是思考过程把「最大输出」用完了：调大「最大输出」，或在「附加请求参数」里关闭思考（GLM 填 {"thinking": {"type": "disabled"}}）';
+const THINKING_HINT = '如果是思考模型（GLM、DeepSeek-R1、Qwen3 等），通常是思考过程把「最大输出」用完了：调大「最大输出」，或把「思考模式」改成关闭、把「思考强度」调低';
 
 /**
  * Parses a parser reply. Falls back to the reasoning text when a thinking model put its answer there,

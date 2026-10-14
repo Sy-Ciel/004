@@ -16,7 +16,7 @@ const SHARED_KEYS = ['settingsVersion', 'enabled', 'modelMode', 'modeStore', 'pe
  * Keys of parser / comfy both modes share: the API settings. The rest of those objects (what the parser reads,
  * the workflow, models, sampling …) is per mode, like every key not listed here.
  */
-export const SHARED_PARSER_KEYS = ['source', 'customUrl', 'customKey', 'customModel', 'profileId', 'temperature', 'maxTokens', 'extraBody', 'models', 'timeoutSec', 'retries'];
+export const SHARED_PARSER_KEYS = ['source', 'customUrl', 'customKey', 'customModel', 'profileId', 'temperature', 'maxTokens', 'extraBody', 'models', 'timeoutSec', 'retries', 'thinking', 'thinkingEffort', 'thinkingFormat'];
 export const SHARED_COMFY_KEYS = ['url', 'browserUrl', 'mode', 'lists'];
 const SHARED_NESTED = { parser: SHARED_PARSER_KEYS, comfy: SHARED_COMFY_KEYS };
 

@@ -28,6 +28,7 @@ import { callParser, parseExtraBody } from './parser.js';
 import { cancelAllJobs, enqueue, hasActiveJobs, planLoraLines, renderPlan } from './pipeline.js';
 import { renderAll } from './render.js';
 import { baseSize } from './resolution.js';
+import { describeThinking, formatHasEffort, thinkingFormat } from './thinking.js';
 import { currentPersona, findPresetById, findUserPreset, personaList, presetForName, presetName, resolveUserPreset } from './targets.js';
 import { ctx, errorMessage, escapeHtml, getSettings, roundTo16, saveSettings, truncate } from './utils.js';
 
@@ -86,6 +87,18 @@ function updateMegapixels() {
     element.toggleClass('ctp-warn', tooBig);
 }
 
+/** What the thinking settings will send, and whether the effort applies. */
+function updateThinkingHint() {
+    const { parser } = getSettings();
+    const format = thinkingFormat(parser);
+    const effortUsed = parser.thinking === 'on' && (parser.source !== 'custom' || formatHasEffort(format)) && parser.source !== 'main';
+    $('#ctp_thinking_effort').prop('disabled', !effortUsed);
+    const text = parser.thinking === 'default'
+        ? '默认：不发送任何思考参数，模型按它自己的默认方式思考或不思考。'
+        : `${describeThinking(parser)}${parser.source === 'custom' && !formatHasEffort(format) && parser.thinking === 'on' ? '。这种格式只有开 / 关，没有强度' : ''}`;
+    $('#ctp_thinking_hint').text(`${text} 开启思考会更慢，也更占「最大输出」；「附加请求参数」里自己写的同名参数优先。`);
+}
+
 function validateExtraBody() {
     const hint = $('#ctp_extra_body_hint');
     try {
@@ -104,6 +117,7 @@ function onSettingChanged(path) {
         resetPanelGeometry();
     }
     if (path === 'parser.source') updateSourceVisibility();
+    if (path.startsWith('parser.')) updateThinkingHint();
     if (path === 'perPersonaProfiles') {
         // Turning profiles on makes the current settings this persona's; off keeps them for everyone.
         if (getSettings().perPersonaProfiles) {
@@ -966,6 +980,7 @@ function refreshAllSettingsUi() {
     updateWorkflowVisibility();
     updateSideOptionsVisibility();
     validateExtraBody();
+    updateThinkingHint();
     $('#ctp_lists_status').text(listsSummary());
     // A persona switch is noticed against the new mode's {{user}} preset.
     lastUserKey = `${currentPersona()}|${findUserPreset()?.id ?? ''}`;
@@ -1096,12 +1111,15 @@ export async function initSettingsUi() {
     updateSizeVisibility();
     updateMegapixels();
     validateExtraBody();
+    updateThinkingHint();
     $('#ctp_lists_status').text(listsSummary());
     initPresets();
     initLoraEditor();
     initExtraLoras();
     // Any change in the panel can change which LoRAs are used.
     $(root).on('input change', updateLoraSummary);
+    // The model picker changes the guessed thinking format without going through onSettingChanged.
+    $(root).on('change', '[data-picker="parser.customModel"]', updateThinkingHint);
     initRenderProfileUi({ onChange: renderPresetRenderOptions, validateWorkflow });
     refreshPresetSelect();
     updateSourceVisibility();

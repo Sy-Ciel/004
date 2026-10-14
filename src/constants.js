@@ -334,6 +334,11 @@ export const DEFAULT_SETTINGS = {
         timeoutSec: 90,
         // Automatic retries when the parser API errors or returns no usable JSON.
         retries: 2,
+        /** Thinking mode of the parser model: 'default' (send nothing) | 'off' | 'on' (see thinking.js). */
+        thinking: 'default',
+        thinkingEffort: 'medium',
+        /** Parameter format for the independent API: 'auto' or a key of THINKING_FORMATS. */
+        thinkingFormat: 'auto',
     },
 
     /** 'fixed' = preset appearance + AI-written details; 'ai' = the parser writes the whole prompt. */

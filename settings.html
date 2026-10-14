@@ -522,6 +522,33 @@
                         <label>最大输出 <input type="number" class="text_pole" step="50" min="100" data-ctp="parser.maxTokens" data-type="int"></label>
                     </div>
                     <div class="ctp-row">
+                        <label class="flex1">思考模式
+                            <select class="text_pole" data-ctp="parser.thinking">
+                                <option value="default">默认（不发送思考参数）</option>
+                                <option value="off">关闭思考</option>
+                                <option value="on">开启思考</option>
+                            </select>
+                        </label>
+                        <label class="flex1">思考强度
+                            <select class="text_pole" data-ctp="parser.thinkingEffort" id="ctp_thinking_effort">
+                                <option value="low">低</option>
+                                <option value="medium">中</option>
+                                <option value="high">高</option>
+                            </select>
+                        </label>
+                    </div>
+                    <label class="ctp-source" data-source="custom">思考参数格式
+                        <select class="text_pole" data-ctp="parser.thinkingFormat">
+                            <option value="auto">自动（按 API 地址和模型名判断）</option>
+                            <option value="openai">OpenAI 格式 reasoning_effort（OpenAI、Gemini、Grok 等）</option>
+                            <option value="openrouter">OpenRouter 格式 reasoning</option>
+                            <option value="type">thinking.type 格式（智谱 GLM、豆包、DeepSeek）</option>
+                            <option value="qwen">通义千问格式 enable_thinking + thinking_budget</option>
+                            <option value="claude">Claude 格式 thinking + budget_tokens</option>
+                        </select>
+                    </label>
+                    <small class="ctp-hint" id="ctp_thinking_hint"></small>
+                    <div class="ctp-row">
                         <label>超时(秒) <input type="number" class="text_pole" step="5" min="0" data-ctp="parser.timeoutSec" data-type="int"></label>
                         <label>失败自动重试次数 <input type="number" class="text_pole" min="0" max="5" step="1" data-ctp="parser.retries" data-type="int"></label>
                     </div>
