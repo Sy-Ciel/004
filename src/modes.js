@@ -32,6 +32,15 @@ export function isAnimaMode() {
     return currentMode() === MODEL_ANIMA;
 }
 
+/**
+ * How prompts are written: 'krea2' (English sentences), 'anima' (Danbooru tags) or 'anima-natural' (Anima with
+ * the "英文自然语言" switch: English sentences for the anime model).
+ */
+export function promptStyle() {
+    const mode = currentMode();
+    return mode === MODEL_ANIMA && getSettings().naturalLanguage ? 'anima-natural' : mode;
+}
+
 /** The mode a floor was last drawn in (floors from before the Anima mode were drawn with Krea 2). */
 export function floorMode(data) {
     return normalizeMode(data?.modelMode);

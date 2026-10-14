@@ -1,5 +1,5 @@
-import { ANIMA_OTHERS_LINE, ANIMA_SOLO_LINE, OTHERS_LINE, PARSED_FIELDS, SOLO_LINE } from './constants.js';
-import { isAnimaMode } from './modes.js';
+import { ANIMA_OTHERS_LINE, ANIMA_PROMPT_TEMPLATE, ANIMA_SOLO_LINE, DEFAULT_PROMPT_TEMPLATE, OTHERS_LINE, PARSED_FIELDS, SOLO_LINE } from './constants.js';
+import { promptStyle } from './modes.js';
 import { fillTemplate, getSettings, resolveMacros } from './utils.js';
 
 function cleanLine(line) {
@@ -168,7 +168,9 @@ export function finishPrompt(prompt) {
  */
 export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = 'fixed' } = {}) {
     const settings = getSettings();
-    const tags = isAnimaMode();
+    // Anima writes tags, unless its "英文自然语言" switch is on: then sentences, like Krea 2.
+    const style = promptStyle();
+    const tags = style === 'anima';
     const prefix = [settings.prefix, parserPreset?.prefix].map(text => resolveMacros(text || '')).filter(Boolean).join(tags ? ', ' : ' ');
 
     const clean = tags ? cleanTags : text => cleanLine(String(text || ''));
@@ -192,7 +194,10 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
     if (!parserPreset?.allowOthers) vars.others = '';
 
     const lines = [];
-    for (const line of templateFor(String(settings.promptTemplate || ''), !!vars.others, tags).split('\n')) {
+    // The untouched tag template does not fit sentences: natural-language Anima uses the sentence template then.
+    let template = String(settings.promptTemplate || '');
+    if (style === 'anima-natural' && template === ANIMA_PROMPT_TEMPLATE) template = DEFAULT_PROMPT_TEMPLATE;
+    for (const line of templateFor(template, !!vars.others, tags).split('\n')) {
         const keys = [...line.matchAll(/\{\{(\w+)\}\}/g)].map(match => match[1]).filter(key => Object.hasOwn(vars, key));
         if (keys.length && keys.every(key => !vars[key])) continue;
         const cleaned = clean(fillTemplate(line, vars));

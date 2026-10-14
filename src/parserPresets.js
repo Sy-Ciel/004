@@ -1,5 +1,5 @@
 import { PARSED_FIELDS } from './constants.js';
-import { currentMode } from './modes.js';
+import { currentMode, promptStyle } from './modes.js';
 import { buildOutputRules, builtinParserPresets, extraOnlyRules } from './parserPresetDefaults.js';
 import { getSettings, resolveMacros } from './utils.js';
 
@@ -20,12 +20,12 @@ export function promptMode() {
 }
 
 export function outputRules(mode, allowOthers = false, negative = false, aspect = null) {
-    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers, currentMode(), negative, aspect);
+    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers, promptStyle(), negative, aspect);
 }
 
 /** Just the extra fields' rules (negative, aspect), for custom system prompts that keep their own format. */
 export function extraFieldRules(negative, aspect) {
-    return extraOnlyRules(currentMode(), negative, aspect);
+    return extraOnlyRules(promptStyle(), negative, aspect);
 }
 
 /** The active image model mode's built-in preset with this id (each mode has its own wording). */

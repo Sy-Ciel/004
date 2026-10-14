@@ -961,6 +961,26 @@ function applyModeChrome() {
     $('#ctp_negative').attr('placeholder', text.negativePlaceholder);
     $('#ctp_negative_hint').text(text.negativeHint).toggle(!!text.negativeHint);
     $('#ctp_trigger_words').attr('placeholder', text.triggerPlaceholder);
+    // Anima's prompt style switch (tags / English sentences)
+    const natural = !!getSettings().naturalLanguage;
+    $('#ctp_prompt_style .ctp-mode-option').each(function () {
+        const active = (this.dataset.style === 'natural') === natural;
+        this.classList.toggle('active', active);
+        this.setAttribute('aria-checked', String(active));
+    });
+    $('#ctp_style_hint').text(natural
+        ? '解析模型用英文自然语言写完整的句子（服装、动作、表情、场景……以及「AI 写完整提示词」的整段 prompt），提示词按句子拼接。画质前缀、触发词照常加在最前面；AI 补充的反向提示词仍然是标签。'
+        : '解析模型用 Danbooru 风格的英文标签写服装、动作、表情等（Anima 训练时主要用的写法），提示词用逗号连接。');
+}
+
+/** Anima: write prompts as Danbooru tags or as English sentences. */
+function setPromptStyle(style) {
+    const natural = style === 'natural';
+    if (!!getSettings().naturalLanguage === natural) return;
+    getSettings().naturalLanguage = natural;
+    saveSettings();
+    applyModeChrome();
+    toastr.success(natural ? 'Anima 提示词改用英文自然语言' : 'Anima 提示词改用 Danbooru 标签', 'ComfyUI 角色配图');
 }
 
 /** Re-reads every control after the whole settings object changed (mode switch, reset to defaults). */
@@ -1015,6 +1035,15 @@ function initModeSwitch() {
         if (event.key !== 'Enter' && event.key !== ' ') return;
         event.preventDefault();
         switchModelMode(this.dataset.mode);
+    });
+    const styles = $('#ctp_prompt_style .ctp-mode-option');
+    styles.on('click', function () {
+        setPromptStyle(this.dataset.style);
+    });
+    styles.on('keydown', function (event) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        setPromptStyle(this.dataset.style);
     });
     applyModeChrome();
 }

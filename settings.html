@@ -15,6 +15,14 @@
                         <div class="ctp-mode-option" data-mode="anima" role="radio" tabindex="0">Anima</div>
                     </div>
                 </div>
+                <div class="ctp-row ctp-mode-row ctp-mode-only" data-mode="anima">
+                    <span class="ctp-mode-caption">提示词写法</span>
+                    <div class="ctp-mode-switch ctp-style-switch" id="ctp_prompt_style" role="radiogroup" aria-label="Anima 提示词写法">
+                        <div class="ctp-mode-option" data-style="tags" role="radio" tabindex="0">Danbooru 标签</div>
+                        <div class="ctp-mode-option" data-style="natural" role="radio" tabindex="0">英文自然语言</div>
+                    </div>
+                </div>
+                <small class="ctp-hint ctp-mode-only" data-mode="anima" id="ctp_style_hint"></small>
                 <small class="ctp-hint">两个模式的设置完全分开保存，切换时整套一起换：角色预设、渲染配置、配图风格、提示词、工作流、模型和采样、显示方式、状态栏等。两边共用的只有「解析模型」的 API 设置和 ComfyUI 的地址 / 连接方式。</small>
                 <label class="checkbox_label"><input type="checkbox" data-ctp="perPersonaProfiles"> 每个用户人设使用独立档案（切换人设时自动切换全部配图设置）</label>
                 <small class="ctp-hint"><b id="ctp_profile_label"></b>。打开后，每个用户人设有自己的一整套设置（两个模型模式各一套）：角色预设、LoRA、提示词、触发词、工作流、模型和采样等，切换人设时自动换过去，连同这个人设上次用的模型模式（用 Anima 的人设切过去就是 Anima 模式）；API 设置所有人设共用。新建的人设、或者某个人设没用过的模式，全部是默认设置。</small>

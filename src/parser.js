@@ -1,7 +1,8 @@
 import { PARSED_FIELDS, STATE_FIELDS } from './constants.js';
 import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
-import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
+import { currentMode, floorMode, imageMode, modeLabel, promptStyle } from './modes.js';
+import { NATURAL_STYLE_RULE } from './parserPresetDefaults.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode } from './parserPresets.js';
 import { ASPECT_RATIOS, parseAspect, parserPicksAspect } from './resolution.js';
 import { describeThinking, profileThinking, thinkingBody, thinkingMaxTokens } from './thinking.js';
@@ -324,14 +325,17 @@ export async function buildParserPrompt(mesId, target) {
     else if ((negative || aspect) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += `\n\n${extraFieldRules(negative, aspect)}`;
 
     const triggerRule = triggerWordsRule(mode);
+    // Anima in natural-language mode: the presets were written for tags, so this rule overrides them.
+    const natural = promptStyle() === 'anima-natural';
     return {
-        system: [fillTemplate(systemTemplate, vars), triggerRule].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
+        system: [fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', triggerRule].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
         user: fillTemplate(userTemplate, vars).replace(/\n{3,}/g, '\n\n'),
         preset,
         mode,
         notes: [
             `${modeLabel()} 模式 · 解析预设：${preset.name} · ${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`,
             triggerRule ? `触发词：${triggerWordList().join(', ')}` : '',
+            natural ? '英文自然语言写法' : '',
             negative ? '解析模型补充反向提示词' : '',
             aspect ? '解析模型选择宽高比' : '',
             describeThinking(settings.parser),

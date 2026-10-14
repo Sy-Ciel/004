@@ -22,7 +22,20 @@ const MODEL_TEXT = {
         camera: '如 upper body、cowboy shot、full body、close-up，以及 from above、from side 等机位',
         others: '英文 Danbooru 风格标签，每人一组，先写 1boy / 1girl 这样的人数标签',
     },
+    /** Anima with the "英文自然语言" switch: the same model, written to in plain English sentences. */
+    'anima-natural': {
+        model: '动漫文生图模型（Anima，能理解英文自然语言描述，也认识 Danbooru 标签）',
+        language: '所有字段值使用英文自然语言，写成具体、可视化的短语或短句（不要写成逗号分隔的标签串）',
+        camera: '如 medium shot、full body shot、close-up，以及从上往下、侧面等机位',
+        others: '英文，自然语言',
+    },
 };
+
+/**
+ * Appended to the system prompt in Anima's natural-language mode. Built-in and saved parser presets were written
+ * for tags, so this overrides their wording for this request.
+ */
+export const NATURAL_STYLE_RULE = `写法（优先于上面所有关于 Danbooru 标签的要求）：这次所有画面字段和 prompt 都用英文自然语言来写——具体、可视化的短语或完整的句子，像描述一张插画那样连贯地写，不要写成逗号分隔的 Danbooru 标签串（例如写 "a red wool coat buttoned to the neck"，不要写 "red coat, buttons"）。人数可以在 prompt 开头用一句话说明，例如 "A solo illustration of one girl"。`;
 
 function modelText(model) {
     return MODEL_TEXT[model] ?? MODEL_TEXT.krea2;
@@ -82,6 +95,12 @@ function othersRules(model) {
 }
 
 function promptRule(allowOthers, model) {
+    if (model === 'anima-natural') {
+        const order = allowOthers
+            ? '开头说明画面里有几个人、谁是主角；先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写场景、镜头构图、光线'
+            : '开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、场景、镜头构图、光线';
+        return `除了上面的字段，还要写 prompt：一段完整、流畅的英文画面描述（自然语言，适合 Anima 这样的动漫插画模型）。${order}；【固定内容】里的字段必须原样体现。画质 / 评分标签（masterpiece、best quality、score_7 等）由程序自动加，不要写。不要写人名，不要要求画面里出现文字。`;
+    }
     if (model === 'anima') {
         const order = allowOthers
             ? '先写人数标签（如 1girl, 1boy 或 2girls），然后先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写场景、镜头构图、光线'
@@ -99,7 +118,8 @@ function promptRule(allowOthers, model) {
  * not show. The extension adds it after the global negative prompt and drops tags that are in the positive prompt.
  */
 function negativeRules(model) {
-    const style = model === 'anima'
+    // Negative prompts stay tag lists in Anima, also when the positive one is written in sentences.
+    const style = String(model).startsWith('anima')
         ? '英文 Danbooru 风格标签（小写，用空格代替下划线），逗号隔开'
         : '英文短语，逗号隔开';
     return `反向提示词：再写 negative，列出这张图里不该出现、模型容易画错的东西，${style}：

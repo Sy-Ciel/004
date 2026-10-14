@@ -635,3 +635,17 @@
     font-weight: normal;
     opacity: 0.6;
 }
+
+/* Anima's prompt style switch sits under the mode switch, as prominent */
+.ctp-settings .ctp-style-switch .ctp-mode-option.active {
+    background-color: var(--SmartThemeQuoteColor);
+}
+
+.ctp-settings .ctp-mode-caption {
+    white-space: nowrap;
+}
+
+.ctp-settings .ctp-style-switch .ctp-mode-option {
+    white-space: nowrap;
+    padding: 4px 6px;
+}

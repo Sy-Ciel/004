@@ -295,6 +295,8 @@ export const DEFAULT_SETTINGS = {
     personaModes: {},
     /** Words every prompt of this mode starts with (e.g. a style LoRA's trigger); the parser is told about them. */
     triggerWords: '',
+    /** Anima only: prompts in English sentences instead of Danbooru tags (see modes.js promptStyle). */
+    naturalLanguage: false,
     /** Escape ( ) in prompts so ComfyUI reads them as text, not as weights, e.g. "artoria pendragon \(fate\)". */
     escapeParens: false,
     autoGenerate: true,
