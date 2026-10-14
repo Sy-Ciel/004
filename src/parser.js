@@ -116,6 +116,18 @@ function formatOutputs(records, includePrompt) {
     return `【之前的配图输出（最近 ${records.length} 次，从旧到新，用来保持人物服装和场景连贯）】\n${blocks.join('\n\n')}`;
 }
 
+/**
+ * A character preset's outfit sets ("套装", one per line, "名称：提示词") as a reference block: when the story puts
+ * the character in one of them, the parser writes that set's prompt into outfit.
+ */
+export function outfitBlock(preset, name = '') {
+    const lines = resolveMacros(String(preset?.outfits || '')).split('\n').map(line => line.trim()).filter(Boolean);
+    if (!lines.length) return '';
+    const who = name ? `${name} 的` : '';
+    return `【${who}套装（服装参考：剧情里穿上其中某一套、或用户画图指令点名某一套时，outfit 照这套的提示词写，再按剧情补充穿着状态；剧情没写到换装就不要换成套装）】
+${lines.map(line => `- ${line}`).join('\n')}`;
+}
+
 function referenceBlock(target, mode) {
     const settings = getSettings();
     const blocks = [];
@@ -126,6 +138,8 @@ function referenceBlock(target, mode) {
                 const label = mode === 'ai' ? '角色设定（选中此人时必须完整写进 prompt）' : '固定外貌（仅供识别，不要输出）';
                 blocks.push(`【${name} 的${label}】\n${resolveMacros(preset.appearance)}`);
             }
+            const outfits = outfitBlock(preset, name);
+            if (outfits) blocks.push(outfits);
         }
         return blocks.join('\n');
     }
@@ -134,6 +148,8 @@ function referenceBlock(target, mode) {
         const label = mode === 'ai' ? '角色设定（固定外貌，必须完整写进 prompt）' : '固定外貌（已由用户设定，仅供理解，不要输出）';
         blocks.push(`【${label}】\n${resolveMacros(target.preset.appearance)}`);
     }
+    const outfits = outfitBlock(target.preset);
+    if (outfits) blocks.push(outfits);
     const isUser = target.name && target.name === ctx().name1;
     if (settings.parser.includePersona && isUser) {
         const persona = ctx().powerUserSettings?.persona_description;

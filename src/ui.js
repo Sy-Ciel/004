@@ -546,6 +546,7 @@ function newPreset(base = {}) {
         name: '新角色',
         aliases: '',
         appearance: '',
+        outfits: '',
         trigger: '',
         lora: '',
         loraStrength: 0.8,

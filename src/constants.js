@@ -151,6 +151,8 @@ export function defaultPresets() {
             name: '{{user}}',
             aliases: '',
             appearance: 'a young woman in her early twenties with long straight black hair reaching her waist, blunt bangs, amber eyes, a small beauty mark under her left eye, fair skin, slender build',
+            /** Outfit sets, one per line "名称：提示词": a reference for the parser (see parser.js outfitBlock). */
+            outfits: '',
             trigger: '',
             lora: '',
             loraStrength: 0.8,

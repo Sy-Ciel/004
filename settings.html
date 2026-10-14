@@ -142,6 +142,10 @@
                         <label>固定外貌（英文：发型、发色、瞳色、五官、体型等，不写服装动作）
                             <textarea class="text_pole" rows="4" data-preset="appearance"></textarea>
                         </label>
+                        <label>套装（一行一套：名称：提示词）
+                            <textarea class="text_pole ctp-mono" rows="4" data-preset="outfits" placeholder="校服：white short-sleeved sailor blouse, red neckerchief, navy pleated skirt, black knee socks, brown loafers&#10;睡衣：oversized pale pink pajama shirt and shorts, barefoot"></textarea>
+                        </label>
+                        <small class="ctp-hint">发给写画图提示词的解析 AI 作参考：剧情里写到这个角色穿上某一套（或画图指令里写 <code>[[换上校服]]</code>），服装就照这套的提示词写，再按剧情补充穿着状态；剧情没写换装就不会换。不会直接放进提示词。提示词按当前模式写（Krea 2 写英文描述，Anima 写标签或英文描述）。</small>
                         <small class="ctp-hint">这个角色的 LoRA、强度和触发词在「出图参数 → LoRA」里设置。</small>
                         <label>额外反向提示词 <input type="text" class="text_pole" data-preset="negative"></label>
                         <label>渲染配置（这个角色用的模型 / LoRA）
