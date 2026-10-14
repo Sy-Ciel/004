@@ -23,6 +23,8 @@
                     </div>
                 </div>
                 <small class="ctp-hint ctp-mode-only" data-mode="anima" id="ctp_style_hint"></small>
+                <label class="checkbox_label ctp-auto-mode"><input type="checkbox" data-ctp="autoModelByRating"> 按画面自动切换模型：NSFW 用 Anima，其余用 Krea 2</label>
+                <small class="ctp-hint">打开后，正文 AI 每次回复会在末尾加一个看不见的标记（&lt;!-- 画面:NSFW --&gt; 或 &lt;!-- 画面:SFW --&gt;）。配图前读这一楼的标记，自动切到对应模式再画（各用该模式自己的设置）；没有标记的楼层用当前模式。手动「编辑提示词」出图时不自动切换。</small>
                 <small class="ctp-hint">两个模式的设置完全分开保存，切换时整套一起换：角色预设、渲染配置、配图风格、提示词、工作流、模型和采样、显示方式、状态栏等。两边共用的只有「解析模型」的 API 设置和 ComfyUI 的地址 / 连接方式。</small>
                 <label class="checkbox_label"><input type="checkbox" data-ctp="perPersonaProfiles"> 每个用户人设使用独立档案（切换人设时自动切换全部配图设置）</label>
                 <small class="ctp-hint"><b id="ctp_profile_label"></b>。打开后，每个用户人设有自己的一整套设置（两个模型模式各一套）：角色预设、LoRA、提示词、触发词、工作流、模型和采样等，切换人设时自动换过去，连同这个人设上次用的模型模式（用 Anima 的人设切过去就是 Anima 模式）；API 设置所有人设共用。新建的人设、或者某个人设没用过的模式，全部是默认设置。</small>

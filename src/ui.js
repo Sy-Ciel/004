@@ -24,6 +24,7 @@ import { initParserPresetUi, refreshParserPresetUi } from './ui-parser-presets.j
 import { initRenderProfileUi, refreshRenderProfileUi, refreshRenderProfileUsage, resetRenderProfileSelection } from './ui-render-profiles.js';
 import { renderProfileFor, sanitizeRenderProfile } from './renderProfiles.js';
 import { buildStatusInstruction, updateStatusPrompt } from './statusBar.js';
+import { updateRatingPrompt } from './rating.js';
 import { callParser, parseExtraBody } from './parser.js';
 import { cancelAllJobs, enqueue, hasActiveJobs, planLoraLines, renderPlan } from './pipeline.js';
 import { renderAll } from './render.js';
@@ -130,6 +131,7 @@ function onSettingChanged(path) {
     }
     if (path === 'parser.extraBody') validateExtraBody();
     if (path === 'comfy.workflowSource') updateWorkflowVisibility();
+    if (path === 'enabled' || path === 'autoModelByRating') updateRatingPrompt();
     if (path === 'enabled' || path.startsWith('statusBar.')) {
         updateStatusPrompt();
         updateStatusVisibility();
@@ -920,8 +922,11 @@ async function resetAllSettings() {
     if (keep('parser')) for (const key of SHARED_PARSER_KEYS) fresh.parser[key] = structuredClone(settings.parser[key]);
     if (keep('comfy')) for (const key of SHARED_COMFY_KEYS) fresh.comfy[key] = structuredClone(settings.comfy[key]);
     const store = settings.modeStore;
-    // "Enabled" is shared too; it goes back to on only when both modes are reset.
-    if (!keep('reset-other')) fresh.enabled = settings.enabled;
+    // "Enabled" and the automatic switch are shared too; they go back to default only when both modes are reset.
+    if (!keep('reset-other')) {
+        fresh.enabled = settings.enabled;
+        fresh.autoModelByRating = settings.autoModelByRating;
+    }
     if (keep('reset-other')) {
         const key = otherSlotKey(other);
         const saved = store[key];
@@ -1024,6 +1029,21 @@ export function switchModelMode(target) {
     saveSettings();
     refreshAllSettingsUi();
     toastr.success(`已切换到 ${modeLabel(to)} 模式${busy ? '，正在进行的配图已取消' : ''}`, 'ComfyUI 角色配图');
+    return true;
+}
+
+/**
+ * Switch made by 按画面自动切换模型 at the start of a job: same as the mode switch, but the job that asked for it
+ * keeps running (it starts in the new mode; jobs run one at a time, so none is mid-way).
+ */
+export function autoSwitchModelMode(target) {
+    const to = normalizeMode(target);
+    if (to === currentMode()) return false;
+    resetPanelForMode();
+    swapModeSettings(to);
+    saveSettings();
+    refreshAllSettingsUi();
+    toastr.info(`按画面分级自动切换到 ${modeLabel(to)} 模式`, 'ComfyUI 角色配图', { timeOut: 2500 });
     return true;
 }
 

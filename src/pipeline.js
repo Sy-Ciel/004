@@ -4,6 +4,7 @@ import { currentMode, floorMode, modeLabel } from './modes.js';
 import { buildParserPrompt, parserLabel, requestParse } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution } from './parserPresets.js';
 import { buildImagePrompt, buildNegativePrompt, finishPrompt } from './prompt.js';
+import { modeForRating, readRating } from './rating.js';
 import { baseSize } from './resolution.js';
 import { effectiveComfy, renderProfileFor } from './renderProfiles.js';
 import { findPresetById, presetForName, resolveTarget, settleAutoTarget } from './targets.js';
@@ -28,6 +29,7 @@ const activeJobs = new Set();
 let queue = Promise.resolve();
 let rerender = () => {};
 let imageAdded = () => {};
+let modeSwitcher = () => false;
 
 const FORCE_NOTE = '\n\n注意：用户手动要求为本楼出图。即使信息不足也不要输出 skip，请根据上下文合理推断。';
 
@@ -56,6 +58,11 @@ function promptFromParse(characterPreset, parsed, parserPrompt, notes) {
 
 export function setRenderer(fn) {
     rerender = fn;
+}
+
+/** Switches the image model mode for 按画面自动切换模型 without cancelling the job that asked (set by the UI). */
+export function setModeSwitcher(fn) {
+    modeSwitcher = fn;
 }
 
 /** Called with the floor index after a new image was stored (the side panel shows it). */
@@ -232,6 +239,23 @@ function describeOverrides(overrides) {
     return parts.length ? `按编辑窗口的设置出图：${parts.join('、')}` : '';
 }
 
+/** The text of the swipe a job draws. */
+function swipeText(message, swipeId) {
+    if ((message.swipe_id ?? 0) === swipeId) return message.mes;
+    return message.swipes?.[swipeId] ?? message.mes;
+}
+
+/** Switches to the mode the floor's rating marker asks for (when the switch is on); returns a debug note. */
+function applyRating(message, swipeId) {
+    const settings = getSettings();
+    if (!settings.enabled || !settings.autoModelByRating) return '';
+    const rating = readRating(swipeText(message, swipeId));
+    const target = modeForRating(rating);
+    if (!target) return '按画面自动切换模型：这一楼没有分级标记，用当前模式';
+    if (target !== currentMode()) modeSwitcher(target);
+    return `画面分级：${rating.toUpperCase()}（正文 AI 标记）→ ${modeLabel(target)} 模式`;
+}
+
 /**
  * A floor's picture state: what 🔄 and ✏️ reuse and what continuity reads. All of it belongs to one image model
  * mode, data.modelMode (a Krea 2 sentence prompt or preset id means nothing to Anima, and the other way round).
@@ -258,6 +282,9 @@ async function runJob(message, job, options) {
     const data = previous ? structuredClone(previous) : { v: 1, images: [], index: 0 };
     data.images ??= [];
     const mode = options.mode === 'edit' || options.mode === 'reroll' ? options.mode : 'reparse';
+    // 按画面自动切换模型: the main AI's rating marker picks the mode before anything else happens (an edited
+    // prompt was written for the mode it was edited in, so it is drawn there).
+    const ratingNote = mode === 'edit' || signal.aborted ? '' : applyRating(message, job.swipeId);
     // The whole job uses one image model mode; switching modes cancels it (see assertMode).
     const modelMode = currentMode();
     // The floor's state was made in the other mode: 🔄 parses it again instead of reusing that model's prompt, and
@@ -275,6 +302,7 @@ async function runJob(message, job, options) {
 
         data.error = null;
         data.debug = { ...(data.debug || {}), notes: [] };
+        if (ratingNote) data.debug.notes.push(ratingNote);
         // Edit-dialog choices stay with the floor for 🔄 (new seed, same settings) until it is parsed again.
         let overrides = mode === 'edit' ? options.overrides ?? null : mode === 'reroll' ? data.editOverrides ?? null : null;
 

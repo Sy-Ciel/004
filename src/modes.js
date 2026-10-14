@@ -10,7 +10,7 @@ import { MODEL_ANIMA, MODEL_LABELS, MODEL_MODES, modeDefaults, normalizeMode } f
 import { fillDefaults, getSettings, isPlainObject } from './utils.js';
 
 /** Top-level keys both modes share. */
-const SHARED_KEYS = ['settingsVersion', 'enabled', 'modelMode', 'modeStore', 'perPersonaProfiles', 'profilePersona', 'personaModes'];
+const SHARED_KEYS = ['settingsVersion', 'enabled', 'modelMode', 'modeStore', 'perPersonaProfiles', 'profilePersona', 'personaModes', 'autoModelByRating'];
 
 /**
  * Keys of parser / comfy both modes share: the API settings. The rest of those objects (what the parser reads,

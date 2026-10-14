@@ -3,13 +3,14 @@ import { lastFloorId, showFloorDebug } from './src/debug.js';
 import { openEditDialog } from './src/editDialog.js';
 import { captureHints, hintsEnabled, pendingHints, removeHint, stripHints, stripOutgoingChat } from './src/hints.js';
 import { resetPanelForChat, showInPanel } from './src/panel.js';
-import { cancelAllJobs, cancelJob, enqueue, getJob, setImageAddedHandler, setRenderer } from './src/pipeline.js';
+import { cancelAllJobs, cancelJob, enqueue, getJob, setImageAddedHandler, setModeSwitcher, setRenderer } from './src/pipeline.js';
 import { onLayoutChange, renderAll, renderMessage } from './src/render.js';
+import { updateRatingPrompt } from './src/rating.js';
 import { updateStatusPrompt } from './src/statusBar.js';
 import { currentMode, modeLabel } from './src/modes.js';
 import { findParserPreset } from './src/parserPresets.js';
 import { findPresetByName, findPresetById, initPersonaTracking } from './src/targets.js';
-import { initSettingsUi, onPersonaChanged, refreshTargetSelect, switchModelMode, syncPersonaProfile, syncSettingsUi } from './src/ui.js';
+import { autoSwitchModelMode, initSettingsUi, onPersonaChanged, refreshTargetSelect, switchModelMode, syncPersonaProfile, syncSettingsUi } from './src/ui.js';
 import { ctx, getMessageData, getSettings, log, saveSettings, setMessageData } from './src/utils.js';
 
 let lastStoppedAt = 0;
@@ -262,9 +263,13 @@ function registerEvents() {
     eventSource.on(eventTypes.GENERATION_STOPPED, () => { lastStoppedAt = Date.now(); });
     // Status bar instruction for the main AI: refreshed per generation (who to describe can change, and quiet
     // generations must not get it).
-    eventSource.on(eventTypes.GENERATION_STARTED, type => updateStatusPrompt(type));
+    eventSource.on(eventTypes.GENERATION_STARTED, type => {
+        updateStatusPrompt(type);
+        updateRatingPrompt(type);
+    });
     eventSource.on(eventTypes.CHAT_CHANGED, () => {
         updateStatusPrompt();
+        updateRatingPrompt();
         cancelAllJobs();
         resetPanelForChat();
         renderAllSoon();
@@ -436,6 +441,7 @@ jQuery(async () => {
         getSettings();
         setRenderer(renderMessage);
         setImageAddedHandler(showInPanel);
+        setModeSwitcher(autoSwitchModelMode);
         await initPersonaTracking();
         await initSettingsUi();
         injectMessageButtons();
@@ -443,6 +449,7 @@ jQuery(async () => {
         registerEvents();
         registerSlashCommands();
         updateStatusPrompt();
+        updateRatingPrompt();
         renderAll();
         console.log(LOG_PREFIX, 'loaded');
     } catch (error) {

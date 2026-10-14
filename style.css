@@ -649,3 +649,9 @@
     white-space: nowrap;
     padding: 4px 6px;
 }
+
+/* 按画面自动切换模型: a switch of the mode bar, so it stands out like the mode switch above it */
+.ctp-settings .ctp-auto-mode {
+    font-weight: bold;
+    margin-top: 6px;
+}
