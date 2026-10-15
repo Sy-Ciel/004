@@ -11,7 +11,7 @@ import {
     modeDefaults,
     normalizeMode,
 } from './constants.js';
-import { BUILTIN_PARSER_PRESETS, builtinParserPresets } from './parserPresetDefaults.js';
+import { BUILTIN_PARSER_PRESETS, builtinParserPresets, legacyStorySystem } from './parserPresetDefaults.js';
 
 export const ctx = () => SillyTavern.getContext();
 
@@ -62,6 +62,18 @@ function migrateSettings(settings) {
         }
         delete settings.parser.systemPrompt;
         delete settings.parser.userTemplate;
+    }
+    if (version < 5) {
+        // The built-in story prompt was rewritten (prompt-engineer version): copies nobody edited get the new
+        // text, in both modes and every persona's profile.
+        const upgrade = (own, mode) => {
+            const story = Array.isArray(own?.parserPresets) ? own.parserPresets.find(preset => preset?.id === 'story') : null;
+            if (story && story.system === legacyStorySystem(mode)) story.system = builtinParserPresets(mode)[0].system;
+        };
+        upgrade(settings, normalizeMode(settings.modelMode));
+        if (isPlainObject(settings.modeStore)) {
+            for (const [key, own] of Object.entries(settings.modeStore)) upgrade(own, normalizeMode(key.split('@')[0]));
+        }
     }
     settings.settingsVersion = SETTINGS_VERSION;
 }

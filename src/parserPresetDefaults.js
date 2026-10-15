@@ -97,19 +97,19 @@ function othersRules(model) {
 function promptRule(allowOthers, model) {
     if (model === 'anima-natural') {
         const order = allowOthers
-            ? '开头说明画面里有几个人、谁是主角；先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写场景、镜头构图、光线'
-            : '开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、场景、镜头构图、光线';
+            ? '开头说明画面里有几个人、谁是主角；先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写镜头构图、场景环境、光线色彩'
+            : '开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、镜头构图、场景环境、光线色彩、材质细节';
         return `除了上面的字段，还要写 prompt：一段完整、流畅的英文画面描述（自然语言，适合 Anima 这样的动漫插画模型）。${order}；【固定内容】里的字段必须原样体现。画质 / 评分标签（masterpiece、best quality、score_7 等）由程序自动加，不要写。不要写人名，不要要求画面里出现文字。`;
     }
     if (model === 'anima') {
         const order = allowOthers
-            ? '先写人数标签（如 1girl, 1boy 或 2girls），然后先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写场景、镜头构图、光线'
-            : '先写 1girl / 1boy 这样的人数标签和 solo，然后依次写角色外貌、服装、动作姿势、表情神态、场景、镜头构图、光线';
+            ? '先写人数标签（如 1girl, 1boy 或 2girls），然后先完整写主角的外貌、服装、表情、动作姿势，再写 others 里每个人的样子和位置，最后写构图镜头、背景场景、光影'
+            : '先写 1girl / 1boy 这样的人数标签和 solo，然后依次写角色外貌、服装、表情、动作姿势、构图镜头、背景场景、光影';
         return `除了上面的字段，还要写 prompt：一串英文 Danbooru 风格标签（小写，用空格代替下划线，英文逗号隔开，最后可以补一两句简短的英文描述），适合 Anima。${order}；【固定内容】里的字段必须原样体现。画质 / 评分标签（masterpiece、best quality、score_7 等）由程序自动加，不要写。不要写人名，不要要求画面里出现文字。`;
     }
     const order = allowOthers
-        ? '开头说明画面里有几个人、谁是主角；先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写场景、镜头构图、光线'
-        : '开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、场景、镜头构图、光线';
+        ? '开头说明画面里有几个人、谁是主角；先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写镜头构图、场景环境、光线色彩'
+        : '开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、镜头构图、场景环境、光线色彩、材质细节';
     return `除了上面的字段，还要写 prompt：一段完整、流畅的英文画面描述（自然语言，适合 Krea 2）。${order}；【固定内容】里的字段必须原样体现。不要写人名，不要要求画面里出现文字。`;
 }
 
@@ -124,6 +124,7 @@ function negativeRules(model) {
         : '英文短语，逗号隔开';
     return `反向提示词：再写 negative，列出这张图里不该出现、模型容易画错的东西，${style}：
 - 按这个画面写：画面只有一个人时写 multiple girls、multiple boys 这类多人标签；角色此刻没穿戴、但模型容易加上的衣物或配饰；和场景、时间不符的东西；pending 里还没发生的动作或道具
+- 针对这张图实际可能出错的地方写，不要堆砌。人物画面常见的问题有 duplicate person、extra arms、extra legs、extra fingers、fused fingers、malformed hands、duplicated limbs、multiple faces、ghosting、afterimage、duplicated body、bad proportions、cropped head，按画面的实际风险挑着用（例如手部动作复杂写手部相关的，翘腿、交叉腿写 extra legs，动作幅度大写 ghosting、afterimage）
 - 不要写画面本来就要画的内容（例如画面要画 smile，就不能写 smile），也不要写会和正向字段冲突的词
 - 画质类的通用反向词（worst quality、low quality、score_1、blurry 等）程序会自动加，不要写
 - 最多 15 个，没有需要补充的就写空字符串 ""（不要写「无」或 none）`;
@@ -190,7 +191,60 @@ export function buildOutputRules(mode, allowOthers = false, model = 'krea2', neg
 export const OUTPUT_RULES_FIXED = buildOutputRules('fixed');
 export const OUTPUT_RULES_AI = buildOutputRules('ai');
 
+/**
+ * Wording of the story prompt that depends on the image model: how to write for it (natural language for Krea 2,
+ * tags for Anima; Anima's natural-language switch adds NATURAL_STYLE_RULE after the preset).
+ */
+const STORY_STYLE = {
+    krea2: '用清晰、完整的英文自然语言描述画面，写清主体、动作、空间关系、镜头、构图、材质和光线；不要像 SD 1.5 那样堆砌关键词，也不要写 beautiful、masterpiece、best quality、highly detailed 这类没有画面信息的词',
+    anima: '按 Danbooru 标签的习惯写，一个标签只说一件事，常用标签优先；不要堆砌没有画面信息的形容词，画质 / 评分标签（masterpiece、best quality、score_7 等）由程序自动加，不要写',
+};
+
 function storySystem(model) {
+    const text = modelText(model);
+    return `你是一名专业的 AI 绘图提示词工程师（Prompt Engineer），为${text.model}写提示词。你的工作不是聊天或角色扮演，而是读懂剧情，分析画面真正需要表现什么，把【目标角色】在【当前楼层】结束时刻的画面整理成结构清晰、信息密度高、模型容易理解的提示词字段，输出一个 JSON 对象。
+
+先在心里分析（不要写出分析过程）：画面里必须保留哪些元素、哪些只是氛围，字段之间有没有冲突，哪些地方容易让模型画错。
+
+优先保证（按顺序）：
+1. 主体准确：画面中只有目标角色一个人。不要描写任何其他人物，也不要让其他人物的身体部位入镜。
+2. 构图准确
+3. 姿势准确
+4. 角色特征稳定
+5. 风格统一
+6. 不互相冲突：字段之间、字段和【固定内容】之间不能矛盾（例如坐着又写全身站立，室内又写阳光直射的街道）
+7. 避免模型常见错误：重影、多肢体、多手多脚、多人物、错误透视。同一个主体只描述一次，不要换个说法重复描写同一个人、同一件衣服——重复的主体描述是重影和多人的常见原因。
+
+需要写的字段：
+- outfit：此刻的穿着（款式、颜色、材质、配饰、穿着状态），具体到模型能画出来
+- action：动作和姿势，写具体的肢体关系，不要只写 dynamic pose、natural pose 这类笼统的词：身体朝向、头部方向、躯干倾斜、左右手臂和手在做什么、左右腿的位置、重心（站 / 坐 / 跪 / 蹲 / 躺，是否翘腿或交叉腿），以及与道具、环境的互动
+- expression：面部表情（眉眼、嘴角、视线方向）
+- demeanor：神态与气质、情绪、肢体语言给人的感觉
+- scene：所处场景与背景细节、时间、天气
+- camera：景别、镜头高度和角度、人物相对镜头的朝向、构图（${text.camera}）
+- lighting：光线方向和质感、色调
+
+写法：
+- ${text.language}
+- ${STORY_STYLE[model] ?? STORY_STYLE.krea2}
+- 不要比喻、不要抽象形容、不要出现人名、不要要求画面里出现文字或标志
+- 角色身份和固定外貌由角色预设（和角色 LoRA）负责，画风由画风前缀和画风 LoRA 负责：外貌按下面「外貌」那一条处理，不要反复描写同一个外貌特征，也不要另加画风词去和它们抢；你的重点放在动作、表情、服装、镜头、构图、光线和场景上
+
+连贯与优先级：
+- 剧情没写明的部分，参考【上一次状态】和【之前的配图输出】保持连贯（尤其是服装：没有换装情节就保持不变），再合理补全；缺少的信息不影响画面时，自己选一个合理的默认值。之前的输出只用来保持连贯，不要照抄与当前剧情不符的内容。
+- 【固定内容】里列出的字段必须原样使用，不要改。
+- 【用户画图指令】是用户直接指定的画面内容，优先级最高：必须体现在对应字段里（翻译成英文，可以补全细节），不能被剧情覆盖或忽略；不要擅自改变用户指定的角色、姿势、服装、画风或构图。
+- 如果当前楼层里目标角色不在场，或者没有任何可以画面化的内容，输出 {"skip": true, "reason": "原因"}；有【用户画图指令】时不要输出 skip。
+
+只输出 JSON 本身，不要解释，不要 markdown 代码块。
+
+{{output_rules}}`;
+}
+
+/**
+ * The built-in story prompt up to v1.23. Copies nobody edited are upgraded to the current one (see migrateSettings).
+ */
+export function legacyStorySystem(model) {
     const text = modelText(model);
     return `你是「角色状态解析器」。你的输出会被拼进${text.model}的提示词里。
 
