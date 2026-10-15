@@ -1,7 +1,7 @@
 import { EXTRA_KEY, LOG_PREFIX, MODEL_LABELS, MODEL_MODES, TARGET_AUTO, TARGET_CHAR, TARGET_USER } from './src/constants.js';
 import { lastFloorId, showFloorDebug } from './src/debug.js';
 import { openEditDialog } from './src/editDialog.js';
-import { captureHints, hintsEnabled, pendingHints, removeHint, stripHints, stripOutgoingChat } from './src/hints.js';
+import { captureHints, hintsEnabled, openHintDialog, pendingHints, removeHint, stripHints, stripOutgoingChat } from './src/hints.js';
 import { resetPanelForChat, showInPanel } from './src/panel.js';
 import { cancelAllJobs, cancelJob, enqueue, getJob, setImageAddedHandler, setModeSwitcher, setRenderer } from './src/pipeline.js';
 import { onLayoutChange, renderAll, renderMessage } from './src/render.js';
@@ -151,6 +151,21 @@ function zoom(mesId) {
     callGenericPopup(root, POPUP_TYPE.DISPLAY ?? POPUP_TYPE.TEXT, '', { large: true, wide: true, allowVerticalScrolling: true });
 }
 
+/** 「加画图指令重画」: edit the floor's drawing instructions, then parse it again with them; the text stays. */
+async function redrawWithHints(mesId) {
+    const message = ctx().chat[mesId];
+    const data = getMessageData(message);
+    const image = data?.images?.[Math.max(0, data.index ?? 0)];
+    const hints = await openHintDialog(mesId, image?.prompt || data?.prompt || '');
+    if (!hints) return;
+    const index = ctx().chat.indexOf(message);
+    if (index < 0) return;
+    renderMessage(index);
+    ctx().saveChat();
+    if (hints.length) enqueue(index, { mode: 'reparse', force: true });
+    else toastr.info(`已删除 #${index} 的画图指令`);
+}
+
 function onAction(event) {
     const button = event.currentTarget;
     // Buttons live either inside a chat message or in the side panel (which carries data-mesid).
@@ -167,6 +182,7 @@ function onAction(event) {
         case 'reparse': enqueue(mesId, { mode: 'reparse', force: true }); break;
         case 'force': enqueue(mesId, { mode: 'reparse', force: true }); break;
         case 'edit': openEditDialog(mesId); break;
+        case 'hint': redrawWithHints(mesId); break;
         case 'debug': showFloorDebug(mesId); break;
         case 'delete': deleteImage(mesId); break;
         case 'clear': clearState(mesId); break;

@@ -30,6 +30,7 @@ export function toolbarHtml(data, debug) {
         <i class="fa-solid fa-dice ctp-act" data-act="reroll" title="同一提示词换种子重画"></i>
         <i class="fa-solid fa-rotate ctp-act" data-act="reparse" title="重新解析状态并生成"></i>
         <i class="fa-solid fa-pen-to-square ctp-act" data-act="edit" title="编辑提示词后生成"></i>
+        <i class="fa-solid fa-comment-dots ctp-act" data-act="hint" title="加画图指令重画（不改正文）"></i>
         ${debug ? '<i class="fa-solid fa-bug ctp-act" data-act="debug" title="调试信息"></i>' : ''}
         <i class="fa-solid fa-trash-can ctp-act" data-act="delete" title="删除这张图"></i>
         ${meta}

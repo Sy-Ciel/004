@@ -65,7 +65,8 @@ export function removeHint(message, index) {
  * @returns {{ floor: number, name: string, hints: string[] }[]}
  */
 export function pendingHints(mesId) {
-    if (!hintsEnabled()) return [];
+    // Stored instructions always count: the switch only controls the [[ ]] syntax in message text, and
+    // instructions added with the 加画图指令 button are stored without it.
     // Never instructions from later floors: re-drawing #10 only uses what was written up to #10.
     const chat = ctx().chat.slice(0, Math.max(0, mesId + 1));
     let start = Math.max(0, mesId - 30);
@@ -81,6 +82,33 @@ export function pendingHints(mesId) {
         if (hints.length) result.push({ floor: i, name: chat[i].name || '', hints });
     }
     return result;
+}
+
+/**
+ * 「加画图指令重画」: writes a floor's instructions (one per line) without touching its text, e.g. to correct a
+ * picture that came out wrong. Returns the saved instructions, or null when cancelled.
+ * @param {number} mesId
+ * @param {string} [prompt] The picture's prompt, shown for reference
+ */
+export async function openHintDialog(mesId, prompt = '') {
+    const message = ctx().chat[mesId];
+    if (!message) return null;
+    const root = document.createElement('div');
+    root.className = 'ctp-hint-dialog';
+    root.innerHTML = `
+        <h3>#${mesId} 的画图指令</h3>
+        <p>对画面不满意时，在这里写你想要的样子，一行一条，例如「坐在床边」「穿红色连衣裙」「和他牵着手」「近景」。
+        保存后按这些指令重新解析并出图（优先级最高）。<b>正文不会改动</b>，写正文的 AI 也看不到这些指令。</p>
+        <textarea class="text_pole ctp-hint-input" rows="6" placeholder="一行一条，中文英文都可以"></textarea>
+        <small class="ctp-hint">清空 = 删除这一楼的全部指令（不重画）。之后的楼层会按这次的画面延续（例如换过的衣服）。</small>
+        ${prompt ? `<details class="ctp-hint-prompt"><summary>当前这张图的提示词</summary><div>${escapeHtml(prompt)}</div></details>` : ''}`;
+    root.querySelector('.ctp-hint-input').value = getHints(message).join('\n');
+    const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
+    const result = await callGenericPopup(root, POPUP_TYPE.CONFIRM, '', { okButton: '保存并重画', cancelButton: '取消', wide: true, allowVerticalScrolling: true });
+    if (result !== POPUP_RESULT.AFFIRMATIVE || ctx().chat[mesId] !== message) return null;
+    const hints = [...new Set(root.querySelector('.ctp-hint-input').value.split('\n').map(line => line.trim()).filter(Boolean))];
+    setHints(message, hints);
+    return hints;
 }
 
 /** Last line of defence: strip the syntax from chat turns of an outgoing prompt (messages created without events). */

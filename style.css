@@ -655,3 +655,18 @@
     font-weight: bold;
     margin-top: 6px;
 }
+
+/* 「加画图指令重画」 dialog */
+.ctp-hint-dialog {
+    text-align: left;
+}
+.ctp-hint-dialog .ctp-hint-input {
+    width: 100%;
+    box-sizing: border-box;
+}
+.ctp-hint-dialog .ctp-hint-prompt div {
+    white-space: pre-wrap;
+    opacity: 0.8;
+    font-size: 0.9em;
+    margin-top: 4px;
+}

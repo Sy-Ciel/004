@@ -105,6 +105,7 @@ export function renderMessage(mesId) {
             <i class="fa-solid fa-triangle-exclamation"></i>
             <span>配图失败：${escapeHtml(String(data.error).split('\n')[0])}</span>
             <span class="ctp-link ctp-act" data-act="reparse">重试</span>
+            <span class="ctp-link ctp-act" data-act="hint">加指令重画</span>
             <span class="ctp-link ctp-act" data-act="debug">详情</span>
             ${hasImages ? '' : '<span class="ctp-link ctp-act" data-act="clear">关闭</span>'}
         </div>`);
@@ -114,6 +115,7 @@ export function renderMessage(mesId) {
             <i class="fa-solid fa-forward"></i>
             <span>#${mesId} 跳过：${escapeHtml(data.skipped)}</span>
             <span class="ctp-link ctp-act" data-act="force">强制生成</span>
+            <span class="ctp-link ctp-act" data-act="hint">加指令重画</span>
             <span class="ctp-link ctp-act" data-act="debug">详情</span>
         </div>`);
     }
