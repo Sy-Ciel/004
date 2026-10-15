@@ -272,7 +272,7 @@ export const ANIMA_TURBO = {
 };
 
 /** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */
-export const SETTINGS_VERSION = 5;
+export const SETTINGS_VERSION = 6;
 
 /** A render profile's LoRA set to this means "no style LoRA", as opposed to empty = use the default. */
 export const LORA_NONE = '__none__';

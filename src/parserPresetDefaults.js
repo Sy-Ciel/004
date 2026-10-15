@@ -98,7 +98,7 @@ function promptRule(allowOthers, model) {
     if (model === 'anima-natural') {
         const order = allowOthers
             ? '开头说明画面里有几个人、谁是主角；先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写镜头构图、场景环境、光线色彩'
-            : '开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、镜头构图、场景环境、光线色彩、材质细节';
+            : '开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、镜头构图、场景环境、光线色彩';
         return `除了上面的字段，还要写 prompt：一段完整、流畅的英文画面描述（自然语言，适合 Anima 这样的动漫插画模型）。${order}；【固定内容】里的字段必须原样体现。画质 / 评分标签（masterpiece、best quality、score_7 等）由程序自动加，不要写。不要写人名，不要要求画面里出现文字。`;
     }
     if (model === 'anima') {
@@ -109,7 +109,7 @@ function promptRule(allowOthers, model) {
     }
     const order = allowOthers
         ? '开头说明画面里有几个人、谁是主角；先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写镜头构图、场景环境、光线色彩'
-        : '开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、镜头构图、场景环境、光线色彩、材质细节';
+        : '开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、镜头构图、场景环境、光线色彩';
     return `除了上面的字段，还要写 prompt：一段完整、流畅的英文画面描述（自然语言，适合 Krea 2）。${order}；【固定内容】里的字段必须原样体现。不要写人名，不要要求画面里出现文字。`;
 }
 
@@ -192,82 +192,85 @@ export const OUTPUT_RULES_FIXED = buildOutputRules('fixed');
 export const OUTPUT_RULES_AI = buildOutputRules('ai');
 
 /**
- * Wording of the story prompt that depends on the image model: how to write for it (natural language for Krea 2,
- * tags for Anima; Anima's natural-language switch adds NATURAL_STYLE_RULE after the preset).
+ * What the story prompt says per image model: how to write, length limits (upper bounds, so the prompt stays
+ * short and the action and outfit carry the weight) and setting examples. Anima counts tags; its natural-language
+ * switch adds NATURAL_STYLE_RULE after the preset, so the word counts are given too.
  */
-const STORY_STYLE = {
-    krea2: '用清晰、完整的英文自然语言描述画面，写清主体、动作、空间关系、镜头、构图、材质和光线；不要像 SD 1.5 那样堆砌关键词，也不要写 beautiful、masterpiece、best quality、highly detailed 这类没有画面信息的词',
-    anima: '按 Danbooru 标签的习惯写，一个标签只说一件事，常用标签优先；不要堆砌没有画面信息的形容词，画质 / 评分标签（masterpiece、best quality、score_7 等）由程序自动加，不要写',
+const STORY_TEXT = {
+    krea2: {
+        style: '不要堆砌关键词，也不要写 beautiful、masterpiece、best quality、highly detailed 这类没有画面信息的词',
+        limit: n => `最多 ${n.words} 个英文单词`,
+        scene: '"a medieval tavern"、"a modern bedroom"、"a fantasy forest at night"',
+    },
+    anima: {
+        style: '按 Danbooru 标签的习惯写，一个标签只说一件事，常用标签优先；画质 / 评分标签（masterpiece、best quality、score_7 等）由程序自动加，不要写',
+        limit: n => `最多 ${n.tags} 个标签（用自然语言写时最多 ${n.words} 个词）`,
+        scene: '"medieval, tavern, indoors"、"modern, bedroom"、"fantasy, forest, night"',
+    },
+};
+
+const LIMITS = {
+    outfit: { tags: 6, words: 20 },
+    action: { tags: 6, words: 25 },
+    expression: { tags: 2, words: 6 },
+    demeanor: { tags: 1, words: 3 },
+    scene: { tags: 3, words: 6 },
+    camera: { tags: 1, words: 3 },
+    others: { tags: 8, words: 20 },
+    prompt: { tags: 30, words: 60 },
 };
 
 function storySystem(model) {
     const text = modelText(model);
-    return `你是一名专业的 AI 绘图提示词工程师（Prompt Engineer），为${text.model}写提示词。你的工作不是聊天或角色扮演，而是读懂剧情，分析画面真正需要表现什么，把【目标角色】在【当前楼层】结束时刻的画面整理成结构清晰、信息密度高、模型容易理解的提示词字段，输出一个 JSON 对象。
+    const story = STORY_TEXT[model] ?? STORY_TEXT.krea2;
+    const limit = field => story.limit(LIMITS[field]);
+    return `你是一名专业的 AI 绘图提示词工程师，为${text.model}写提示词。读懂剧情，把【目标角色】在【当前楼层】结束时刻的画面，用最简短的话整理成下面几项，输出一个 JSON 对象。
 
-先在心里分析（不要写出分析过程）：画面里必须保留哪些元素、哪些只是氛围，字段之间有没有冲突，哪些地方容易让模型画错。
+不要繁琐：每项只抓要点，长度是上限不是目标，能更短就更短。多写的词只会冲淡重点，让模型画错。
 
-优先保证（按顺序）：
-1. 主体准确：画面中只有目标角色一个人。不要描写任何其他人物，也不要让其他人物的身体部位入镜。
-2. 构图准确
-3. 姿势准确
-4. 角色特征稳定
-5. 风格统一
-6. 不互相冲突：字段之间、字段和【固定内容】之间不能矛盾（例如坐着又写全身站立，室内又写阳光直射的街道）
-7. 避免模型常见错误：重影、多肢体、多手多脚、多人物、错误透视。同一个主体只描述一次，不要换个说法重复描写同一个人、同一件衣服——重复的主体描述是重影和多人的常见原因。
+只写这几项：
+- 角色：就是【目标角色】，名字填在 target；外貌按下面「外貌」那一条处理，不用你另外描写
+- 心情：demeanor 写心情，${limit('demeanor')}（如 happy、nervous）；expression 写脸上的表情和视线，${limit('expression')}
+- 衣服：outfit 写此刻穿着的主要衣物和颜色，${limit('outfit')}
+- 在做什么、什么动作：action 写此刻在做什么、身体姿势（站 / 坐 / 跪 / 蹲 / 躺）、手在做什么，${limit('action')}；不要只写 dynamic pose 这类笼统的词，也不要逐个肢体罗列
+- 和谁：和别人一起时，在 action 里写出和谁在做什么（不写名字，写 a young man、an old woman 这类称呼）。输出格式里有 others 字段时，同框的人写进 others，每人${limit('others')}；没有 others 字段时，画面里只有目标角色一个人，对方不入镜，action 只写角色自己的动作
+- 大概的环境：scene 只写时代或风格 + 地点类型，例如 ${story.scene}，${limit('scene')}；不要写楼层（第几楼、几层、xx 楼）、门牌号、地名、建筑名，也不要罗列家具和摆设
+- camera 写一个景别（${text.camera}），${limit('camera')}；lighting 没有特别的光线就写 ""
+- prompt（只在要求写 prompt 时）：不算角色设定的外貌，${limit('prompt')}；同样只写上面这几项
 
-需要写的字段：
-- outfit：此刻的穿着（款式、颜色、材质、配饰、穿着状态），具体到模型能画出来
-- action：动作和姿势，写具体的肢体关系，不要只写 dynamic pose、natural pose 这类笼统的词：身体朝向、头部方向、躯干倾斜、左右手臂和手在做什么、左右腿的位置、重心（站 / 坐 / 跪 / 蹲 / 躺，是否翘腿或交叉腿），以及与道具、环境的互动
-- expression：面部表情（眉眼、嘴角、视线方向）
-- demeanor：神态与气质、情绪、肢体语言给人的感觉
-- scene：所处场景与背景细节、时间、天气
-- camera：景别、镜头高度和角度、人物相对镜头的朝向、构图（${text.camera}）
-- lighting：光线方向和质感、色调
-
-写法：
-- ${text.language}
-- ${STORY_STYLE[model] ?? STORY_STYLE.krea2}
-- 不要比喻、不要抽象形容、不要出现人名、不要要求画面里出现文字或标志
-- 角色身份和固定外貌由角色预设（和角色 LoRA）负责，画风由画风前缀和画风 LoRA 负责：外貌按下面「外貌」那一条处理，不要反复描写同一个外貌特征，也不要另加画风词去和它们抢；你的重点放在动作、表情、服装、镜头、构图、光线和场景上
-
-连贯与优先级：
-- 剧情没写明的部分，参考【上一次状态】和【之前的配图输出】保持连贯（尤其是服装：没有换装情节就保持不变），再合理补全；缺少的信息不影响画面时，自己选一个合理的默认值。之前的输出只用来保持连贯，不要照抄与当前剧情不符的内容。
-- 【固定内容】里列出的字段必须原样使用，不要改。
-- 【用户画图指令】是用户直接指定的画面内容，优先级最高：必须体现在对应字段里（翻译成英文，可以补全细节），不能被剧情覆盖或忽略；不要擅自改变用户指定的角色、姿势、服装、画风或构图。
-- 如果当前楼层里目标角色不在场，或者没有任何可以画面化的内容，输出 {"skip": true, "reason": "原因"}；有【用户画图指令】时不要输出 skip。
+要点：
+- 目标角色是画面主角。同一个人、同一件衣服只描述一次，不要换个说法重复写（重复描写容易画出重影、多人）
+- 字段之间、字段和【固定内容】之间不能矛盾；【固定内容】里的字段原样使用
+- ${text.language}；${story.style}
+- 不要比喻、不要人名、不要写剧情的楼层编号（#12、第 12 楼这类）、不要要求画面里出现文字或标志、不要写画风词（画风由画风前缀和 LoRA 负责）
+- 剧情没写明的部分，参考【上一次状态】和【之前的配图输出】保持连贯（尤其衣服：没有换装情节就不变）；之前的输出只用来保持连贯，不要照抄与当前剧情不符的内容
+- 【用户画图指令】是用户直接指定的画面内容，优先级最高：必须体现在对应字段里（翻译成英文），不能被剧情覆盖或忽略
+- 当前楼层里目标角色不在场，或者没有任何可以画面化的内容，输出 {"skip": true, "reason": "原因"}；有【用户画图指令】时不要输出 skip
 
 只输出 JSON 本身，不要解释，不要 markdown 代码块。
 
 {{output_rules}}`;
 }
 
-/**
- * The built-in story prompt up to v1.23. Copies nobody edited are upgraded to the current one (see migrateSettings).
- */
-export function legacyStorySystem(model) {
-    const text = modelText(model);
-    return `你是「角色状态解析器」。你的输出会被拼进${text.model}的提示词里。
+/** Fingerprint of a prompt text, to recognise earlier built-in prompts without keeping their whole text. */
+function fingerprint(text) {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) {
+        hash ^= text.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return `${text.length}:${hash.toString(16)}`;
+}
 
-任务：阅读给出的剧情，判断【目标角色】在【当前楼层】结束时刻的视觉状态，输出一个 JSON 对象。
+/** Earlier built-in story prompts (up to v1.23, v1.24). */
+const PREVIOUS_STORY = {
+    krea2: ['807:cda41aea', '1532:d6d556eb'],
+    anima: ['939:558892a3', '1641:584cb314'],
+};
 
-规则：
-1. 画面中只有目标角色一个人。不要描写任何其他人物，也不要让其他人物的身体部位入镜。
-2. 你需要推断并描写：
-   - outfit：此刻的穿着（款式、颜色、材质、配饰、穿着状态），要具体
-   - action：身体姿势与动作、手部动作、与道具或环境的互动
-   - expression：面部表情（眉眼、嘴角、视线方向）
-   - demeanor：神态与气质、情绪、肢体语言给人的感觉
-   - scene：所处场景与背景细节、时间、天气
-   - camera：景别与构图（${text.camera}）
-   - lighting：光线与色调
-3. 剧情没写明的部分，参考【上一次状态】和【之前的配图输出】保持连贯（尤其是服装：没有换装情节就保持不变），再合理补全。之前的输出只用来保持连贯，不要照抄与当前剧情不符的内容。
-4. 【固定内容】里列出的字段必须原样使用，不要改。
-5. 【用户画图指令】是用户直接指定的画面内容，优先级最高：必须体现在对应字段里（翻译成英文，可以补全细节），不能被剧情覆盖或忽略。
-6. ${text.language}；不要比喻、不要抽象形容、不要出现人名、不要要求画面里出现文字或标志。
-7. 如果当前楼层里目标角色不在场，或者没有任何可以画面化的内容，输出 {"skip": true, "reason": "原因"}；有【用户画图指令】时不要输出 skip。
-8. 只输出 JSON 本身，不要解释，不要 markdown 代码块。
-
-{{output_rules}}`;
+/** Whether a story preset still has an earlier built-in prompt nobody edited (it is upgraded, see migrateSettings). */
+export function isPreviousStorySystem(text, model) {
+    return typeof text === 'string' && (PREVIOUS_STORY[model] ?? []).includes(fingerprint(text));
 }
 
 function spriteSystem(model) {
@@ -346,7 +349,7 @@ function novelSystem(model) {
 function makeBuiltins(model) {
     const anima = model === 'anima';
     return [
-        { id: 'story', name: '剧情状态（默认）', system: storySystem(model), user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: '', width: 0, height: 0, allowOthers: false },
+        { id: 'story', name: '剧情状态（默认）', system: storySystem(model), user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: '', width: 0, height: 0, allowOthers: true },
         { id: 'sprite', name: '立绘模式', system: spriteSystem(model), user: PARSER_USER_TEMPLATE, fixedFields: anima ? SPRITE_FIXED_ANIMA : SPRITE_FIXED, prefix: '', width: 0, height: 0, allowOthers: false },
         { id: 'novel', name: '小说插画模式', system: novelSystem(model), user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: anima ? 'illustration, cinematic composition' : 'A narrative story illustration with cinematic composition.', width: 0, height: 0, allowOthers: false },
     ];

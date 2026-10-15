@@ -11,7 +11,7 @@ import {
     modeDefaults,
     normalizeMode,
 } from './constants.js';
-import { BUILTIN_PARSER_PRESETS, builtinParserPresets, legacyStorySystem } from './parserPresetDefaults.js';
+import { BUILTIN_PARSER_PRESETS, builtinParserPresets, isPreviousStorySystem } from './parserPresetDefaults.js';
 
 export const ctx = () => SillyTavern.getContext();
 
@@ -63,12 +63,14 @@ function migrateSettings(settings) {
         delete settings.parser.systemPrompt;
         delete settings.parser.userTemplate;
     }
-    if (version < 5) {
-        // The built-in story prompt was rewritten (prompt-engineer version): copies nobody edited get the new
-        // text, in both modes and every persona's profile.
+    if (version < 6) {
+        // The built-in story prompt was rewritten (v1.24 prompt engineer, v1.25 short, with whom the character is):
+        // copies nobody edited get the current text and let other people in, in both modes and every profile.
         const upgrade = (own, mode) => {
             const story = Array.isArray(own?.parserPresets) ? own.parserPresets.find(preset => preset?.id === 'story') : null;
-            if (story && story.system === legacyStorySystem(mode)) story.system = builtinParserPresets(mode)[0].system;
+            if (!story || !isPreviousStorySystem(story.system, mode)) return;
+            story.system = builtinParserPresets(mode)[0].system;
+            story.allowOthers = true;
         };
         upgrade(settings, normalizeMode(settings.modelMode));
         if (isPlainObject(settings.modeStore)) {
