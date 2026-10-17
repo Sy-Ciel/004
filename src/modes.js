@@ -13,10 +13,11 @@ import { fillDefaults, getSettings, isPlainObject } from './utils.js';
 const SHARED_KEYS = ['settingsVersion', 'enabled', 'modelMode', 'modeStore', 'perPersonaProfiles', 'profilePersona', 'personaModes', 'autoModelByRating'];
 
 /**
- * Keys of parser / comfy both modes share: the API settings. The rest of those objects (what the parser reads,
- * the workflow, models, sampling …) is per mode, like every key not listed here.
+ * Keys of parser / comfy both modes share: the API settings, and which part of a message is the story (that
+ * depends on the chat, not the image model). The rest of those objects (how much the parser reads, the workflow,
+ * models, sampling …) is per mode, like every key not listed here.
  */
-export const SHARED_PARSER_KEYS = ['source', 'customUrl', 'customKey', 'customModel', 'profileId', 'temperature', 'maxTokens', 'extraBody', 'models', 'timeoutSec', 'retries', 'thinking', 'thinkingEffort', 'thinkingFormat'];
+export const SHARED_PARSER_KEYS = ['source', 'customUrl', 'customKey', 'customModel', 'profileId', 'temperature', 'maxTokens', 'extraBody', 'models', 'timeoutSec', 'retries', 'thinking', 'thinkingEffort', 'thinkingFormat', 'storyTagOnly', 'storyTag'];
 export const SHARED_COMFY_KEYS = ['url', 'browserUrl', 'mode', 'lists'];
 const SHARED_NESTED = { parser: SHARED_PARSER_KEYS, comfy: SHARED_COMFY_KEYS };
 

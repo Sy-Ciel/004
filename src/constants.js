@@ -330,6 +330,9 @@ export const DEFAULT_SETTINGS = {
         extraBody: '',
         models: [],
         contextDepth: 4,
+        /** Read only what is inside <storyTag>…</storyTag> of each message (not code pages / option panels); see storyText. */
+        storyTagOnly: false,
+        storyTag: 'game',
         historyFloors: 3,
         historyIncludePrompt: true,
         worldInfo: 'off',

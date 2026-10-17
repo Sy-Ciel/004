@@ -257,6 +257,9 @@
                         <label>读取前几楼剧情 <input type="number" class="text_pole" min="0" step="1" data-ctp="parser.contextDepth" data-type="int"></label>
                         <label>每楼最多字数 <input type="number" class="text_pole" min="0" step="100" data-ctp="parser.maxCharsPerMessage" data-type="int"></label>
                     </div>
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="parser.storyTagOnly"> 只读取正文标签里的内容（不读代码页、选项面板）</label>
+                    <label>正文标签名 <input type="text" class="text_pole" data-ctp="parser.storyTag" placeholder="game"></label>
+                    <small class="ctp-hint">打开后，每楼只读 &lt;game&gt;……&lt;/game&gt; 之间的内容（标签名可以改，不用写尖括号；有好几段就全读），标签外面的代码页、选项、小剧场不会被当成剧情。没有这个标签的消息（例如你自己发的）照常读全文，但去掉 ``` 代码块。两个模型模式共用这一项。</small>
                     <div class="ctp-row">
                         <label>参考之前几次配图输出 <input type="number" class="text_pole" min="0" max="20" step="1" data-ctp="parser.historyFloors" data-type="int"></label>
                     </div>

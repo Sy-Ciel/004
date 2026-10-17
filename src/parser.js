@@ -24,9 +24,38 @@ import {
     withTimeout,
 } from './utils.js';
 
+/** The tag name of 「只读取标签里的正文」, without brackets (default game). */
+export function storyTagName(parser = getSettings().parser) {
+    return String(parser.storyTag ?? '').replace(/[^\w:-]/g, '') || 'game';
+}
+
+function storyTagPattern(parser) {
+    const tag = storyTagName(parser);
+    // An unclosed tag (the AI forgot it, or the reply was cut off) runs to the end of the message.
+    return new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)(?:</${tag}\\s*>|$)`, 'gi');
+}
+
+/** Whether a message has the story tag (only meaningful while 「只读取标签里的正文」 is on). */
+export function hasStoryTag(text, parser = getSettings().parser) {
+    return [...String(text ?? '').matchAll(storyTagPattern(parser))].some(match => match[1].trim());
+}
+
+/**
+ * The part of a message the parser reads. With 「只读取标签里的正文」 only what is inside <game>…</game> (every
+ * such block), so code pages, option panels and the like around the story are not taken for the story. A message
+ * without the tag (the user's own, or a reply where the AI left it out) is read whole minus ``` code blocks.
+ */
+export function storyText(text, parser = getSettings().parser) {
+    const source = String(text ?? '');
+    if (!parser.storyTagOnly) return source;
+    const parts = [...source.matchAll(storyTagPattern(parser))].map(match => match[1].trim()).filter(Boolean);
+    if (parts.length) return parts.join('\n\n');
+    return source.replace(/```[\s\S]*?(?:```|$)/g, '').trim();
+}
+
 function formatMessage(message, maxChars, text = message.mes) {
     const name = message.name || (message.is_user ? ctx().name1 : ctx().name2);
-    return `${name}: ${truncate(plainText(text), maxChars)}`;
+    return `${name}: ${truncate(plainText(storyText(text)), maxChars)}`;
 }
 
 /** The current floor's status bar as its own block, so the parser treats it as the main source. */
@@ -173,7 +202,7 @@ function referenceBlock(target, mode) {
 function othersReference(mesId, target) {
     if (target.auto) return '';
     const chat = chatUpTo(mesId);
-    const text = [chat[mesId - 1], chat[mesId]].filter(Boolean).map(message => plainText(message.mes)).join('\n');
+    const text = [chat[mesId - 1], chat[mesId]].filter(Boolean).map(message => plainText(storyText(message.mes))).join('\n');
     const seen = new Set([target.preset?.id]);
     const lines = [];
     for (const preset of [findUserPreset(), presetForName(ctx().name2), ...presetsMentioned(text)]) {
@@ -193,7 +222,7 @@ async function activatedWorldInfo(mesId) {
     // cooldown effects, and "delay" counts this shortened chat, so later floors don't activate anything.
     const scan = chatUpTo(mesId)
         .filter(message => message && !message.is_system)
-        .map(message => `${message.name}: ${message.mes}`)
+        .map(message => `${message.name}: ${storyText(message.mes)}`)
         .reverse();
     const result = await context.getWorldInfoPrompt(scan, context.maxContext, true);
     const depth = (result.worldInfoDepth || []).flatMap(item => item?.entries || []);
@@ -352,6 +381,9 @@ export async function buildParserPrompt(mesId, target) {
             `${modeLabel()} 模式 · 解析预设：${preset.name} · ${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`,
             triggerRule ? `触发词：${triggerWordList().join(', ')}` : '',
             natural ? '英文自然语言写法' : '',
+            settings.parser.storyTagOnly
+                ? hasStoryTag(chat[mesId].mes) ? `只读取 <${storyTagName()}> 标签里的正文` : `当前楼层没有 <${storyTagName()}> 标签，读取了全文（去掉了 \`\`\` 代码块）`
+                : '',
             negative ? '解析模型补充反向提示词' : '',
             aspect ? '解析模型选择宽高比' : '',
             describeThinking(settings.parser),
