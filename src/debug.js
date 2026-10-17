@@ -204,6 +204,39 @@ export async function showParserPreview() {
     `);
 }
 
+/**
+ * 「发送前检查解析输入」: shows everything about to be sent to the parser for floor `mesId`, editable (for this
+ * request only). Returns the { system, user } to send, or null when cancelled.
+ */
+export async function reviewParserInput(mesId, parserPrompt, target) {
+    const root = document.createElement('div');
+    root.className = 'ctp-debug ctp-review';
+    root.innerHTML = `
+        <h3>发送给解析模型前检查 · #${mesId} · ${escapeHtml(modeLabel())} 模式</h3>
+        ${table([['目标', target?.auto ? `自动（候选：${(target.candidates || []).join('、')}）` : target?.name], ['预设', target?.preset ? target.preset.name : '（无）'], ['说明', parserPrompt.notes.filter(Boolean).join('；')]])}
+        <small class="ctp-hint">下面就是这次要发给解析模型的全部内容：System 是规则，User 是剧情和参考资料（【当前楼层】一节就是读到的正文）。
+        可以直接改，只对这一次生效；「发送」继续解析出图，「取消」= 这一楼这次不配图。不想每次都弹出，就在设置最上面关掉「发送前检查解析输入」。</small>
+        <label>System（<span class="ctp-review-count" data-for="system"></span> 字）
+            <textarea class="text_pole ctp-review-system" rows="10"></textarea>
+        </label>
+        <label>User（<span class="ctp-review-count" data-for="user"></span> 字）
+            <textarea class="text_pole ctp-review-user" rows="16"></textarea>
+        </label>`;
+    const fields = { system: root.querySelector('.ctp-review-system'), user: root.querySelector('.ctp-review-user') };
+    fields.system.value = parserPrompt.system;
+    fields.user.value = parserPrompt.user;
+    for (const [name, field] of Object.entries(fields)) {
+        const count = root.querySelector(`.ctp-review-count[data-for="${name}"]`);
+        const update = () => { count.textContent = String(field.value.length); };
+        field.addEventListener('input', update);
+        update();
+    }
+    const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
+    const result = await callGenericPopup(root, POPUP_TYPE.CONFIRM, '', { okButton: '发送', cancelButton: '取消', wide: true, large: true, allowVerticalScrolling: true });
+    if (result !== POPUP_RESULT.AFFIRMATIVE) return null;
+    return { system: fields.system.value, user: fields.user.value };
+}
+
 export async function showDryRun() {
     const mesId = lastFloorId();
     if (mesId < 0) {

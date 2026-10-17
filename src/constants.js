@@ -297,6 +297,8 @@ export const DEFAULT_SETTINGS = {
     personaModes: {},
     /** The main AI marks each reply NSFW / SFW and the floor is drawn with Anima / Krea 2 accordingly (see rating.js). */
     autoModelByRating: false,
+    /** Debugging: every parser request is shown (editable) before it is sent (see debug.js reviewParserInput). */
+    reviewParserInput: false,
     /** Words every prompt of this mode starts with (e.g. a style LoRA's trigger); the parser is told about them. */
     triggerWords: '',
     /** Anima only: prompts in English sentences instead of Danbooru tags (see modes.js promptStyle). */

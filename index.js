@@ -1,9 +1,9 @@
 import { EXTRA_KEY, LOG_PREFIX, MODEL_LABELS, MODEL_MODES, TARGET_AUTO, TARGET_CHAR, TARGET_USER } from './src/constants.js';
-import { lastFloorId, showFloorDebug } from './src/debug.js';
+import { lastFloorId, reviewParserInput, showFloorDebug } from './src/debug.js';
 import { openEditDialog } from './src/editDialog.js';
 import { captureHints, hintsEnabled, openHintDialog, pendingHints, removeHint, stripHints, stripOutgoingChat } from './src/hints.js';
 import { resetPanelForChat, showInPanel } from './src/panel.js';
-import { cancelAllJobs, cancelJob, enqueue, getJob, setImageAddedHandler, setModeSwitcher, setRenderer } from './src/pipeline.js';
+import { cancelAllJobs, cancelJob, enqueue, getJob, setImageAddedHandler, setModeSwitcher, setParserReviewer, setRenderer } from './src/pipeline.js';
 import { onLayoutChange, renderAll, renderMessage } from './src/render.js';
 import { updateRatingPrompt } from './src/rating.js';
 import { updateStatusPrompt } from './src/statusBar.js';
@@ -458,6 +458,7 @@ jQuery(async () => {
         setRenderer(renderMessage);
         setImageAddedHandler(showInPanel);
         setModeSwitcher(autoSwitchModelMode);
+        setParserReviewer(reviewParserInput);
         await initPersonaTracking();
         await initSettingsUi();
         injectMessageButtons();

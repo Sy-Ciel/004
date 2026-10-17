@@ -1194,7 +1194,7 @@ export async function initSettingsUi() {
     $('#ctp_anima_turbo').on('click', useAnimaTurbo);
     $('#ctp_reset_all').on('click', resetAllSettings);
     $('#ctp_debug_chat').on('click', showChatDebug);
-    $('#ctp_debug_preview').on('click', showParserPreview);
+    $('#ctp_debug_preview, #ctp_debug_preview_top').on('click', showParserPreview);
     $('#ctp_debug_dry').on('click', showDryRun);
     $('#ctp_generate_last').on('click', () => {
         const mesId = lastFloorId();

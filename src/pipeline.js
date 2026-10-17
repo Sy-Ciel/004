@@ -30,6 +30,7 @@ let queue = Promise.resolve();
 let rerender = () => {};
 let imageAdded = () => {};
 let modeSwitcher = () => false;
+let parserReviewer = null;
 
 const FORCE_NOTE = '\n\n注意：用户手动要求为本楼出图。即使信息不足也不要输出 skip，请根据上下文合理推断。';
 
@@ -58,6 +59,11 @@ function promptFromParse(characterPreset, parsed, parserPrompt, notes) {
 
 export function setRenderer(fn) {
     rerender = fn;
+}
+
+/** 「发送前检查解析输入」: shows the parser input before it is sent; resolves to { system, user } or null (set by the UI). */
+export function setParserReviewer(fn) {
+    parserReviewer = fn;
 }
 
 /** Switches the image model mode for 按画面自动切换模型 without cancelling the job that asked (set by the UI). */
@@ -327,6 +333,22 @@ async function runJob(message, job, options) {
             const parserPrompt = await buildParserPrompt(mesId, target);
             if (force) parserPrompt.user += FORCE_NOTE;
             data.debug.notes.push(...parserPrompt.notes);
+            if (settings.reviewParserInput && parserReviewer) {
+                setStage(job, message, 'parsing', '等待检查解析输入…');
+                const reviewed = await parserReviewer(mesId, parserPrompt, target);
+                if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+                assertMode(modelMode);
+                if (!reviewed) {
+                    job.controller.abort();
+                    throw new DOMException('Aborted', 'AbortError');
+                }
+                if (reviewed.system !== parserPrompt.system || reviewed.user !== parserPrompt.user) {
+                    data.debug.notes.push('解析输入在发送前被手动修改过（只影响这一次）');
+                }
+                parserPrompt.system = reviewed.system;
+                parserPrompt.user = reviewed.user;
+                setStage(job, message, 'parsing', '正在解析角色状态…');
+            }
             // Kept on failure for diagnosis; dropped after a success unless debug mode is on.
             data.debug.parserSystem = parserPrompt.system;
             data.debug.parserUser = parserPrompt.user;

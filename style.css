@@ -670,3 +670,15 @@
     font-size: 0.9em;
     margin-top: 4px;
 }
+
+/* 「发送前检查解析输入」 */
+.ctp-review label {
+    display: block;
+    margin-top: 8px;
+}
+.ctp-review textarea {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: var(--monoFontFamily, monospace);
+    font-size: 0.85em;
+}

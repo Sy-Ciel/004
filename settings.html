@@ -40,6 +40,7 @@
                     <label class="checkbox_label"><input type="checkbox" data-ctp="enabled"> 启用</label>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="autoGenerate"> AI 回复后自动配图</label>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="debug"> 调试模式</label>
+                    <label class="checkbox_label" title="每次请求解析模型之前，先弹出要发送的完整内容，可以检查、修改，再决定发送或取消"><input type="checkbox" data-ctp="reviewParserInput"> 发送前检查解析输入</label>
                 </div>
                 <label>画谁（主角）
                     <select class="text_pole" id="ctp_target"></select>
@@ -48,7 +49,9 @@
                 <div class="ctp-row ctp-wrap-row">
                     <div class="menu_button" id="ctp_generate_last">为最新楼层生成</div>
                     <div class="menu_button" id="ctp_debug_chat">查看各楼层提示词</div>
+                    <div class="menu_button" id="ctp_debug_preview_top">预览解析输入</div>
                 </div>
+                <small class="ctp-hint">检查发给解析 AI 的内容：「预览解析输入」看最新一楼会发什么（不发送）；打开「发送前检查解析输入」后，每次解析前都会先弹出完整内容，可以修改后发送或取消；打开「调试模式」后，每张图的 🐞 里能看到当时实际发送的内容。</small>
                 <div class="ctp-sub-tools">
                     <span class="ctp-link" id="ctp_expand_all">全部展开</span> · <span class="ctp-link" id="ctp_collapse_all">全部收起</span>
                 </div>
