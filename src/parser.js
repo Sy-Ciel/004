@@ -53,9 +53,20 @@ export function storyText(text, parser = getSettings().parser) {
     return source.replace(/```[\s\S]*?(?:```|$)/g, '').trim();
 }
 
+/** Label of the AI's messages while 「隐藏角色卡的名字」 is on. */
+export const HIDDEN_CHAR_LABEL = '正文';
+
+/**
+ * Who a message is from, as the parser sees it. With 「隐藏角色卡的名字」 the AI's messages are labelled 正文
+ * instead of the card's name (for game / narrator cards whose name is not a character).
+ */
+export function speakerLabel(message) {
+    if (message.is_user) return message.name || ctx().name1;
+    return getSettings().parser.hideCharName ? HIDDEN_CHAR_LABEL : message.name || ctx().name2;
+}
+
 function formatMessage(message, maxChars, text = message.mes) {
-    const name = message.name || (message.is_user ? ctx().name1 : ctx().name2);
-    return `${name}: ${truncate(plainText(storyText(text)), maxChars)}`;
+    return `${speakerLabel(message)}: ${truncate(plainText(storyText(text)), maxChars)}`;
 }
 
 /** The current floor's status bar as its own block, so the parser treats it as the main source. */
@@ -205,7 +216,8 @@ function othersReference(mesId, target) {
     const text = [chat[mesId - 1], chat[mesId]].filter(Boolean).map(message => plainText(storyText(message.mes))).join('\n');
     const seen = new Set([target.preset?.id]);
     const lines = [];
-    for (const preset of [findUserPreset(), presetForName(ctx().name2), ...presetsMentioned(text)]) {
+    const card = getSettings().parser.hideCharName ? null : presetForName(ctx().name2);
+    for (const preset of [findUserPreset(), card, ...presetsMentioned(text)]) {
         if (!preset?.appearance || seen.has(preset.id)) continue;
         seen.add(preset.id);
         lines.push(`- ${presetName(preset)}: ${truncate(resolveMacros(preset.appearance), 600)}`);
@@ -222,7 +234,7 @@ async function activatedWorldInfo(mesId) {
     // cooldown effects, and "delay" counts this shortened chat, so later floors don't activate anything.
     const scan = chatUpTo(mesId)
         .filter(message => message && !message.is_system)
-        .map(message => `${message.name}: ${storyText(message.mes)}`)
+        .map(message => `${speakerLabel(message)}: ${storyText(message.mes)}`)
         .reverse();
     const result = await context.getWorldInfoPrompt(scan, context.maxContext, true);
     const depth = (result.worldInfoDepth || []).flatMap(item => item?.entries || []);
@@ -381,6 +393,7 @@ export async function buildParserPrompt(mesId, target) {
             `${modeLabel()} 模式 · 解析预设：${preset.name} · ${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`,
             triggerRule ? `触发词：${triggerWordList().join(', ')}` : '',
             natural ? '英文自然语言写法' : '',
+            settings.parser.hideCharName ? `隐藏了角色卡的名字（AI 的消息标成「${HIDDEN_CHAR_LABEL}」）` : '',
             settings.parser.storyTagOnly
                 ? hasStoryTag(chat[mesId].mes) ? `只读取 <${storyTagName()}> 标签里的正文` : `当前楼层没有 <${storyTagName()}> 标签，读取了全文（去掉了 \`\`\` 代码块）`
                 : '',

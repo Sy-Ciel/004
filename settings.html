@@ -263,6 +263,8 @@
                     <label class="checkbox_label"><input type="checkbox" data-ctp="parser.storyTagOnly"> 只读取正文标签里的内容（不读代码页、选项面板）</label>
                     <label>正文标签名 <input type="text" class="text_pole" data-ctp="parser.storyTag" placeholder="game"></label>
                     <small class="ctp-hint">打开后，每楼只读 &lt;game&gt;……&lt;/game&gt; 之间的内容（标签名可以改，不用写尖括号；有好几段就全读），标签外面的代码页、选项、小剧场不会被当成剧情。没有这个标签的消息（例如你自己发的）照常读全文，但去掉 ``` 代码块。两个模型模式共用这一项。</small>
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="parser.hideCharName"> 隐藏角色卡的名字</label>
+                    <small class="ctp-hint">适合游戏 / 旁白 / 模拟器类的卡（卡名不是一个角色）：打开后，发给解析 AI 的剧情里 AI 的消息不再标卡名，改标「正文」；「自动」选主角时不把卡名当候选，也不把卡名当成可能同框的角色。普通角色卡不要打开（解析 AI 需要知道谁在说话）。「画谁」选 {{char}} 时仍然用卡名。两个模型模式共用。</small>
                     <div class="ctp-row">
                         <label>参考之前几次配图输出 <input type="number" class="text_pole" min="0" max="20" step="1" data-ctp="parser.historyFloors" data-type="int"></label>
                     </div>

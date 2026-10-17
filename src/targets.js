@@ -136,7 +136,8 @@ export function resolveTarget(message, override) {
 
 export function autoCandidates(message) {
     const others = getSettings().presets.filter(preset => !isUserPreset(preset)).map(presetName);
-    const names = [ctx().name1, speakerName(message), ...others];
+    // 「隐藏角色卡的名字」: the card is not a character, so it is not a candidate.
+    const names = [ctx().name1, getSettings().parser.hideCharName ? '' : speakerName(message), ...others];
     const seen = new Set();
     return names.filter(name => {
         const key = String(name || '').trim().toLowerCase();
@@ -154,7 +155,8 @@ export function settleAutoTarget(target, parsedName, message) {
     if (preset) return { ...settled, name: presetName(preset), preset };
     const candidate = target.candidates.find(name => name.toLowerCase() === wanted.toLowerCase());
     if (candidate) return { ...settled, name: candidate, preset: null };
-    // Unknown name: fall back to the speaking character so we still draw a single, known person.
-    const fallback = speakerName(message);
+    // Unknown name: fall back to the speaking character so we still draw a single, known person (the user
+    // when the card's name is hidden: the card is not a character then).
+    const fallback = getSettings().parser.hideCharName ? ctx().name1 : speakerName(message);
     return { ...settled, name: fallback, preset: presetForName(fallback) };
 }

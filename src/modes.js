@@ -17,7 +17,7 @@ const SHARED_KEYS = ['settingsVersion', 'enabled', 'modelMode', 'modeStore', 'pe
  * depends on the chat, not the image model). The rest of those objects (how much the parser reads, the workflow,
  * models, sampling …) is per mode, like every key not listed here.
  */
-export const SHARED_PARSER_KEYS = ['source', 'customUrl', 'customKey', 'customModel', 'profileId', 'temperature', 'maxTokens', 'extraBody', 'models', 'timeoutSec', 'retries', 'thinking', 'thinkingEffort', 'thinkingFormat', 'storyTagOnly', 'storyTag'];
+export const SHARED_PARSER_KEYS = ['source', 'customUrl', 'customKey', 'customModel', 'profileId', 'temperature', 'maxTokens', 'extraBody', 'models', 'timeoutSec', 'retries', 'thinking', 'thinkingEffort', 'thinkingFormat', 'storyTagOnly', 'storyTag', 'hideCharName'];
 export const SHARED_COMFY_KEYS = ['url', 'browserUrl', 'mode', 'lists'];
 const SHARED_NESTED = { parser: SHARED_PARSER_KEYS, comfy: SHARED_COMFY_KEYS };
 

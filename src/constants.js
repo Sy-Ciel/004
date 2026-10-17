@@ -335,6 +335,8 @@ export const DEFAULT_SETTINGS = {
         /** Read only what is inside <storyTag>…</storyTag> of each message (not code pages / option panels); see storyText. */
         storyTagOnly: false,
         storyTag: 'game',
+        /** The character card's name is not shown to the parser (AI messages are labelled 正文); see speakerLabel. */
+        hideCharName: false,
         historyFloors: 3,
         historyIncludePrompt: true,
         worldInfo: 'off',
