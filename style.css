@@ -683,11 +683,36 @@
     font-size: 0.85em;
 }
 
-/* 多张图: the earlier parts of a floor are shown before the end, each with its label. */
-.ctp-scene-label {
-    font-size: 0.85em;
-    opacity: 0.75;
+/* 多张图: each picture has its label and its own 🎲 / ✏️ above it. */
+.ctp-scene-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin: 4px 0 2px;
+    font-size: 0.85em;
+}
+.ctp-scene-label {
+    opacity: 0.75;
+}
+.ctp-picture-tools {
+    display: inline-flex;
+    gap: 10px;
+    opacity: 0.6;
+}
+.ctp-picture-tools .ctp-act {
+    cursor: pointer;
+}
+.ctp-picture-tools .ctp-act:hover {
+    opacity: 1;
+}
+/* A picture put into the text where its part of the floor is. */
+.mes_text .ctp-inserted {
+    display: block;
+    margin: 10px 0;
+    text-indent: 0;
+}
+.mes_text .ctp-inserted img.ctp-img {
+    margin: 0;
 }
 .ctp-figure + .ctp-figure {
     margin-top: 6px;

@@ -102,6 +102,7 @@ export async function showFloorDebug(mesId) {
         ['图片版本', data.images?.length ? `${index + 1} / ${data.images.length}` : '无'],
     ])}
         ${data.debug?.notes?.length ? block('处理备注', data.debug.notes.join('\n'), { copy: false }) : ''}
+        ${image?.scenes?.length ? block('多张图 · 每一段在正文里的开头（图按它插进正文，找不到时几张图放在一起）', [...image.scenes.map(scene => `${scene.label}：${scene.start || '（没有）'}`), `结束时：${image.start || '（没有）'}`].join('\n'), { copy: false }) : ''}
         ${(image?.scenes ?? []).map(scene => block(`多张图 · 前面的一段「${scene.label}」（种子 ${scene.seed}）的提示词`, scene.prompt, { open: false })).join('')}
         ${image ? block(image.scenes?.length ? '结束时这一张使用的正向提示词' : '当前图片使用的正向提示词', image.prompt) : block('最终正向提示词', data.prompt)}
         ${block('ComfyUI 扩写后的提示词（实际用来出图的）', image ? image.refined : data.refinedPrompt)}

@@ -154,8 +154,8 @@ function scenesRules(scenes, mode = 'fixed', allowOthers = false, negative = fal
     if (negative) fields.push('negative');
     return `多张图：这一楼的正文如果明显分成了前后几个时间段或场景（例如前半段是晚上，后半段跳到了第二天早上；或者从酒馆换到了森林），除了主字段写的结束时刻这一张，再为前面的每一段各写一张，按时间顺序放进 earlier_scenes（最多 ${scenes - 1} 个）：
 - 只有时间、地点或画面明显变化才分开；整段都是同一个时间段、同一个场景时，earlier_scenes 写 []（只出一张图）
-- 每一段是一个对象：label（中文，几个字说明是哪一段，例如「前半段·深夜」），再加上和主字段一样的画面字段（${fields.join('、')}），全部按那一段当时的情况写，规则和长度限制都一样；那一段的衣服、地点、光线和结束时刻不一样，就按那一段写
-- 主字段永远写结束时刻（最后一段），不要再放进 earlier_scenes
+- 每一段是一个对象：label（中文，几个字说明是哪一段，例如「前半段·深夜」）；start（这一段在【当前楼层】正文里开头的那句话，原样复制开头的 10～20 个字，用原文的语言，不要翻译、改写或概括，用来把图插到正文里对应的位置；第一段就复制正文开头那句）；再加上和主字段一样的画面字段（${fields.join('、')}），全部按那一段当时的情况写，规则和长度限制都一样；那一段的衣服、地点、光线和结束时刻不一样，就按那一段写
+- 主字段永远写结束时刻（最后一段），不要再放进 earlier_scenes；顶层再写一个 start：最后这一段在正文里开头的那句话，同样原样复制开头的 10～20 个字。earlier_scenes 是 [] 时，顶层 start 写 ""
 - 「画面时刻是当前楼层结束的那一刻」只管主字段；earlier_scenes 画的就是前面已经发生过的那几段`;
 }
 
@@ -167,7 +167,7 @@ export function extraOnlyRules(model, negative = false, aspect = null, scenes = 
     const fields = [
         negative ? '"negative"（字符串，没有就写 ""）' : '',
         aspect ? '"aspect"（字符串，例如 "2:3"）' : '',
-        scenes > 1 ? '"earlier_scenes"（数组，没有就写 []）' : '',
+        scenes > 1 ? '"start"（字符串，没有分段就写 ""）、"earlier_scenes"（数组，没有就写 []）' : '',
     ].filter(Boolean);
     return [
         negative ? negativeRules(model) : '',
@@ -186,7 +186,7 @@ function outputFormat(mode, allowOthers, negative = false, aspect = null, scenes
     if (negative) fields.push('"negative": ""');
     if (aspect) fields.push(`"aspect": "${aspect.fallback}"`);
     if (mode === 'ai') fields.push('"prompt": "完整的英文提示词"');
-    if (scenes > 1) fields.push('"earlier_scenes": []');
+    if (scenes > 1) fields.push('"start": ""', '"earlier_scenes": []');
     return `输出格式：\n{${fields.join(', ')}}`;
 }
 

@@ -1,7 +1,8 @@
 import { EXTRA_KEY, modeDefaults } from './constants.js';
 import { addExtraLoras, getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
-import { currentMode, floorMode, modeLabel } from './modes.js';
-import { buildParserPrompt, parserLabel, requestParse } from './parser.js';
+import { comparable, locateQuotes } from './anchors.js';
+import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
+import { buildParserPrompt, parserLabel, requestParse, storyText } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution, sceneLimit } from './parserPresets.js';
 import { buildImagePrompt, buildNegativePrompt, finishPrompt } from './prompt.js';
 import { modeForRating, readRating } from './rating.js';
@@ -14,6 +15,7 @@ import {
     getSettings,
     isAbortError,
     log,
+    plainText,
     randomSeed,
     resolveMacros,
     roundTo16,
@@ -145,6 +147,8 @@ function imageFolder() {
  * @param {string} [options.prompt] Prompt for edit mode
  * @param {string} [options.negative] Negative prompt for edit mode (default: the floor's)
  * @param {boolean} [options.force] Tell the parser not to skip
+ * @param {number} [options.scene] 多张图: with reroll / edit, redraw only this picture of the version (-1 = the end)
+ * @param {number} [options.version] The version that picture belongs to (default: the shown one)
  */
 export function enqueue(mesId, options = {}) {
     const message = ctx().chat[mesId];
@@ -266,7 +270,7 @@ function applyRating(message, swipeId) {
  * A floor's picture state: what 🔄 and ✏️ reuse and what continuity reads. All of it belongs to one image model
  * mode, data.modelMode (a Krea 2 sentence prompt or preset id means nothing to Anima, and the other way round).
  */
-const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'parsed', 'prompt', 'negative', 'scenes', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
+const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'parsed', 'prompt', 'negative', 'scenes', 'endStart', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
 
 /** Whether a floor has picture state of its own (a parse or a prompt), as opposed to nothing or only an error. */
 function hasFloorState(data) {
@@ -278,6 +282,167 @@ function restoreFloorState(data, previous) {
     for (const key of FLOOR_STATE_KEYS) {
         if (key in previous) data[key] = structuredClone(previous[key]);
         else delete data[key];
+    }
+}
+
+/** The values a workflow template is filled with for one picture: the plan's model, LoRAs and sampling. */
+function workflowValues(plan, modelMode, { prompt, negative, width, height, seed }) {
+    const { comfy } = plan;
+    // A cleared field falls back to the mode's default (Krea 2 Turbo: 8 steps, CFG 1; Anima: 30 steps, CFG 4).
+    const defaults = modeDefaults(modelMode).comfy;
+    return {
+        prompt,
+        negative_prompt: negative || '',
+        width,
+        height,
+        seed,
+        steps: Number(comfy.steps) || defaults.steps,
+        cfg: Number(comfy.cfg) || defaults.cfg,
+        scale: Number(comfy.cfg) || defaults.cfg,
+        sampler: comfy.sampler || defaults.sampler,
+        scheduler: comfy.scheduler || defaults.scheduler,
+        denoise: 1,
+        unet: comfy.unet,
+        model: comfy.unet,
+        clip: comfy.clip,
+        vae: comfy.vae,
+        lora: plan.styleLora,
+        lora_strength: plan.styleLoraStrength,
+        char_lora: plan.charLora,
+        char_lora_strength: plan.charLoraStrength,
+        // Text-encoder strength of the LoRA loaders (0 = model only, like "LoraLoaderModelOnly").
+        lora_clip_strength: plan.loraClip ? plan.styleLoraStrength : 0,
+        char_lora_clip_strength: plan.loraClip ? plan.charLoraStrength : 0,
+        filename_prefix: comfy.filenamePrefix || defaults.filenamePrefix,
+        batch_size: 1,
+    };
+}
+
+/** The workflow for one picture: the template filled in, plus the "更多 LoRA" chain. */
+function buildWorkflow(template, values, plan, notes = []) {
+    const { workflow, notes: prepared } = prepareWorkflow(template.text, values);
+    addExtraLoras(workflow, plan.extraLoras, plan.loraClip, prepared);
+    notes.push(...prepared);
+    return workflow;
+}
+
+/** The latest drawing's settings, for the debug view. */
+function drawingParams(plan, template, values, modelMode) {
+    return {
+        modelMode,
+        renderProfile: plan.profile?.name || '',
+        refine: !!template.refine,
+        workflow: template.name,
+        seed: values.seed,
+        width: values.width,
+        height: values.height,
+        aspect: plan.aspect ? `${plan.aspect}${plan.aspectFromParser ? '（解析模型选的）' : ''}` : '',
+        steps: values.steps,
+        cfg: values.cfg,
+        sampler: values.sampler,
+        scheduler: values.scheduler,
+        unet: values.unet,
+        clip: values.clip,
+        vae: values.vae,
+        lora: values.lora ? `${values.lora} @ ${values.lora_strength}` : '',
+        charLora: values.char_lora ? `${values.char_lora} @ ${values.char_lora_strength}` : '',
+        extraLoras: plan.extraLoras.map(lora => `${lora.name} @ ${lora.strength}`).join('、'),
+        loraClip: plan.loraClip,
+    };
+}
+
+/** What ComfyUI's refine step turned the prompt into ('' without it). */
+function refinedText(template, image) {
+    return template.refine && image.texts?.length ? truncate(image.texts.join('\n'), 4000) : '';
+}
+
+/** Saves a picture on the SillyTavern server; when that fails it is kept in the chat as base64. */
+async function storePicture(image, notes) {
+    try {
+        const path = await saveImage(image, imageFolder(), `ctp_${Date.now()}`);
+        return { src: toSrc(path), path };
+    } catch (error) {
+        warn(error);
+        notes.push(`${error.message}，图片改为 base64 内嵌在聊天记录中`);
+        return { src: `data:image/${image.format};base64,${image.data}`, path: '' };
+    }
+}
+
+/** Adds a version of the floor's picture and shows it; the oldest go beyond the setting's limit. */
+function addVersion(data, version) {
+    data.images.push(version);
+    const maxVersions = Math.max(1, Number(getSettings().maxVersions) || 10);
+    while (data.images.length > maxVersions) data.images.shift();
+    data.index = data.images.length - 1;
+}
+
+/**
+ * 多张图: 🎲 / ✏️ on one picture of a version. Only that picture is drawn, and a new version is added: a copy of
+ * the version it was clicked in with that one picture replaced, so the other parts stay as they are and the old
+ * picture is one version back.
+ */
+async function redrawPicture(message, job, data, options, modelMode, otherMode) {
+    const signal = job.controller.signal;
+    const versionIndex = Number.isInteger(options.version) ? options.version : data.index ?? 0;
+    const base = data.images[Math.min(Math.max(0, versionIndex), data.images.length - 1)];
+    if (!base) throw new Error('这一楼还没有图，不能单独重画');
+    if (imageMode(base) !== modelMode) {
+        throw new Error(`这一版是 ${modeLabel(imageMode(base))} 模式画的，切回 ${modeLabel(imageMode(base))} 模式再单独重画`);
+    }
+    const scene = options.scene;
+    const picture = scene >= 0 ? base.scenes?.[scene] : base;
+    if (!picture) throw new Error('没有找到要重画的这一张');
+    const label = scene >= 0 ? picture.label || `第 ${scene + 1} 段` : base.scenes?.length ? '结束时' : '这一张';
+    const edit = options.mode === 'edit';
+    const overrides = edit ? options.overrides ?? null : null;
+    const prompt = edit ? String(options.prompt ?? '') : String(picture.prompt ?? '');
+    if (!prompt.trim()) throw new Error('提示词是空的');
+    const negative = edit && typeof options.negative === 'string' ? options.negative : picture.negative || '';
+    const plan = renderPlan(data, overrides);
+    const width = overrides?.width ? plan.width : picture.width || plan.width;
+    const height = overrides?.height ? plan.height : picture.height || plan.height;
+    const seed = Number.isFinite(overrides?.seed) && overrides.seed >= 0 ? overrides.seed : randomSeed();
+    data.debug.notes.push(`只重画「${label}」这一张（${edit ? '用编辑过的提示词' : '换了种子'}），这一版的其他几张不变`);
+    if (overrides) {
+        const described = describeOverrides(overrides);
+        if (described) data.debug.notes.push(described);
+    }
+
+    setStage(job, message, 'drawing', `ComfyUI 生成中：「${label}」…`);
+    const values = workflowValues(plan, modelMode, { prompt, negative, width, height, seed });
+    const template = await getWorkflowTemplate(plan.comfy, plan.profile, modelMode);
+    assertMode(modelMode);
+    const workflow = buildWorkflow(template, values, plan, data.debug.notes);
+    data.params = drawingParams(plan, template, values, modelMode);
+    if (getSettings().debug) data.debug.workflow = workflow;
+    else delete data.debug.workflow;
+    const started = performance.now();
+    const image = await runWorkflow(workflow, signal, text => setStage(job, message, 'drawing', `「${label}」${text}`));
+    assertMode(modelMode);
+    data.comfyMs = Math.round(performance.now() - started);
+    const stored = await storePicture(image, data.debug.notes);
+    assertMode(modelMode);
+
+    const version = structuredClone(base);
+    const replaced = scene >= 0 ? version.scenes[scene] : version;
+    Object.assign(replaced, { ...stored, seed, width, height, prompt, negative, refined: refinedText(template, image) || undefined });
+    version.time = Date.now();
+    addVersion(data, version);
+    // An edited prompt is also what 🎲 on the whole set draws next time (when the floor's state is this mode's).
+    if (edit && !otherMode) {
+        if (scene < 0) {
+            data.prompt = prompt;
+            data.negative = negative;
+            data.promptEdited = true;
+            data.editOverrides = overrides ?? undefined;
+        } else if (data.scenes?.[scene]) {
+            data.scenes[scene].prompt = prompt;
+            data.scenes[scene].negative = negative;
+        }
+    }
+    data.skipped = null;
+    if (commit(message, job.swipeId, data) && (message.swipe_id ?? 0) === job.swipeId) {
+        imageAdded(ctx().chat.indexOf(message));
     }
 }
 
@@ -309,6 +474,12 @@ async function runJob(message, job, options) {
         data.error = null;
         data.debug = { ...(data.debug || {}), notes: [] };
         if (ratingNote) data.debug.notes.push(ratingNote);
+        // 多张图: 🎲 / ✏️ on one picture of a version redraws only that picture.
+        if (Number.isInteger(options.scene)) {
+            await redrawPicture(message, job, data, options, modelMode, otherMode);
+            log(`#${mesId} 单独重画完成`, data);
+            return;
+        }
         // Edit-dialog choices stay with the floor for 🔄 (new seed, same settings) until it is parsed again.
         let overrides = mode === 'edit' ? options.overrides ?? null : mode === 'reroll' ? data.editOverrides ?? null : null;
 
@@ -402,18 +573,30 @@ async function runJob(message, job, options) {
             const limit = sceneLimit(settings.parser);
             const scenes = limit > 1 ? (parsed.earlierScenes ?? []).slice(0, limit - 1) : [];
             data.scenes = scenes.map((scene, index) => {
-                const { label, ...fields } = scene;
+                const { label, start, ...fields } = scene;
                 // A field the parser left out is taken from the end of the floor (usually the same outfit).
                 const sceneBuilt = promptFromParse(target.preset, { ...built.parsed, prompt: '', negative: '', others: '', ...fields }, parserPrompt, []);
                 return {
                     label: label || `第 ${index + 1} 段`,
+                    // The part's opening words in the text: where its picture goes (see anchors.js).
+                    start: start || '',
                     parsed: sceneBuilt.parsed,
                     prompt: sceneBuilt.prompt,
                     negative: buildNegativePrompt(target.preset, sceneBuilt.parsed, sceneBuilt.prompt),
                 };
             });
-            if (!data.scenes.length) delete data.scenes;
-            else data.debug.notes.push(`正文分成了 ${data.scenes.length + 1} 段，画 ${data.scenes.length + 1} 张：${[...data.scenes.map(scene => scene.label), '结束时'].join(' → ')}`);
+            if (!data.scenes.length) {
+                delete data.scenes;
+                delete data.endStart;
+            } else {
+                data.endStart = parsed.start || '';
+                data.debug.notes.push(`正文分成了 ${data.scenes.length + 1} 段，画 ${data.scenes.length + 1} 张：${[...data.scenes.map(scene => scene.label), '结束时'].join(' → ')}`);
+                // Where the parts start (the 2nd one on): checked against the text the parser read.
+                const quotes = [...data.scenes.slice(1).map(scene => scene.start), data.endStart];
+                if (!locateQuotes(comparable(plainText(storyText(swipeText(message, job.swipeId)))), quotes)) {
+                    data.debug.notes.push('解析模型给的分段开头在正文里对不上，这几张图会放在一起显示，不插进正文');
+                }
+            }
             if ((parsed.earlierScenes?.length ?? 0) > scenes.length) data.debug.notes.push(`解析模型多写了 ${parsed.earlierScenes.length - scenes.length} 段，超过「最多几张」的没有画`);
             data.parserPresetId = parserPrompt.preset.id;
             data.parserPresetName = parserPrompt.preset.name;
@@ -446,6 +629,7 @@ async function runJob(message, job, options) {
             data.editOverrides = overrides ?? undefined;
             // The edited prompt is the end of the floor only: the earlier parts are not drawn again.
             delete data.scenes;
+            delete data.endStart;
             data.debug.notes.push('提示词由用户手动编辑（原样发送）');
         } else if (!data.promptEdited && !data.editOverrides) {
             // 🔄 keeps the prompt, but trigger words added or changed since then are put in (not into an edited prompt).
@@ -472,66 +656,17 @@ async function runJob(message, job, options) {
         const seed = ownSeed ?? (mode !== 'reroll' && fixedSeed >= 0 ? fixedSeed : randomSeed());
         if (plan.sizeFromPreset) data.debug.notes.push(`分辨率来自解析预设：${width}×${height}`);
         if (plan.aspectFromParser) data.debug.notes.push(`宽高比 ${plan.aspect} 由解析模型选择：${width}×${height}`);
-        // A cleared field falls back to the mode's default (Krea 2 Turbo: 8 steps, CFG 1; Anima: 30 steps, CFG 4).
-        const defaults = modeDefaults(modelMode).comfy;
-        const values = {
-            prompt: data.prompt,
-            negative_prompt: data.negative || '',
-            width,
-            height,
-            seed,
-            steps: Number(comfy.steps) || defaults.steps,
-            cfg: Number(comfy.cfg) || defaults.cfg,
-            scale: Number(comfy.cfg) || defaults.cfg,
-            sampler: comfy.sampler || defaults.sampler,
-            scheduler: comfy.scheduler || defaults.scheduler,
-            denoise: 1,
-            unet: comfy.unet,
-            model: comfy.unet,
-            clip: comfy.clip,
-            vae: comfy.vae,
-            lora: plan.styleLora,
-            lora_strength: plan.styleLoraStrength,
-            char_lora: plan.charLora,
-            char_lora_strength: plan.charLoraStrength,
-            // Text-encoder strength of the LoRA loaders (0 = model only, like "LoraLoaderModelOnly").
-            lora_clip_strength: plan.loraClip ? plan.styleLoraStrength : 0,
-            char_lora_clip_strength: plan.loraClip ? plan.charLoraStrength : 0,
-            filename_prefix: comfy.filenamePrefix || defaults.filenamePrefix,
-            batch_size: 1,
-        };
+        const values = workflowValues(plan, modelMode, { prompt: data.prompt, negative: data.negative, width, height, seed });
 
         const template = await getWorkflowTemplate(comfy, profile, modelMode);
         assertMode(modelMode);
-        const { workflow, notes } = prepareWorkflow(template.text, values);
-        addExtraLoras(workflow, plan.extraLoras, plan.loraClip, notes);
-        data.debug.notes.push(...notes);
+        const workflow = buildWorkflow(template, values, plan, data.debug.notes);
         if (template.refine) {
             data.debug.notes.push(comfy.mode === 'direct'
                 ? 'ComfyUI 端提示词扩写已开启：实际用来出图的是扩写后的文字（见下方）'
                 : 'ComfyUI 端提示词扩写已开启：实际用来出图的是扩写后的文字（「酒馆后端代理」模式拿不到扩写结果，切到「浏览器直连」可以在调试里看到）');
         }
-        data.params = {
-            modelMode,
-            renderProfile: profile?.name || '',
-            refine: !!template.refine,
-            workflow: template.name,
-            seed,
-            width,
-            height,
-            aspect: plan.aspect ? `${plan.aspect}${plan.aspectFromParser ? '（解析模型选的）' : ''}` : '',
-            steps: values.steps,
-            cfg: values.cfg,
-            sampler: values.sampler,
-            scheduler: values.scheduler,
-            unet: values.unet,
-            clip: values.clip,
-            vae: values.vae,
-            lora: values.lora ? `${values.lora} @ ${values.lora_strength}` : '',
-            charLora: values.char_lora ? `${values.char_lora} @ ${values.char_lora_strength}` : '',
-            extraLoras: plan.extraLoras.map(lora => `${lora.name} @ ${lora.strength}`).join('、'),
-            loraClip: plan.loraClip,
-        };
+        data.params = drawingParams(plan, template, values, modelMode);
         if (settings.debug) data.debug.workflow = workflow;
         else delete data.debug.workflow;
 
@@ -539,19 +674,8 @@ async function runJob(message, job, options) {
         const image = await runWorkflow(workflow, signal, text => setStage(job, message, 'drawing', text));
         assertMode(modelMode);
         data.comfyMs = Math.round(performance.now() - started);
-        data.refinedPrompt = template.refine && image.texts?.length ? truncate(image.texts.join('\n'), 4000) : '';
-
-        const store = async picture => {
-            try {
-                const path = await saveImage(picture, imageFolder(), `ctp_${Date.now()}`);
-                return { src: toSrc(path), path };
-            } catch (error) {
-                warn(error);
-                data.debug.notes.push(`${error.message}，图片改为 base64 内嵌在聊天记录中`);
-                return { src: `data:image/${picture.format};base64,${picture.data}`, path: '' };
-            }
-        };
-        const { src, path } = await store(image);
+        data.refinedPrompt = refinedText(template, image);
+        const { src, path } = await storePicture(image, data.debug.notes);
         // A switch during the upload cancelled this picture: the floor is not touched.
         assertMode(modelMode);
 
@@ -563,13 +687,12 @@ async function runJob(message, job, options) {
             const sceneSeed = mode !== 'reroll' && fixedSeed >= 0 ? fixedSeed : randomSeed();
             setStage(job, message, 'drawing', `ComfyUI 生成中：「${scene.label}」（${index + 2}/${earlier.length + 1}）…`);
             try {
-                const { workflow: sceneWorkflow } = prepareWorkflow(template.text, { ...values, prompt: scene.prompt, negative_prompt: scene.negative || '', seed: sceneSeed });
-                addExtraLoras(sceneWorkflow, plan.extraLoras, plan.loraClip, []);
-                const picture = await runWorkflow(sceneWorkflow, signal, text => setStage(job, message, 'drawing', `「${scene.label}」${text}`));
+                const sceneValues = { ...values, prompt: scene.prompt, negative_prompt: scene.negative || '', seed: sceneSeed };
+                const picture = await runWorkflow(buildWorkflow(template, sceneValues, plan), signal, text => setStage(job, message, 'drawing', `「${scene.label}」${text}`));
                 assertMode(modelMode);
-                const stored = await store(picture);
+                const stored = await storePicture(picture, data.debug.notes);
                 assertMode(modelMode);
-                scenes.push({ ...stored, seed: sceneSeed, width, height, prompt: scene.prompt, negative: scene.negative || '', label: scene.label });
+                scenes.push({ ...stored, seed: sceneSeed, width, height, prompt: scene.prompt, negative: scene.negative || '', refined: refinedText(template, picture) || undefined, label: scene.label, start: scene.start || '' });
             } catch (error) {
                 if (isAbortError(error)) throw error;
                 warn(error);
@@ -577,11 +700,18 @@ async function runJob(message, job, options) {
             }
         }
 
-        data.images.push({ src, path, seed, width, height, prompt: data.prompt, negative: data.negative || '', refined: data.refinedPrompt || undefined, scenes: scenes.length ? scenes : undefined, mode: modelMode, time: Date.now() });
+        addVersion(data, {
+            src, path, seed, width, height,
+            prompt: data.prompt,
+            negative: data.negative || '',
+            refined: data.refinedPrompt || undefined,
+            // 多张图: where the end of the floor starts in the text, and the earlier parts' pictures.
+            start: scenes.length ? data.endStart || '' : undefined,
+            scenes: scenes.length ? scenes : undefined,
+            mode: modelMode,
+            time: Date.now(),
+        });
         data.modelMode = modelMode;
-        const maxVersions = Math.max(1, Number(settings.maxVersions) || 10);
-        while (data.images.length > maxVersions) data.images.shift();
-        data.index = data.images.length - 1;
         if (commit(message, job.swipeId, data) && (message.swipe_id ?? 0) === job.swipeId) {
             imageAdded(ctx().chat.indexOf(message));
         }

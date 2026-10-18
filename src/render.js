@@ -1,6 +1,7 @@
 import { renderHints } from './hints.js';
 import { layoutMode } from './layout.js';
-import { currentIndex, statusHtml, toolbarHtml, versionPictures } from './markup.js';
+import { findPartStarts, insertBeforeLine } from './anchors.js';
+import { currentIndex, pictureHtml, statusHtml, toolbarHtml, versionPictures } from './markup.js';
 import { getPanelMesId, schedulePanelRefresh } from './panel.js';
 import { getJob } from './pipeline.js';
 import { decorateStatusBars } from './statusBar.js';
@@ -40,16 +41,63 @@ function applySideLayout(element, wrap, side) {
     }
 }
 
-function imageHtml(data, debug) {
-    const image = data.images[currentIndex(data)];
-    const max = Number(getSettings().imageMaxWidth) || 480;
-    // 多张图: the earlier parts of the floor come first, each with its label.
-    const figures = versionPictures(image).map(picture => `<div class="ctp-figure">
-        ${picture.label ? `<div class="ctp-scene-label">${escapeHtml(picture.label)}</div>` : ''}
-        <img class="ctp-img ctp-act" data-act="zoom" data-scene="${picture.scene}" src="${escapeHtml(picture.src)}" alt="" loading="lazy" style="--ctp-img-max: ${max}px">
-    </div>`);
+function imageStyle() {
+    return `--ctp-img-max: ${Number(getSettings().imageMaxWidth) || 480}px`;
+}
+
+/** The image block: the pictures that are not in the text (see placePictures) and the toolbar. */
+function imageHtml(data, debug, pictures, several) {
+    const figures = pictures.map(picture => `<div class="ctp-figure">${pictureHtml(picture, several, { style: imageStyle() })}</div>`);
     return `${figures.join('')}
     ${toolbarHtml(data, debug)}`;
+}
+
+/** Takes the pictures put into a message's text out again. */
+function clearInserted(element) {
+    const text = element.find('.mes_text').get(0);
+    if (!text) return;
+    text.querySelectorAll('.ctp-inserted').forEach(node => node.remove());
+    delete text.dataset.ctpPlaced;
+}
+
+/**
+ * 多张图: puts the shown version's pictures into the text where their parts are. Layout "below": each picture
+ * after its part, the last one staying under the text with the toolbar; "above" / beside the text: each before
+ * its part, the first one staying in the image block. Returns the pictures for the image block: all of them
+ * when a part's start is not found in the text (nothing is inserted then).
+ */
+function placePictures(element, pictures, kind) {
+    const text = element.find('.mes_text').get(0);
+    if (!text || pictures.length < 2) {
+        clearInserted(element);
+        return pictures;
+    }
+    const signature = `${kind}|${pictures.map(picture => picture.src).join('|')}`;
+    const inserted = text.querySelectorAll('.ctp-inserted');
+    // Still in place from the last render (SillyTavern redraws the text when it changes, which removes them).
+    if (text.dataset.ctpPlaced === signature && inserted.length === pictures.length - 1) {
+        return pictures.filter(picture => picture.scene === Number(text.dataset.ctpKept));
+    }
+    clearInserted(element);
+    const starts = findPartStarts(text, pictures.slice(1).map(picture => picture.start));
+    if (!starts) return pictures;
+    const below = kind !== 'above' && kind !== 'inline';
+    const kept = below ? pictures.at(-1) : pictures[0];
+    // starts[k] is where part k + 1 begins: below, picture i goes there for i = k; otherwise picture k + 1 does.
+    const placed = pictures.every((picture, index) => {
+        if (picture === kept) return true;
+        const figure = document.createElement('div');
+        figure.className = 'ctp-inserted ctp-figure';
+        figure.innerHTML = pictureHtml(picture, true, { style: imageStyle() });
+        return insertBeforeLine(text, starts[below ? index : index - 1], figure);
+    });
+    if (!placed) {
+        clearInserted(element);
+        return pictures;
+    }
+    text.dataset.ctpPlaced = signature;
+    text.dataset.ctpKept = String(kept.scene);
+    return [kept];
 }
 
 /** In panel mode the message only keeps a compact bar; clicking it shows this floor in the panel. */
@@ -88,6 +136,7 @@ export function renderMessage(mesId) {
     const showError = data?.error;
     const showSkip = data?.skipped && settings.debug;
     if (!message || (!showJob && !hasImages && !showError && !showSkip)) {
+        clearInserted(element);
         wrap.remove();
         element.find('.mes_block').removeClass('ctp-has-side ctp-text-wrap');
         schedulePanelRefresh();
@@ -101,9 +150,20 @@ export function renderMessage(mesId) {
     placeWrap(element, wrap, mode.kind);
     applySideLayout(element, wrap, hasImages && mode.kind === 'inline' ? mode.side : null);
 
+    // 多张图: pictures go into the text at their parts; the panel shows them all itself.
+    let pictures = [];
+    let several = false;
+    if (hasImages && mode.kind !== 'panel') {
+        const all = versionPictures(data.images[currentIndex(data)]);
+        several = all.length > 1;
+        pictures = placePictures(element, all, mode.kind);
+    } else {
+        clearInserted(element);
+    }
+
     const parts = [];
     if (showJob) parts.push(statusHtml(job));
-    if (hasImages) parts.push(mode.kind === 'panel' ? chipHtml(data) : imageHtml(data, settings.debug));
+    if (hasImages) parts.push(mode.kind === 'panel' ? chipHtml(data) : imageHtml(data, settings.debug, pictures, several));
     if (showError) {
         parts.push(`<div class="ctp-error">
             <i class="fa-solid fa-triangle-exclamation"></i>

@@ -4,10 +4,11 @@ import { openEditDialog } from './src/editDialog.js';
 import { captureHints, hintsEnabled, openHintDialog, pendingHints, removeHint, stripHints, stripOutgoingChat } from './src/hints.js';
 import { resetPanelForChat, showInPanel } from './src/panel.js';
 import { cancelAllJobs, cancelJob, enqueue, getJob, setImageAddedHandler, setModeSwitcher, setParserReviewer, setRenderer } from './src/pipeline.js';
+import { currentIndex } from './src/markup.js';
 import { onLayoutChange, renderAll, renderMessage } from './src/render.js';
 import { updateRatingPrompt } from './src/rating.js';
 import { updateStatusPrompt } from './src/statusBar.js';
-import { currentMode, modeLabel } from './src/modes.js';
+import { currentMode, imageMode, modeLabel } from './src/modes.js';
 import { findParserPreset } from './src/parserPresets.js';
 import { findPresetByName, findPresetById, initPersonaTracking } from './src/targets.js';
 import { autoSwitchModelMode, initSettingsUi, onPersonaChanged, refreshTargetSelect, switchModelMode, syncPersonaProfile, syncSettingsUi } from './src/ui.js';
@@ -108,9 +109,12 @@ async function deleteImage(mesId) {
     setMessageData(message, swipeId, data.images.length || data.error || data.skipped ? data : null);
     await ctx().saveChat();
     renderMessage(mesId);
-    // 多张图: the earlier parts of the floor go with their version.
-    for (const path of [removed?.path, ...(removed?.scenes ?? []).map(scene => scene.path)]) {
-        if (!path) continue;
+    // 多张图: the earlier parts of the floor go with their version, except files another version still shows
+    // (redrawing one picture copies the others into the new version).
+    const paths = image => [image?.path, ...(image?.scenes ?? []).map(scene => scene.path)].filter(Boolean);
+    const kept = new Set(data.images.flatMap(paths));
+    for (const path of paths(removed)) {
+        if (kept.has(path)) continue;
         fetch('/api/images/delete', {
             method: 'POST',
             headers: ctx().getRequestHeaders(),
@@ -170,6 +174,19 @@ async function redrawWithHints(mesId) {
     else toastr.info(`已删除 #${index} 的画图指令`);
 }
 
+/** 多张图: 🎲 on one picture redraws only that picture of the shown version (a new version with it replaced). */
+function redrawPicture(mesId, scene) {
+    const data = getMessageData(ctx().chat[mesId]);
+    if (!data?.images?.length || !Number.isInteger(scene)) return;
+    const version = currentIndex(data);
+    const drawnIn = imageMode(data.images[version]);
+    if (drawnIn !== currentMode() && !getSettings().autoModelByRating) {
+        toastr.warning(`这一版是 ${modeLabel(drawnIn)} 模式画的，切回 ${modeLabel(drawnIn)} 模式再单独重画`);
+        return;
+    }
+    enqueue(mesId, { mode: 'reroll', scene, version });
+}
+
 function onAction(event) {
     const button = event.currentTarget;
     // Buttons live either inside a chat message or in the side panel (which carries data-mesid).
@@ -186,6 +203,9 @@ function onAction(event) {
         case 'reparse': enqueue(mesId, { mode: 'reparse', force: true }); break;
         case 'force': enqueue(mesId, { mode: 'reparse', force: true }); break;
         case 'edit': openEditDialog(mesId); break;
+        // 多张图: one picture of the shown version.
+        case 'picture-reroll': redrawPicture(mesId, Number(button.dataset.scene)); break;
+        case 'picture-edit': openEditDialog(mesId, Number(button.dataset.scene)); break;
         case 'hint': redrawWithHints(mesId); break;
         case 'debug': showFloorDebug(mesId); break;
         case 'delete': deleteImage(mesId); break;
@@ -312,7 +332,7 @@ function registerEvents() {
 
     onLayoutChange(renderAll);
 
-    $(document).on('click', '.ctp-wrap .ctp-act, #ctp_panel .ctp-act, .ctp-hints .ctp-act', onAction);
+    $(document).on('click', '.ctp-wrap .ctp-act, #ctp_panel .ctp-act, .ctp-hints .ctp-act, .mes_text .ctp-inserted .ctp-act', onAction);
     $(document).on('click', '.ctp_mes_gen', onMessageButton);
 }
 

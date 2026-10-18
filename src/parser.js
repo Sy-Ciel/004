@@ -658,7 +658,7 @@ function parseScenes(value) {
     const scenes = [];
     for (const item of value) {
         if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
-        const scene = { label: normalizeValue(item.label ?? item.time ?? item.name) };
+        const scene = { label: normalizeValue(item.label ?? item.time ?? item.name), start: normalizeValue(item.start ?? item.begin ?? item.quote) };
         for (const field of PARSED_FIELDS) scene[field] = normalizeValue(item[field]);
         scene.prompt = normalizeValue(item.prompt);
         scene.negative = normalizeValue(item.negative ?? item.negative_prompt);
@@ -728,6 +728,8 @@ export function parseParserOutput(raw) {
     result.aspect = normalizeValue(object.aspect ?? object.aspect_ratio);
     // Only with 多张图: the earlier parts of the floor, in order (the main fields are the end of the floor).
     result.earlierScenes = parseScenes(object.earlier_scenes ?? object.earlierScenes);
+    // The opening words of the last part (the end of the floor), to put its picture at its place in the text.
+    result.start = result.earlierScenes.length ? normalizeValue(object.start) : '';
     if (!result.skip && !result.prompt && PARSED_FIELDS.every(field => !result[field])) {
         throw new Error('解析结果里没有任何画面字段');
     }
