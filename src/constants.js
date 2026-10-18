@@ -337,6 +337,10 @@ export const DEFAULT_SETTINGS = {
         storyTag: 'game',
         /** The character card's name is not shown to the parser (AI messages are labelled 正文); see speakerLabel. */
         hideCharName: false,
+        /** 多张图: a floor whose text moves on to another time or place gets a picture for each earlier part too. */
+        multiScene: false,
+        /** Pictures per floor at most, the end of the floor included (2–4). */
+        maxScenes: 3,
         historyFloors: 3,
         historyIncludePrompt: true,
         worldInfo: 'off',

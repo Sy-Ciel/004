@@ -143,19 +143,41 @@ function aspectRules(aspect) {
 }
 
 /**
- * For a custom system prompt without {{output_rules}} that keeps its own output format: only the rules of the
- * extra fields asked for (negative, aspect), plus the fields to add to that format.
+ * Only with 多张图 (parser.multiScene): a floor whose text moves on to another time or place gets a picture for
+ * each earlier part as well, in `earlier_scenes`; the main fields stay the end of the floor.
+ * @param {number} scenes Pictures per floor at most, the end of the floor included
  */
-export function extraOnlyRules(model, negative = false, aspect = null) {
-    const fields = [negative ? '"negative"（字符串，没有就写 ""）' : '', aspect ? '"aspect"（字符串，例如 "2:3"）' : ''].filter(Boolean);
+function scenesRules(scenes, mode = 'fixed', allowOthers = false, negative = false) {
+    const fields = ['outfit', 'action', 'expression', 'demeanor', 'scene', 'camera', 'lighting'];
+    if (allowOthers) fields.push('others');
+    if (mode === 'ai') fields.push('prompt');
+    if (negative) fields.push('negative');
+    return `多张图：这一楼的正文如果明显分成了前后几个时间段或场景（例如前半段是晚上，后半段跳到了第二天早上；或者从酒馆换到了森林），除了主字段写的结束时刻这一张，再为前面的每一段各写一张，按时间顺序放进 earlier_scenes（最多 ${scenes - 1} 个）：
+- 只有时间、地点或画面明显变化才分开；整段都是同一个时间段、同一个场景时，earlier_scenes 写 []（只出一张图）
+- 每一段是一个对象：label（中文，几个字说明是哪一段，例如「前半段·深夜」），再加上和主字段一样的画面字段（${fields.join('、')}），全部按那一段当时的情况写，规则和长度限制都一样；那一段的衣服、地点、光线和结束时刻不一样，就按那一段写
+- 主字段永远写结束时刻（最后一段），不要再放进 earlier_scenes
+- 「画面时刻是当前楼层结束的那一刻」只管主字段；earlier_scenes 画的就是前面已经发生过的那几段`;
+}
+
+/**
+ * For a custom system prompt without {{output_rules}} that keeps its own output format: only the rules of the
+ * extra fields asked for (negative, aspect, earlier scenes), plus the fields to add to that format.
+ */
+export function extraOnlyRules(model, negative = false, aspect = null, scenes = 0) {
+    const fields = [
+        negative ? '"negative"（字符串，没有就写 ""）' : '',
+        aspect ? '"aspect"（字符串，例如 "2:3"）' : '',
+        scenes > 1 ? '"earlier_scenes"（数组，没有就写 []）' : '',
+    ].filter(Boolean);
     return [
         negative ? negativeRules(model) : '',
         aspect ? aspectRules(aspect) : '',
+        scenes > 1 ? scenesRules(scenes, 'fixed', false, negative) : '',
         `在你输出的 JSON 里再加 ${fields.join('、')} 字段。`,
     ].filter(Boolean).join('\n\n');
 }
 
-function outputFormat(mode, allowOthers, negative = false, aspect = null) {
+function outputFormat(mode, allowOthers, negative = false, aspect = null, scenes = 0) {
     const fields = [
         '"skip": false', '"target": "目标角色名"', '"now_doing": ""', '"now_wearing": ""', '"pending": ""',
         '"outfit": ""', '"action": ""', '"expression": ""', '"demeanor": ""', '"scene": ""', '"camera": ""', '"lighting": ""',
@@ -164,6 +186,7 @@ function outputFormat(mode, allowOthers, negative = false, aspect = null) {
     if (negative) fields.push('"negative": ""');
     if (aspect) fields.push(`"aspect": "${aspect.fallback}"`);
     if (mode === 'ai') fields.push('"prompt": "完整的英文提示词"');
+    if (scenes > 1) fields.push('"earlier_scenes": []');
     return `输出格式：\n{${fields.join(', ')}}`;
 }
 
@@ -175,8 +198,9 @@ function outputFormat(mode, allowOthers, negative = false, aspect = null) {
  * - model: the image model mode ('krea2' natural language, 'anima' Danbooru tags).
  * - negative: the parser also writes a negative prompt for this picture (field `negative`).
  * - aspect: { ratios, fallback } when the parser picks the aspect ratio (field `aspect`).
+ * - scenes: with 多张图, pictures per floor at most (field `earlier_scenes`); 0 = one picture.
  */
-export function buildOutputRules(mode, allowOthers = false, model = 'krea2', negative = false, aspect = null) {
+export function buildOutputRules(mode, allowOthers = false, model = 'krea2', negative = false, aspect = null, scenes = 0) {
     return [
         TIMELINE_RULES,
         mode === 'ai' ? APPEARANCE_AI : APPEARANCE_FIXED,
@@ -184,7 +208,8 @@ export function buildOutputRules(mode, allowOthers = false, model = 'krea2', neg
         mode === 'ai' ? promptRule(allowOthers, model) : '',
         negative ? negativeRules(model) : '',
         aspect ? aspectRules(aspect) : '',
-        outputFormat(mode, allowOthers, negative, aspect),
+        scenes > 1 ? scenesRules(scenes, mode, allowOthers, negative) : '',
+        outputFormat(mode, allowOthers, negative, aspect, scenes),
     ].filter(Boolean).join('\n\n');
 }
 

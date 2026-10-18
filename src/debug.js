@@ -102,7 +102,8 @@ export async function showFloorDebug(mesId) {
         ['图片版本', data.images?.length ? `${index + 1} / ${data.images.length}` : '无'],
     ])}
         ${data.debug?.notes?.length ? block('处理备注', data.debug.notes.join('\n'), { copy: false }) : ''}
-        ${image ? block('当前图片使用的正向提示词', image.prompt) : block('最终正向提示词', data.prompt)}
+        ${(image?.scenes ?? []).map(scene => block(`多张图 · 前面的一段「${scene.label}」（种子 ${scene.seed}）的提示词`, scene.prompt, { open: false })).join('')}
+        ${image ? block(image.scenes?.length ? '结束时这一张使用的正向提示词' : '当前图片使用的正向提示词', image.prompt) : block('最终正向提示词', data.prompt)}
         ${block('ComfyUI 扩写后的提示词（实际用来出图的）', image ? image.refined : data.refinedPrompt)}
         ${block('反向提示词', image?.negative ?? data.negative)}
         <h4>① 固定部分（角色预设）</h4>
@@ -249,7 +250,8 @@ export async function showDryRun() {
         await showPopup(`
             <h3>试运行解析 · #${mesId}（不出图）</h3>
             ${table([['目标', result.target.name || '?'], ['预设', result.target.preset?.name || '（无）'], ['跳过', result.parsed.skip ? `是：${result.parsed.reason}` : '否'], ['结束原因', result.reply.finish], ['说明', result.notes.join('；')]])}
-            ${block('最终正向提示词', result.prompt)}
+            ${result.scenes.map(scene => block(`前面的一段「${scene.label}」的提示词（多张图）`, scene.prompt)).join('')}
+            ${block(result.scenes.length ? '结束时这一张的最终正向提示词' : '最终正向提示词', result.prompt)}
             ${result.parsed.prompt ? block('AI 写的完整提示词（prompt 字段）', result.parsed.prompt, { open: false }) : ''}
             ${block('反向提示词', result.negative)}
             ${result.parsed.negative ? block('AI 补充的反向提示词（negative 字段）', result.parsed.negative, { open: false }) : ''}

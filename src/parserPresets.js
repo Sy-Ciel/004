@@ -19,13 +19,19 @@ export function promptMode() {
     return getSettings().promptMode === 'ai' ? 'ai' : 'fixed';
 }
 
-export function outputRules(mode, allowOthers = false, negative = false, aspect = null) {
-    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers, promptStyle(), negative, aspect);
+export function outputRules(mode, allowOthers = false, negative = false, aspect = null, scenes = 0) {
+    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers, promptStyle(), negative, aspect, scenes);
 }
 
-/** Just the extra fields' rules (negative, aspect), for custom system prompts that keep their own format. */
-export function extraFieldRules(negative, aspect) {
-    return extraOnlyRules(promptStyle(), negative, aspect);
+/** Just the extra fields' rules (negative, aspect, earlier scenes), for custom system prompts that keep their own format. */
+export function extraFieldRules(negative, aspect, scenes = 0) {
+    return extraOnlyRules(promptStyle(), negative, aspect, scenes);
+}
+
+/** Pictures per floor with 多张图 (2–4), or 0 when it is off. */
+export function sceneLimit(parser = getSettings().parser) {
+    if (!parser.multiScene) return 0;
+    return Math.min(4, Math.max(2, Math.trunc(Number(parser.maxScenes)) || 3));
 }
 
 /** The active image model mode's built-in preset with this id (each mode has its own wording). */

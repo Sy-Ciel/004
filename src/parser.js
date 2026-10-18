@@ -3,7 +3,7 @@ import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
 import { currentMode, floorMode, imageMode, modeLabel, promptStyle } from './modes.js';
 import { NATURAL_STYLE_RULE } from './parserPresetDefaults.js';
-import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode } from './parserPresets.js';
+import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
 import { ASPECT_RATIOS, parseAspect, parserPicksAspect } from './resolution.js';
 import { describeThinking, profileThinking, thinkingBody, thinkingMaxTokens } from './thinking.js';
 import { triggerWordList } from './prompt.js';
@@ -317,6 +317,8 @@ export async function buildParserPrompt(mesId, target) {
     const allowOthers = !!preset.allowOthers;
     // The parser writes the picture's negative prompt too (Anima: a real negative prompt at CFG 4).
     const negative = !!settings.parserNegative;
+    // 多张图: earlier parts of the floor (another time or place) get pictures of their own.
+    const scenes = sceneLimit(settings.parser);
     // The parser picks the aspect ratio (resolution selector), unless this parser preset sets its own size.
     const aspect = parserPicksAspect(settings.comfy) && !presetResolution(preset)
         ? { ratios: ASPECT_RATIOS, fallback: parseAspect(settings.comfy.aspectRatio) || '1:1' }
@@ -349,7 +351,7 @@ export async function buildParserPrompt(mesId, target) {
         target: target.auto ? '（由你从候选角色中选择）' : target.name,
         appearance: [referenceBlock(target, mode), allowOthers ? othersReference(mesId, target) : ''].filter(Boolean).join('\n'),
         fixed_fields: fixedFieldsBlock(preset),
-        output_rules: outputRules(mode, allowOthers, negative, aspect),
+        output_rules: outputRules(mode, allowOthers, negative, aspect, scenes),
         candidates,
         last_state: target.auto ? '（自动模式下不提供）' : formatState(lastState, shownFloors),
         prev_outputs: prevOutputs,
@@ -378,8 +380,8 @@ export async function buildParserPrompt(mesId, target) {
     // "AI writes the prompt" mode and "allow other people" need the rules that ask for `prompt` / `others`.
     let systemTemplate = String(preset.system || '');
     if ((mode === 'ai' || allowOthers) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += '\n\n{{output_rules}}';
-    // Only the negative is asked for: such a prompt keeps its own format and just gets the negative field.
-    else if ((negative || aspect) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += `\n\n${extraFieldRules(negative, aspect)}`;
+    // Only extra fields are asked for: such a prompt keeps its own format and just gets those fields.
+    else if ((negative || aspect || scenes) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += `\n\n${extraFieldRules(negative, aspect, scenes)}`;
 
     const triggerRule = triggerWordsRule(mode);
     // Anima in natural-language mode: the presets were written for tags, so this rule overrides them.
@@ -399,6 +401,7 @@ export async function buildParserPrompt(mesId, target) {
                 : '',
             negative ? '解析模型补充反向提示词' : '',
             aspect ? '解析模型选择宽高比' : '',
+            scenes ? `多张图：正文换了时间或地点时最多画 ${scenes} 张` : '',
             describeThinking(settings.parser),
             worldInfo.note,
             records.length ? `参考了之前 ${records.length} 次配图输出` : '',
@@ -649,6 +652,21 @@ function normalizeValue(value) {
     return String(value).replace(/\s+/g, ' ').trim().replace(/[.。]+$/, '');
 }
 
+/** The `earlier_scenes` of a reply: objects with a label and picture fields; anything else is dropped. */
+function parseScenes(value) {
+    if (!Array.isArray(value)) return [];
+    const scenes = [];
+    for (const item of value) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+        const scene = { label: normalizeValue(item.label ?? item.time ?? item.name) };
+        for (const field of PARSED_FIELDS) scene[field] = normalizeValue(item[field]);
+        scene.prompt = normalizeValue(item.prompt);
+        scene.negative = normalizeValue(item.negative ?? item.negative_prompt);
+        if (scene.prompt || PARSED_FIELDS.some(field => scene[field])) scenes.push(scene);
+    }
+    return scenes;
+}
+
 /**
  * Extracts the JSON object from the parser's reply. Tolerates code fences, thinking blocks and minor syntax slips.
  * @returns {{ skip: boolean, reason?: string, target?: string } & Record<string, string>}
@@ -708,6 +726,8 @@ export function parseParserOutput(raw) {
     result.negative = normalizeValue(object.negative ?? object.negative_prompt);
     // Only when the parser picks the aspect ratio
     result.aspect = normalizeValue(object.aspect ?? object.aspect_ratio);
+    // Only with 多张图: the earlier parts of the floor, in order (the main fields are the end of the floor).
+    result.earlierScenes = parseScenes(object.earlier_scenes ?? object.earlierScenes);
     if (!result.skip && !result.prompt && PARSED_FIELDS.every(field => !result[field])) {
         throw new Error('解析结果里没有任何画面字段');
     }

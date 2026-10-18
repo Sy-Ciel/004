@@ -2,7 +2,7 @@ import { EXTRA_KEY, modeDefaults } from './constants.js';
 import { addExtraLoras, getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
 import { currentMode, floorMode, modeLabel } from './modes.js';
 import { buildParserPrompt, parserLabel, requestParse } from './parser.js';
-import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution } from './parserPresets.js';
+import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution, sceneLimit } from './parserPresets.js';
 import { buildImagePrompt, buildNegativePrompt, finishPrompt } from './prompt.js';
 import { modeForRating, readRating } from './rating.js';
 import { baseSize } from './resolution.js';
@@ -266,7 +266,7 @@ function applyRating(message, swipeId) {
  * A floor's picture state: what 🔄 and ✏️ reuse and what continuity reads. All of it belongs to one image model
  * mode, data.modelMode (a Krea 2 sentence prompt or preset id means nothing to Anima, and the other way round).
  */
-const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'parsed', 'prompt', 'negative', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
+const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'parsed', 'prompt', 'negative', 'scenes', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
 
 /** Whether a floor has picture state of its own (a parse or a prompt), as opposed to nothing or only an error. */
 function hasFloorState(data) {
@@ -398,6 +398,23 @@ async function runJob(message, job, options) {
             data.parsed = built.parsed;
             data.prompt = built.prompt;
             data.negative = buildNegativePrompt(target.preset, built.parsed, built.prompt);
+            // 多张图: the earlier parts of the floor (another time or place), drawn before the end in the floor.
+            const limit = sceneLimit(settings.parser);
+            const scenes = limit > 1 ? (parsed.earlierScenes ?? []).slice(0, limit - 1) : [];
+            data.scenes = scenes.map((scene, index) => {
+                const { label, ...fields } = scene;
+                // A field the parser left out is taken from the end of the floor (usually the same outfit).
+                const sceneBuilt = promptFromParse(target.preset, { ...built.parsed, prompt: '', negative: '', others: '', ...fields }, parserPrompt, []);
+                return {
+                    label: label || `第 ${index + 1} 段`,
+                    parsed: sceneBuilt.parsed,
+                    prompt: sceneBuilt.prompt,
+                    negative: buildNegativePrompt(target.preset, sceneBuilt.parsed, sceneBuilt.prompt),
+                };
+            });
+            if (!data.scenes.length) delete data.scenes;
+            else data.debug.notes.push(`正文分成了 ${data.scenes.length + 1} 段，画 ${data.scenes.length + 1} 张：${[...data.scenes.map(scene => scene.label), '结束时'].join(' → ')}`);
+            if ((parsed.earlierScenes?.length ?? 0) > scenes.length) data.debug.notes.push(`解析模型多写了 ${parsed.earlierScenes.length - scenes.length} 段，超过「最多几张」的没有画`);
             data.parserPresetId = parserPrompt.preset.id;
             data.parserPresetName = parserPrompt.preset.name;
             data.promptMode = parserPrompt.mode;
@@ -427,17 +444,20 @@ async function runJob(message, job, options) {
             data.prompt = String(options.prompt ?? '');
             data.promptEdited = true;
             data.editOverrides = overrides ?? undefined;
+            // The edited prompt is the end of the floor only: the earlier parts are not drawn again.
+            delete data.scenes;
             data.debug.notes.push('提示词由用户手动编辑（原样发送）');
         } else if (!data.promptEdited && !data.editOverrides) {
             // 🔄 keeps the prompt, but trigger words added or changed since then are put in (not into an edited prompt).
             const finished = finishPrompt(data.prompt);
             if (finished !== data.prompt) data.debug.notes.push('补上了本模式的触发词');
             data.prompt = finished;
+            for (const scene of data.scenes ?? []) scene.prompt = finishPrompt(scene.prompt);
         }
         data.skipped = null;
         if (!String(data.prompt ?? '').trim()) throw new Error('最终提示词为空');
 
-        setStage(job, message, 'drawing', 'ComfyUI 生成中…');
+        setStage(job, message, 'drawing', data.scenes?.length ? `ComfyUI 生成中：结束时这一张（1/${data.scenes.length + 1}）…` : 'ComfyUI 生成中…');
         // The character's render profile swaps in its own model / LoRA / sampling settings.
         const plan = renderPlan(data, overrides);
         const { preset, profile, comfy, width, height } = plan;
@@ -521,20 +541,43 @@ async function runJob(message, job, options) {
         data.comfyMs = Math.round(performance.now() - started);
         data.refinedPrompt = template.refine && image.texts?.length ? truncate(image.texts.join('\n'), 4000) : '';
 
-        let src;
-        let path = '';
-        try {
-            path = await saveImage(image, imageFolder(), `ctp_${Date.now()}`);
-            src = toSrc(path);
-        } catch (error) {
-            warn(error);
-            src = `data:image/${image.format};base64,${image.data}`;
-            data.debug.notes.push(`${error.message}，图片改为 base64 内嵌在聊天记录中`);
-        }
+        const store = async picture => {
+            try {
+                const path = await saveImage(picture, imageFolder(), `ctp_${Date.now()}`);
+                return { src: toSrc(path), path };
+            } catch (error) {
+                warn(error);
+                data.debug.notes.push(`${error.message}，图片改为 base64 内嵌在聊天记录中`);
+                return { src: `data:image/${picture.format};base64,${picture.data}`, path: '' };
+            }
+        };
+        const { src, path } = await store(image);
         // A switch during the upload cancelled this picture: the floor is not touched.
         assertMode(modelMode);
 
-        data.images.push({ src, path, seed, width, height, prompt: data.prompt, negative: data.negative || '', refined: data.refinedPrompt || undefined, mode: modelMode, time: Date.now() });
+        // 多张图: the earlier parts of the floor, with the same model, LoRAs and size. One that fails is noted and
+        // left out; the end of the floor is kept.
+        const scenes = [];
+        const earlier = data.scenes ?? [];
+        for (const [index, scene] of earlier.entries()) {
+            const sceneSeed = mode !== 'reroll' && fixedSeed >= 0 ? fixedSeed : randomSeed();
+            setStage(job, message, 'drawing', `ComfyUI 生成中：「${scene.label}」（${index + 2}/${earlier.length + 1}）…`);
+            try {
+                const { workflow: sceneWorkflow } = prepareWorkflow(template.text, { ...values, prompt: scene.prompt, negative_prompt: scene.negative || '', seed: sceneSeed });
+                addExtraLoras(sceneWorkflow, plan.extraLoras, plan.loraClip, []);
+                const picture = await runWorkflow(sceneWorkflow, signal, text => setStage(job, message, 'drawing', `「${scene.label}」${text}`));
+                assertMode(modelMode);
+                const stored = await store(picture);
+                assertMode(modelMode);
+                scenes.push({ ...stored, seed: sceneSeed, width, height, prompt: scene.prompt, negative: scene.negative || '', label: scene.label });
+            } catch (error) {
+                if (isAbortError(error)) throw error;
+                warn(error);
+                data.debug.notes.push(`「${scene.label}」这一张没画成：${truncate(errorMessage(error), 300)}`);
+            }
+        }
+
+        data.images.push({ src, path, seed, width, height, prompt: data.prompt, negative: data.negative || '', refined: data.refinedPrompt || undefined, scenes: scenes.length ? scenes : undefined, mode: modelMode, time: Date.now() });
         data.modelMode = modelMode;
         const maxVersions = Math.max(1, Number(settings.maxVersions) || 10);
         while (data.images.length > maxVersions) data.images.shift();
@@ -574,7 +617,13 @@ export async function dryRun(mesId, targetOverride) {
     if (target.auto && !raw.skip) target = settleAutoTarget(target, raw.target, message);
     const notes = [...parserPrompt.notes];
     const built = raw.skip ? { parsed: raw, prompt: '' } : promptFromParse(target.preset, raw, parserPrompt, notes);
+    const limit = sceneLimit(getSettings().parser);
+    const scenes = raw.skip || limit < 2 ? [] : (raw.earlierScenes ?? []).slice(0, limit - 1).map((scene, index) => {
+        const { label, ...fields } = scene;
+        return { label: label || `第 ${index + 1} 段`, prompt: promptFromParse(target.preset, { ...built.parsed, prompt: '', negative: '', others: '', ...fields }, parserPrompt, []).prompt };
+    });
     return {
+        scenes,
         target,
         parserPrompt,
         reply,

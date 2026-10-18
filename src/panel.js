@@ -1,5 +1,5 @@
 import { layoutMode } from './layout.js';
-import { currentIndex, statusHtml, toolbarHtml } from './markup.js';
+import { currentIndex, statusHtml, toolbarHtml, versionPictures } from './markup.js';
 import { getJob } from './pipeline.js';
 import { ctx, escapeHtml, getMessageData, getSettings, saveSettings } from './utils.js';
 
@@ -236,8 +236,9 @@ function panelHtml(mesId, data, job) {
         <i class="fa-solid fa-xmark ctp-panel-btn" data-panel-act="close" title="关闭（有新图或点聊天里的配图条时会重新打开）"></i>
     </div>
     ${job ? statusHtml(job) : ''}
-    <div class="ctp-panel-body">
-        <img class="ctp-panel-img ctp-act" data-act="zoom" src="${escapeHtml(image.src)}" alt="" title="点击查看原图">
+    <div class="ctp-panel-body${versionPictures(image).length > 1 ? ' ctp-panel-multi' : ''}">
+        ${versionPictures(image).map(picture => `${picture.label ? `<div class="ctp-scene-label">${escapeHtml(picture.label)}</div>` : ''}
+        <img class="ctp-panel-img ctp-act" data-act="zoom" data-scene="${picture.scene}" src="${escapeHtml(picture.src)}" alt="" title="点击查看原图">`).join('')}
     </div>
     ${toolbarHtml(data, settings.debug)}`;
 }

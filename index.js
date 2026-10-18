@@ -108,11 +108,13 @@ async function deleteImage(mesId) {
     setMessageData(message, swipeId, data.images.length || data.error || data.skipped ? data : null);
     await ctx().saveChat();
     renderMessage(mesId);
-    if (removed?.path) {
+    // 多张图: the earlier parts of the floor go with their version.
+    for (const path of [removed?.path, ...(removed?.scenes ?? []).map(scene => scene.path)]) {
+        if (!path) continue;
         fetch('/api/images/delete', {
             method: 'POST',
             headers: ctx().getRequestHeaders(),
-            body: JSON.stringify({ path: removed.path }),
+            body: JSON.stringify({ path }),
         }).catch(() => {});
     }
 }
@@ -138,15 +140,17 @@ async function clearState(mesId) {
     await ctx().saveChat();
 }
 
-function zoom(mesId) {
+function zoom(mesId, scene = -1) {
     const data = getMessageData(ctx().chat[mesId]);
     const image = data?.images?.[Math.max(0, data.index ?? 0)];
     if (!image) return;
+    // 多张图: one of the earlier parts of the floor (-1 = the end of the floor).
+    const picture = scene >= 0 ? image.scenes?.[scene] ?? image : image;
     const { callGenericPopup, POPUP_TYPE } = ctx();
     const root = document.createElement('div');
     root.className = 'ctp-zoom';
     const img = document.createElement('img');
-    img.src = image.src;
+    img.src = picture.src;
     root.appendChild(img);
     callGenericPopup(root, POPUP_TYPE.DISPLAY ?? POPUP_TYPE.TEXT, '', { large: true, wide: true, allowVerticalScrolling: true });
 }
@@ -186,7 +190,7 @@ function onAction(event) {
         case 'debug': showFloorDebug(mesId); break;
         case 'delete': deleteImage(mesId); break;
         case 'clear': clearState(mesId); break;
-        case 'zoom': zoom(mesId); break;
+        case 'zoom': zoom(mesId, Number(button.dataset.scene ?? -1)); break;
         case 'panel': showInPanel(mesId); break;
         case 'hint-remove':
             removeHint(ctx().chat[mesId], Number(button.dataset.index));

@@ -42,6 +42,15 @@
                     <label class="checkbox_label"><input type="checkbox" data-ctp="debug"> 调试模式</label>
                     <label class="checkbox_label" title="每次请求解析模型之前，先弹出要发送的完整内容，可以检查、修改，再决定发送或取消"><input type="checkbox" data-ctp="reviewParserInput"> 发送前检查解析输入</label>
                 </div>
+                <div class="ctp-row ctp-wrap-row">
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="parser.multiScene"> 多张图：正文换了时间或地点时，每一段各画一张</label>
+                    <label>最多 <select class="text_pole" data-ctp="parser.maxScenes" data-type="int">
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                    </select> 张</label>
+                </div>
+                <small class="ctp-hint">由解析 AI 自动判断：比如前半段是晚上、后半段跳到了第二天早上，就画两张（先晚上，再早上）；整段都是同一个时间、同一个地方就只画一张。几张图按时间顺序显示在这一楼，最后一张是这一楼结束时的样子。多一张就多一次出图时间。两个模型模式共用。</small>
                 <label>画谁（主角）
                     <select class="text_pole" id="ctp_target"></select>
                 </label>

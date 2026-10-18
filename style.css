@@ -682,3 +682,23 @@
     font-family: var(--monoFontFamily, monospace);
     font-size: 0.85em;
 }
+
+/* 多张图: the earlier parts of a floor are shown before the end, each with its label. */
+.ctp-scene-label {
+    font-size: 0.85em;
+    opacity: 0.75;
+    margin: 4px 0 2px;
+}
+.ctp-figure + .ctp-figure {
+    margin-top: 6px;
+}
+.ctp-panel-body.ctp-panel-multi {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    overflow-y: auto;
+    gap: 4px;
+}
+.ctp-panel-body.ctp-panel-multi .ctp-panel-img {
+    height: auto;
+}

@@ -13,6 +13,18 @@ export function statusHtml(job) {
     </div>`;
 }
 
+/**
+ * The pictures of one version in story order: with 多张图 the earlier parts of the floor first, then the end.
+ * @returns {{ src: string, label: string, scene: number }[]} scene = index in image.scenes, -1 for the end
+ */
+export function versionPictures(image) {
+    const scenes = Array.isArray(image?.scenes) ? image.scenes : [];
+    return [
+        ...scenes.map((scene, index) => ({ src: scene.src, label: scene.label || `第 ${index + 1} 段`, scene: index })),
+        { src: image?.src, label: scenes.length ? '结束时' : '', scene: -1 },
+    ];
+}
+
 /** Version navigation and per-image actions; handled by the delegated `.ctp-act` click handler. */
 export function toolbarHtml(data, debug) {
     const index = currentIndex(data);

@@ -1,6 +1,6 @@
 import { renderHints } from './hints.js';
 import { layoutMode } from './layout.js';
-import { currentIndex, statusHtml, toolbarHtml } from './markup.js';
+import { currentIndex, statusHtml, toolbarHtml, versionPictures } from './markup.js';
 import { getPanelMesId, schedulePanelRefresh } from './panel.js';
 import { getJob } from './pipeline.js';
 import { decorateStatusBars } from './statusBar.js';
@@ -42,9 +42,13 @@ function applySideLayout(element, wrap, side) {
 
 function imageHtml(data, debug) {
     const image = data.images[currentIndex(data)];
-    return `<div class="ctp-figure">
-        <img class="ctp-img ctp-act" data-act="zoom" src="${escapeHtml(image.src)}" alt="" loading="lazy" style="--ctp-img-max: ${Number(getSettings().imageMaxWidth) || 480}px">
-    </div>
+    const max = Number(getSettings().imageMaxWidth) || 480;
+    // 多张图: the earlier parts of the floor come first, each with its label.
+    const figures = versionPictures(image).map(picture => `<div class="ctp-figure">
+        ${picture.label ? `<div class="ctp-scene-label">${escapeHtml(picture.label)}</div>` : ''}
+        <img class="ctp-img ctp-act" data-act="zoom" data-scene="${picture.scene}" src="${escapeHtml(picture.src)}" alt="" loading="lazy" style="--ctp-img-max: ${max}px">
+    </div>`);
+    return `${figures.join('')}
     ${toolbarHtml(data, debug)}`;
 }
 

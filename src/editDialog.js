@@ -52,9 +52,11 @@ export async function openEditDialog(mesId) {
     // The prompt shown is the selected version's, which may be an older picture of the other mode.
     const drawnIn = image ? imageMode(image) : data ? floorMode(data) : currentMode();
     const sameMode = drawnIn === currentMode();
-    const modeNote = !sameMode
+    const modeNote = (!sameMode
         ? `<p class="ctp-warn">这一楼上次是 ${modeLabel(drawnIn)} 模式画的，下面的提示词是给 ${modeLabel(drawnIn)} 写的；这次会用 ${modeLabel()} 模式的模型、工作流和角色预设出图。</p>`
-        : '';
+        : '') + (image?.scenes?.length
+        ? `<p class="ctp-hint">这一版有 ${image.scenes.length + 1} 张图（多张图）。这里编辑的是「结束时」这一张，生成后只有这一张，前面几段不重画。</p>`
+        : '');
 
     const root = document.createElement('div');
     root.className = 'ctp-edit';
