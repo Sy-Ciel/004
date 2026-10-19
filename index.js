@@ -174,8 +174,11 @@ async function redrawWithHints(mesId) {
     else toastr.info(`已删除 #${index} 的画图指令`);
 }
 
-/** 多张图: 🎲 on one picture redraws only that picture of the shown version (a new version with it replaced). */
-function redrawPicture(mesId, scene) {
+/**
+ * 多张图: 🎲 (reroll) / 🔄 (reparse) on one picture redraws only that picture of the shown version (a new
+ * version with it replaced); 🔄 asks the parser for that part again first.
+ */
+function redrawPicture(mesId, scene, mode = 'reroll') {
     const data = getMessageData(ctx().chat[mesId]);
     if (!data?.images?.length || !Number.isInteger(scene)) return;
     const version = currentIndex(data);
@@ -184,7 +187,7 @@ function redrawPicture(mesId, scene) {
         toastr.warning(`这一版是 ${modeLabel(drawnIn)} 模式画的，切回 ${modeLabel(drawnIn)} 模式再单独重画`);
         return;
     }
-    enqueue(mesId, { mode: 'reroll', scene, version });
+    enqueue(mesId, { mode, scene, version });
 }
 
 function onAction(event) {
@@ -205,6 +208,7 @@ function onAction(event) {
         case 'edit': openEditDialog(mesId); break;
         // 多张图: one picture of the shown version.
         case 'picture-reroll': redrawPicture(mesId, Number(button.dataset.scene)); break;
+        case 'picture-reparse': redrawPicture(mesId, Number(button.dataset.scene), 'reparse'); break;
         case 'picture-edit': openEditDialog(mesId, Number(button.dataset.scene)); break;
         case 'hint': redrawWithHints(mesId); break;
         case 'debug': showFloorDebug(mesId); break;

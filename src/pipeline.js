@@ -421,6 +421,85 @@ function addVersion(data, version) {
 }
 
 /**
+ * Sends a parser prompt (shown first with 发送前检查解析输入) and keeps the reply for the debug view.
+ * @returns {Promise<object>} The parsed reply
+ */
+async function askParser(message, job, data, parserPrompt, target, modelMode) {
+    const settings = getSettings();
+    const signal = job.controller.signal;
+    const mesId = ctx().chat.indexOf(message);
+    data.debug.notes.push(...parserPrompt.notes);
+    if (settings.reviewParserInput && parserReviewer) {
+        const stage = job.text;
+        setStage(job, message, 'parsing', '等待检查解析输入…');
+        const reviewed = await parserReviewer(mesId, parserPrompt, target);
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        assertMode(modelMode);
+        if (!reviewed) {
+            job.controller.abort();
+            throw new DOMException('Aborted', 'AbortError');
+        }
+        if (reviewed.system !== parserPrompt.system || reviewed.user !== parserPrompt.user) {
+            data.debug.notes.push('解析输入在发送前被手动修改过（只影响这一次）');
+        }
+        parserPrompt.system = reviewed.system;
+        parserPrompt.user = reviewed.user;
+        setStage(job, message, 'parsing', stage);
+    }
+    // Kept on failure for diagnosis; dropped after a success unless debug mode is on.
+    data.debug.parserSystem = parserPrompt.system;
+    data.debug.parserUser = parserPrompt.user;
+    data.parser = parserLabel();
+    data.parserRaw = '';
+    data.parserReasoning = '';
+    data.parserFinish = '';
+
+    const started = performance.now();
+    assertMode(modelMode);
+    const { parsed } = await requestParse(parserPrompt.system, parserPrompt.user, signal, {
+        onReply: reply => {
+            data.parserRaw = truncate(reply.content, 6000);
+            data.parserReasoning = truncate(reply.reasoning, 4000);
+            data.parserFinish = reply.finish || '';
+            log(`#${mesId} 解析输出`, reply);
+        },
+        onRetry: (attempt, max, error) => {
+            data.debug.notes.push(`解析第 ${attempt} 次失败，已自动重试：${truncate(errorMessage(error), 300)}`);
+            setStage(job, message, 'parsing', `解析失败，正在重试（${attempt}/${max}）…`);
+        },
+    });
+    data.parserMs = Math.round(performance.now() - started);
+    assertMode(modelMode);
+    if (!settings.debug) {
+        delete data.debug.parserSystem;
+        delete data.debug.parserUser;
+    }
+    return parsed;
+}
+
+/**
+ * 多张图: 🔄 on one picture: the parser writes that part again (kept where it is in the text), giving its new
+ * prompt and who it shows.
+ */
+async function parsePicture(message, job, data, base, scene, label, modelMode) {
+    const mesId = ctx().chat.indexOf(message);
+    const picture = scene >= 0 ? base.scenes[scene] : base;
+    const count = (base.scenes?.length ?? 0) + 1;
+    const focus = { label, start: picture.start || '', place: picture.place || '', index: scene >= 0 ? scene : count - 1, count, end: scene < 0 };
+    // The floor's target as set (not who the last parse drew instead).
+    const chosen = resolveTarget(message);
+    setStage(job, message, 'parsing', `正在重新解析「${label}」…`);
+    const parserPrompt = await buildParserPrompt(mesId, chosen, { focus });
+    parserPrompt.user += FORCE_NOTE;
+    assertMode(modelMode);
+    const parsed = await askParser(message, job, data, parserPrompt, chosen, modelMode);
+    if (parsed.skip) throw new Error(`解析模型认为「${label}」这一段没有可以画的内容${parsed.reason ? `：${parsed.reason}` : ''}`);
+    const { subject } = subjectsOf(chosen, parsed, parserPrompt, message, data.debug.notes);
+    const built = promptFromParse(subjectPreset(subject), parsed, parserPrompt, data.debug.notes, { nobody: !!subject.nobody });
+    return { subject, parsed: built.parsed, prompt: built.prompt, negative: buildNegativePrompt(subject.preset, built.parsed, built.prompt) };
+}
+
+/**
  * 多张图: 🎲 / ✏️ on one picture of a version. Only that picture is drawn, and a new version is added: a copy of
  * the version it was clicked in with that one picture replaced, so the other parts stay as they are and the old
  * picture is one version back.
@@ -438,17 +517,23 @@ async function redrawPicture(message, job, data, options, modelMode, otherMode) 
     if (!picture) throw new Error('没有找到要重画的这一张');
     const label = scene >= 0 ? picture.label || `第 ${scene + 1} 段` : base.scenes?.length ? '结束时' : '这一张';
     const edit = options.mode === 'edit';
+    // 🔄 on the picture: the parser writes this part again; 🎲 / ✏️ keep (or take) a prompt.
+    const reparse = !edit && options.mode !== 'reroll';
     const overrides = edit ? options.overrides ?? null : null;
-    const prompt = edit ? String(options.prompt ?? '') : String(picture.prompt ?? '');
+    const fresh = reparse ? await parsePicture(message, job, data, base, scene, label, modelMode) : null;
+    const prompt = fresh ? fresh.prompt : edit ? String(options.prompt ?? '') : String(picture.prompt ?? '');
     if (!prompt.trim()) throw new Error('提示词是空的');
-    const negative = edit && typeof options.negative === 'string' ? options.negative : picture.negative || '';
-    // A part showing someone else than the floor's subject keeps that person's character LoRA.
-    const own = scene >= 0 && 'presetId' in picture && picture.presetId !== (data.presetId ?? null);
-    const plan = renderPlan(own ? { ...data, presetId: picture.presetId, target: picture.target } : data, overrides);
+    const negative = fresh ? fresh.negative : edit && typeof options.negative === 'string' ? options.negative : picture.negative || '';
+    // Whose character LoRA: a part showing someone else than the floor's subject keeps that person's.
+    const who = fresh
+        ? { presetId: fresh.subject.preset?.id ?? null, target: fresh.subject.name }
+        : scene >= 0 && 'presetId' in picture ? { presetId: picture.presetId, target: picture.target } : null;
+    const own = !!who && who.presetId !== (data.presetId ?? null);
+    const plan = renderPlan(own ? { ...data, ...who } : data, overrides);
     const width = overrides?.width ? plan.width : picture.width || plan.width;
     const height = overrides?.height ? plan.height : picture.height || plan.height;
     const seed = Number.isFinite(overrides?.seed) && overrides.seed >= 0 ? overrides.seed : randomSeed();
-    data.debug.notes.push(`只重画「${label}」这一张（${edit ? '用编辑过的提示词' : '换了种子'}），这一版的其他几张不变`);
+    data.debug.notes.push(`只重画「${label}」这一张（${fresh ? '重新解析' : edit ? '用编辑过的提示词' : '换了种子'}），这一版的其他几张不变`);
     if (overrides) {
         const described = describeOverrides(overrides);
         if (described) data.debug.notes.push(described);
@@ -472,8 +557,29 @@ async function redrawPicture(message, job, data, options, modelMode, otherMode) 
     const version = structuredClone(base);
     const replaced = scene >= 0 ? version.scenes[scene] : version;
     Object.assign(replaced, { ...stored, seed, width, height, prompt, negative, refined: refinedText(template, image) || undefined });
+    // A part parsed again records who it shows now (the end of the floor's subject is the floor's, below).
+    if (fresh && scene >= 0) Object.assign(replaced, who);
     version.time = Date.now();
     addVersion(data, version);
+    // A part parsed again is also what 🎲 on the whole set draws next, and what later floors continue from.
+    if (fresh && !otherMode) {
+        const subject = fresh.subject;
+        const subjectState = subject.nobody ? 'nobody' : subject.substitute ? 'substitute' : undefined;
+        if (scene < 0) {
+            Object.assign(data, { parsed: fresh.parsed, prompt, negative, target: subject.auto ? '' : subject.name, presetId: subject.preset?.id ?? null });
+            data.fixed = {
+                appearance: resolveMacros(subject.preset?.appearance || subject.looks || ''),
+                trigger: resolveMacros(subject.preset?.trigger || ''),
+                preset: subject.preset ? resolveMacros(subject.preset.name) : '',
+            };
+            if (subjectState) data.subject = subjectState;
+            else delete data.subject;
+            delete data.promptEdited;
+            delete data.editOverrides;
+        } else if (data.scenes?.[scene] && data.scenes[scene].label === picture.label) {
+            Object.assign(data.scenes[scene], { parsed: fresh.parsed, prompt, negative, ...who, subject: subjectState });
+        }
+    }
     // An edited prompt is also what 🎲 on the whole set draws next time (when the floor's state is this mode's).
     if (edit && !otherMode) {
         if (scene < 0) {
@@ -553,51 +659,7 @@ async function runJob(message, job, options) {
             applyTarget(target);
             const parserPrompt = await buildParserPrompt(mesId, target);
             if (force) parserPrompt.user += FORCE_NOTE;
-            data.debug.notes.push(...parserPrompt.notes);
-            if (settings.reviewParserInput && parserReviewer) {
-                setStage(job, message, 'parsing', '等待检查解析输入…');
-                const reviewed = await parserReviewer(mesId, parserPrompt, target);
-                if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-                assertMode(modelMode);
-                if (!reviewed) {
-                    job.controller.abort();
-                    throw new DOMException('Aborted', 'AbortError');
-                }
-                if (reviewed.system !== parserPrompt.system || reviewed.user !== parserPrompt.user) {
-                    data.debug.notes.push('解析输入在发送前被手动修改过（只影响这一次）');
-                }
-                parserPrompt.system = reviewed.system;
-                parserPrompt.user = reviewed.user;
-                setStage(job, message, 'parsing', '正在解析角色状态…');
-            }
-            // Kept on failure for diagnosis; dropped after a success unless debug mode is on.
-            data.debug.parserSystem = parserPrompt.system;
-            data.debug.parserUser = parserPrompt.user;
-            data.parser = parserLabel();
-            data.parserRaw = '';
-            data.parserReasoning = '';
-            data.parserFinish = '';
-
-            const started = performance.now();
-            assertMode(modelMode);
-            const { parsed } = await requestParse(parserPrompt.system, parserPrompt.user, signal, {
-                onReply: reply => {
-                    data.parserRaw = truncate(reply.content, 6000);
-                    data.parserReasoning = truncate(reply.reasoning, 4000);
-                    data.parserFinish = reply.finish || '';
-                    log(`#${mesId} 解析输出`, reply);
-                },
-                onRetry: (attempt, max, error) => {
-                    data.debug.notes.push(`解析第 ${attempt} 次失败，已自动重试：${truncate(errorMessage(error), 300)}`);
-                    setStage(job, message, 'parsing', `解析失败，正在重试（${attempt}/${max}）…`);
-                },
-            });
-            data.parserMs = Math.round(performance.now() - started);
-            assertMode(modelMode);
-            if (!settings.debug) {
-                delete data.debug.parserSystem;
-                delete data.debug.parserUser;
-            }
+            const parsed = await askParser(message, job, data, parserPrompt, target, modelMode);
             if (parsed.skip && !force) {
                 // A skip in this mode leaves the other mode's picture state as it was.
                 if (!converted) restoreFloorState(data, previous);

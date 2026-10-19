@@ -32,7 +32,9 @@ export function pictureHtml(picture, several, { imgClass = 'ctp-img', style = ''
     const tools = several
         ? `<span class="ctp-picture-tools">
             <i class="fa-solid fa-dice ctp-act" data-act="picture-reroll" data-scene="${picture.scene}" title="只换种子重画这一张（其他几张不变）"></i>
+            <i class="fa-solid fa-rotate ctp-act" data-act="picture-reparse" data-scene="${picture.scene}" title="只重新解析这一张：解析模型重写这一段的画面，只重画这一张（其他几张不变）"></i>
             <i class="fa-solid fa-pen-to-square ctp-act" data-act="picture-edit" data-scene="${picture.scene}" title="编辑这一张的提示词后只重画这一张"></i>
+            <span class="ctp-link ctp-act" data-act="reparse" title="全部重新解析：重新分段，几张图都重画">全部重新解析</span>
         </span>`
         : '';
     const head = picture.label || tools ? `<div class="ctp-scene-head"><span class="ctp-scene-label">${escapeHtml(picture.label)}</span>${tools}</div>` : '';
@@ -54,7 +56,7 @@ export function toolbarHtml(data, debug, { panelButton = false } = {}) {
     return `<div class="ctp-toolbar">
         ${nav}
         <i class="fa-solid fa-dice ctp-act" data-act="reroll" title="${image?.scenes?.length ? '全部换种子重画（每张图上的 🎲 只重画那一张）' : '同一提示词换种子重画'}"></i>
-        <i class="fa-solid fa-rotate ctp-act" data-act="reparse" title="重新解析状态并生成"></i>
+        <i class="fa-solid fa-rotate ctp-act" data-act="reparse" title="${image?.scenes?.length ? '全部重新解析：重新分段，几张图都重画（每张图上的 🔄 只重新解析那一张）' : '重新解析状态并生成'}"></i>
         <i class="fa-solid fa-pen-to-square ctp-act" data-act="edit" title="${image?.scenes?.length ? '编辑「结束时」这一张的提示词后重画（其他几张不变）' : '编辑提示词后生成'}"></i>
         <i class="fa-solid fa-comment-dots ctp-act" data-act="hint" title="加画图指令重画（不改正文）"></i>
         ${panelButton ? '<i class="fa-solid fa-table-columns ctp-act" data-act="panel" title="在侧边面板中显示这一楼的图"></i>' : ''}

@@ -313,22 +313,42 @@ function fixedFieldsBlock(preset) {
  * Builds the system + user messages for the parser model from the active parser preset.
  * @returns {Promise<{ system: string, user: string, notes: string[], preset: object, mode: 'fixed'|'ai' }>}
  */
-export async function buildParserPrompt(mesId, target) {
+/**
+ * 多张图, 🔄 on one picture: the parser writes that one part again. Its place in the text stays as it was.
+ * @typedef {{ label: string, start: string, place: string, index: number, count: number, end: boolean }} PartFocus
+ */
+function focusBlock(focus) {
+    const where = [
+        focus.start ? `这一段在正文里从「${focus.start}」开始` : '',
+        focus.place ? `这张图插在「${focus.place}」这句话后面` : '',
+    ].filter(Boolean).join('，');
+    return `【这次只重新写一张图】这一楼的配图按时间分成了 ${focus.count} 段，这次只重写第 ${focus.index + 1} 段「${focus.label}」的那一张${where ? `（${where}）` : ''}：
+- 主字段只写这一段画面那一刻的情况${focus.end ? '（也就是这一楼结束的时刻）' : '；时间线规则里的「画面时刻」这次换成这一段，不是这一楼结束的时刻'}
+- 不要写 earlier_scenes，也不要写别的段`;
+}
+
+/**
+ * @param {number} mesId
+ * @param {object} target
+ * @param {{ focus?: PartFocus }} [options] focus: only one part of the floor is written (🔄 on one picture)
+ */
+export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     const settings = getSettings();
     const preset = activeParserPreset();
     const mode = promptMode();
     const allowOthers = !!preset.allowOthers;
     // The parser writes the picture's negative prompt too (Anima: a real negative prompt at CFG 4).
     const negative = !!settings.parserNegative;
-    // 多张图: earlier parts of the floor (another time or place) get pictures of their own.
-    const scenes = sceneLimit(settings.parser);
+    // 多张图: earlier parts of the floor (another time or place) get pictures of their own. One part written
+    // again keeps its place and size, so neither the parts nor the place and aspect are asked for then.
+    const scenes = focus ? 0 : sceneLimit(settings.parser);
     // 图片插在正文中间: the parser picks the sentence each picture goes after.
-    const place = !!settings.placeInStory;
+    const place = !focus && !!settings.placeInStory;
     // 画谁不在画面里: who to draw when the target is not in the scene, instead of skipping (not for sprites,
     // which always show the target).
     const absent = settings.absentFallback !== false && preset.id !== 'sprite' ? { auto: !!target.auto } : null;
     // The parser picks the aspect ratio (resolution selector), unless this parser preset sets its own size.
-    const aspect = parserPicksAspect(settings.comfy) && !presetResolution(preset)
+    const aspect = !focus && parserPicksAspect(settings.comfy) && !presetResolution(preset)
         ? { ratios: ASPECT_RATIOS, fallback: parseAspect(settings.comfy.aspectRatio) || '1:1' }
         : null;
     const chat = chatUpTo(mesId);
@@ -396,7 +416,7 @@ export async function buildParserPrompt(mesId, target) {
     const natural = promptStyle() === 'anima-natural';
     return {
         system: [fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', triggerRule].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
-        user: fillTemplate(userTemplate, vars).replace(/\n{3,}/g, '\n\n'),
+        user: [fillTemplate(userTemplate, vars), focus ? focusBlock(focus) : ''].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
         preset,
         mode,
         absent: !!absent,
@@ -413,6 +433,7 @@ export async function buildParserPrompt(mesId, target) {
             scenes ? `多张图：正文换了时间或地点时最多画 ${scenes} 张` : '',
             place ? '图片插在正文中间：由解析模型选位置' : '',
             absent ? '画谁不在画面里时，改画在场的人或场景' : '',
+            focus ? `只重新解析「${focus.label}」这一张` : '',
             describeThinking(settings.parser),
             worldInfo.note,
             records.length ? `参考了之前 ${records.length} 次配图输出` : '',
