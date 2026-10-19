@@ -47,7 +47,7 @@ export function locateQuotes(text, quotes) {
 const SKIP = 'pre, code, script, style, iframe, details, .ctp-inserted, .ctp-wrap';
 const BLOCKS = new Set(['P', 'DIV', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TABLE', 'PRE', 'HR', 'SECTION', 'ARTICLE', 'DETAILS', 'FIGURE', 'DL', 'CENTER']);
 
-/** The shown text of an element as comparable characters, with the text node each one comes from. */
+/** The shown text of an element as comparable characters, with the text node and offset each one comes from. */
 function textMap(root) {
     let text = '';
     const positions = [];
@@ -55,15 +55,40 @@ function textMap(root) {
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
         const skipped = node.parentElement?.closest(SKIP);
         if (skipped && skipped !== root && root.contains(skipped)) continue;
+        let offset = 0;
         for (const char of node.nodeValue) {
-            if (!/[\p{L}\p{N}]/u.test(char)) continue;
-            const lower = char.toLowerCase();
-            text += lower;
-            // One entry per UTF-16 unit, so indexes into `text` index `positions` too.
-            for (let unit = 0; unit < lower.length; unit++) positions.push(node);
+            if (/[\p{L}\p{N}]/u.test(char)) {
+                const lower = char.toLowerCase();
+                text += lower;
+                // One entry per UTF-16 unit, so indexes into `text` index `positions` too.
+                for (let unit = 0; unit < lower.length; unit++) positions.push({ node, offset });
+            }
+            offset += char.length;
         }
     }
     return { text, positions };
+}
+
+/**
+ * Where quotes start in the shown text of `root`: in order (each after the one before), or, when `lenient`,
+ * each one anywhere if they are not all found in order.
+ * @returns {{ node: Text, offset: number }[] | null} null when one is not found
+ */
+export function findQuotePositions(root, quotes, lenient = false) {
+    if (!quotes.length || quotes.some(quote => !quote)) return null;
+    const { text, positions } = textMap(root);
+    let found = locateQuotes(text, quotes);
+    if (!found && lenient) found = quotes.map(quote => findQuote(text, quote));
+    return found?.every(index => index >= 0) ? found.map(index => positions[index]) : null;
+}
+
+/** The top on screen (viewport y) of the line a position from findQuotePositions is on. */
+export function positionTop({ node, offset }) {
+    const range = document.createRange();
+    range.setStart(node, offset);
+    range.setEnd(node, Math.min(node.nodeValue.length, offset + 1));
+    const box = range.getBoundingClientRect();
+    return box.height ? box.top : node.parentElement?.getBoundingClientRect().top ?? 0;
 }
 
 /** Puts `figure` at the start of the line `node` is on: after a line break or block before it, else before its block. */
@@ -136,10 +161,7 @@ function insertAtLineEnd(root, node, element) {
  * @returns {Node[] | null} The text node each sentence starts in, or null when one is not found
  */
 export function findPlaces(root, quotes) {
-    if (!quotes.length || quotes.some(quote => !quote)) return null;
-    const { text, positions } = textMap(root);
-    const found = locateQuotes(text, quotes) ?? quotes.map(quote => findQuote(text, quote));
-    return found.every(index => index >= 0) ? found.map(index => positions[index]) : null;
+    return findQuotePositions(root, quotes, true)?.map(position => position.node) ?? null;
 }
 
 /** Inserts `element` right after the line the text node `node` (from findPlaces) is on. */
@@ -153,10 +175,7 @@ export function insertAfterLine(root, node, element) {
  * @returns {Node[] | null} The text node each part starts in, or null when one is not found
  */
 export function findPartStarts(root, quotes) {
-    if (!quotes.length || quotes.some(quote => !quote)) return null;
-    const { text, positions } = textMap(root);
-    const found = locateQuotes(text, quotes);
-    return found ? found.map(index => positions[index]) : null;
+    return findQuotePositions(root, quotes)?.map(position => position.node) ?? null;
 }
 
 /** Inserts `figure` at the start of the line the text node `node` (from findPartStarts) is on. */

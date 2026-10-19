@@ -717,15 +717,35 @@
 .ctp-figure + .ctp-figure {
     margin-top: 6px;
 }
-.ctp-panel-body.ctp-panel-multi {
+/* 多张图 in the side panel: one picture at a time, turned with the reading position or ‹ ›. */
+.ctp-panel-body.ctp-panel-paged {
     flex-direction: column;
     align-items: stretch;
-    justify-content: flex-start;
-    overflow-y: auto;
-    gap: 4px;
 }
-.ctp-panel-body.ctp-panel-multi .ctp-panel-img {
+.ctp-panel-page {
+    display: none;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+}
+.ctp-panel-page.ctp-on {
+    display: flex;
+}
+.ctp-panel-page .ctp-panel-img {
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
     height: auto;
+    object-fit: contain;
+}
+.ctp-panel-pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 2px 0;
+    font-size: 0.85em;
+    opacity: 0.85;
 }
 /* 图片插在正文中间: the image block inside the story text. */
 .mes_text .ctp-wrap {

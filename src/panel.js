@@ -1,3 +1,4 @@
+import { findQuotePositions, positionTop } from './anchors.js';
 import { layoutMode } from './layout.js';
 import { currentIndex, pictureHtml, statusHtml, toolbarHtml, versionPictures } from './markup.js';
 import { getJob } from './pipeline.js';
@@ -25,6 +26,13 @@ let refreshQueued = false;
 let saveTimer = null;
 /** Scrolls we cause ourselves (jump to floor) must not count as the user moving on. */
 let ignoreScrollUntil = 0;
+/** 多张图: the picture of the shown floor on screen (story order) and the floor it belongs to. */
+let shownPage = 0;
+let pagedMesId = null;
+/** Set by ‹ › under the picture; paging by reading position resumes on the next scroll. */
+let pageSticky = false;
+/** Where the shown floor's parts are in its text (kept while its text nodes are there). */
+let pageAnchors = null;
 
 export function getPanelMesId() {
     return panel && !panel.hidden ? shownMesId : null;
@@ -60,6 +68,51 @@ function floorAtReadingPosition(floors) {
         else break;
     }
     return best ?? floors.find(floorElement) ?? floors[floors.length - 1];
+}
+
+/**
+ * 多张图: where on screen the panel turns from one picture of a floor to the next. From the parts' opening words
+ * (each part starts there), else the sentences the pictures were placed after (halfway between two of them),
+ * else the text split evenly.
+ */
+function pageBoundaries(mesId, text, pictures) {
+    const key = JSON.stringify([mesId, pictures.map(picture => [picture.src, picture.start, picture.place])]);
+    const stale = pageAnchors?.positions?.some(position => !position.node.isConnected);
+    if (pageAnchors?.key !== key || pageAnchors.text !== text || stale) {
+        const starts = pictures.slice(1).map(picture => picture.start);
+        const places = pictures.map(picture => picture.place);
+        let positions = starts.every(Boolean) ? findQuotePositions(text, starts) : null;
+        let kind = 'starts';
+        if (!positions && places.every(Boolean)) {
+            positions = findQuotePositions(text, places, true);
+            kind = 'places';
+        }
+        pageAnchors = { key, text, kind: positions ? kind : 'even', positions };
+    }
+    const { kind, positions } = pageAnchors;
+    if (kind === 'starts') return positions.map(positionTop);
+    if (kind === 'places') {
+        const tops = positions.map(positionTop);
+        return tops.slice(1).map((top, index) => (tops[index] + top) / 2);
+    }
+    const box = text.getBoundingClientRect();
+    return pictures.slice(1).map((_, index) => box.top + box.height * (index + 1) / pictures.length);
+}
+
+/** 多张图: the picture whose part of the floor is at the middle of the visible chat (the floor's first one before it). */
+function pageAtReadingPosition(mesId, pictures) {
+    const text = floorElement(mesId)?.querySelector('.mes_text');
+    const chatBox = document.getElementById('chat')?.getBoundingClientRect();
+    if (!text || !chatBox) return 0;
+    const line = chatBox.top + chatBox.height / 2;
+    return pageBoundaries(mesId, text, pictures).filter(top => top < line).length;
+}
+
+/** Shows the current page of a floor with several pictures, and its "2/3 · label" under it. */
+function applyPage(pictures) {
+    panel.querySelectorAll('.ctp-panel-page').forEach((page, index) => page.classList.toggle('ctp-on', index === shownPage));
+    const label = panel.querySelector('.ctp-panel-page-label');
+    if (label) label.textContent = `${shownPage + 1}/${pictures.length}${pictures[shownPage]?.label ? ` · ${pictures[shownPage].label}` : ''}`;
 }
 
 /* ---------------- geometry ---------------- */
@@ -159,6 +212,13 @@ function onPanelAction(event) {
     if (!button) return;
     event.preventDefault();
     event.stopPropagation();
+    // 多张图: ‹ › turn the page by hand; it stays until the chat is scrolled.
+    if (button.dataset.panelAct === 'page-prev' || button.dataset.panelAct === 'page-next') {
+        shownPage += button.dataset.panelAct === 'page-next' ? 1 : -1;
+        pageSticky = true;
+        schedulePanelRefresh();
+        return;
+    }
     switch (button.dataset.panelAct) {
         case 'close':
             closed = true;
@@ -212,6 +272,7 @@ function ensurePanel() {
     document.getElementById('chat')?.addEventListener('scroll', () => {
         if (Date.now() < ignoreScrollUntil) return;
         if (sticky) sticky = false;
+        pageSticky = false;
         if (panelSettings().follow) schedulePanelRefresh();
     }, { passive: true });
     window.addEventListener('resize', () => schedulePanelRefresh());
@@ -229,17 +290,28 @@ function panelHtml(mesId, data, job) {
     return `<div class="ctp-panel-header" title="拖动标题栏移动，拖右下角调整大小">
         <span class="ctp-panel-title">#${mesId}${name ? ` · ${escapeHtml(name)}` : ''}</span>
         <span class="ctp-panel-spacer"></span>
-        <i class="fa-solid fa-location-crosshairs ctp-panel-btn ${follow ? 'ctp-on' : ''}" data-panel-act="follow" title="跟随阅读位置：${follow ? '开' : '关'}（滚动聊天时显示正在看的楼层的图）"></i>
+        <i class="fa-solid fa-location-crosshairs ctp-panel-btn ${follow ? 'ctp-on' : ''}" data-panel-act="follow" title="跟随阅读位置：${follow ? '开' : '关'}（滚动聊天时显示正在看的楼层的图；一楼有几张图时，翻到正在看的那一段）"></i>
         <i class="fa-solid fa-arrows-to-dot ctp-panel-btn" data-panel-act="jump" title="跳到这一楼"></i>
         <i class="fa-solid fa-table-columns ctp-panel-btn" data-panel-act="fit" title="重置位置和大小（贴合侧边空白）"></i>
         <i class="fa-solid ${maximized ? 'fa-down-left-and-up-right-to-center' : 'fa-up-right-and-down-left-from-center'} ctp-panel-btn" data-panel-act="maximize" title="${maximized ? '还原' : '放大'}"></i>
         <i class="fa-solid fa-xmark ctp-panel-btn" data-panel-act="close" title="关闭（有新图或点聊天里的配图条时会重新打开）"></i>
     </div>
     ${job ? statusHtml(job) : ''}
-    <div class="ctp-panel-body${versionPictures(image).length > 1 ? ' ctp-panel-multi' : ''}">
-        ${versionPictures(image).map((picture, index, all) => pictureHtml(picture, all.length > 1, { imgClass: 'ctp-panel-img' })).join('')}
-    </div>
+    ${picturesHtml(versionPictures(image))}
     ${toolbarHtml(data, settings.debug)}`;
+}
+
+/** The picture, or with 多张图 one page per picture (the shown one is picked by applyPage) and ‹ › under them. */
+function picturesHtml(pictures) {
+    if (pictures.length < 2) return `<div class="ctp-panel-body">${pictureHtml(pictures[0], false, { imgClass: 'ctp-panel-img' })}</div>`;
+    return `<div class="ctp-panel-body ctp-panel-paged">
+        ${pictures.map((picture, index) => `<div class="ctp-panel-page" data-page="${index}">${pictureHtml(picture, true, { imgClass: 'ctp-panel-img' })}</div>`).join('')}
+    </div>
+    <div class="ctp-panel-pager">
+        <i class="fa-solid fa-chevron-left ctp-panel-btn" data-panel-act="page-prev" title="这一楼的上一张"></i>
+        <span class="ctp-panel-page-label"></span>
+        <i class="fa-solid fa-chevron-right ctp-panel-btn" data-panel-act="page-next" title="这一楼的下一张"></i>
+    </div>`;
 }
 
 function markActiveChip() {
@@ -274,6 +346,15 @@ export function refreshPanel() {
     const data = getMessageData(message);
     const job = getJob(message);
     const showJob = job && job.swipeId === (message?.swipe_id ?? 0) ? job : null;
+    // 多张图: turn to the part being read, like the panel moves on to the floor being read.
+    const pictures = versionPictures(data.images[currentIndex(data)]);
+    if (pagedMesId !== shownMesId) {
+        pagedMesId = shownMesId;
+        pageSticky = false;
+        shownPage = 0;
+    }
+    if (pictures.length > 1 && panelSettings().follow && !pageSticky) shownPage = pageAtReadingPosition(shownMesId, pictures);
+    shownPage = Math.min(Math.max(0, shownPage), pictures.length - 1);
     const html = panelHtml(shownMesId, data, showJob);
     panel.dataset.mesid = String(shownMesId);
     panel.classList.toggle('ctp-panel-max', maximized);
@@ -281,6 +362,7 @@ export function refreshPanel() {
         panel.innerHTML = html;
         lastHtml = html;
     }
+    applyPage(pictures);
     applyGeometry(targetGeometry(mode.side, data.images[currentIndex(data)]));
     panel.hidden = false;
     markActiveChip();
