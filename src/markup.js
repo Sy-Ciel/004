@@ -15,14 +15,15 @@ export function statusHtml(job) {
 
 /**
  * The pictures of one version in story order: with 多张图 the earlier parts of the floor first, then the end.
- * @returns {{ src: string, label: string, scene: number, start: string }[]} scene = index in image.scenes, -1 for
- *   the end; start = the opening words of that part in the text
+ * @returns {{ src: string, label: string, scene: number, start: string, place: string }[]} scene = index in
+ *   image.scenes, -1 for the end; start = the opening words of that part in the text; place = the sentence the
+ *   picture goes after (图片插在正文中间)
  */
 export function versionPictures(image) {
     const scenes = Array.isArray(image?.scenes) ? image.scenes : [];
     return [
-        ...scenes.map((scene, index) => ({ src: scene.src, label: scene.label || `第 ${index + 1} 段`, scene: index, start: scene.start || '' })),
-        { src: image?.src, label: scenes.length ? '结束时' : '', scene: -1, start: image?.start || '' },
+        ...scenes.map((scene, index) => ({ src: scene.src, label: scene.label || `第 ${index + 1} 段`, scene: index, start: scene.start || '', place: scene.place || '' })),
+        { src: image?.src, label: scenes.length ? '结束时' : '', scene: -1, start: image?.start || '', place: image?.place || '' },
     ];
 }
 
@@ -39,7 +40,7 @@ export function pictureHtml(picture, several, { imgClass = 'ctp-img', style = ''
 }
 
 /** Version navigation and per-image actions; handled by the delegated `.ctp-act` click handler. */
-export function toolbarHtml(data, debug) {
+export function toolbarHtml(data, debug, { panelButton = false } = {}) {
     const index = currentIndex(data);
     const image = data.images[index];
     const nav = data.images.length > 1
@@ -56,6 +57,7 @@ export function toolbarHtml(data, debug) {
         <i class="fa-solid fa-rotate ctp-act" data-act="reparse" title="重新解析状态并生成"></i>
         <i class="fa-solid fa-pen-to-square ctp-act" data-act="edit" title="${image?.scenes?.length ? '编辑「结束时」这一张的提示词后重画（其他几张不变）' : '编辑提示词后生成'}"></i>
         <i class="fa-solid fa-comment-dots ctp-act" data-act="hint" title="加画图指令重画（不改正文）"></i>
+        ${panelButton ? '<i class="fa-solid fa-table-columns ctp-act" data-act="panel" title="在侧边面板中显示这一楼的图"></i>' : ''}
         ${debug ? '<i class="fa-solid fa-bug ctp-act" data-act="debug" title="调试信息"></i>' : ''}
         <i class="fa-solid fa-trash-can ctp-act" data-act="delete" title="删除这张图"></i>
         ${meta}

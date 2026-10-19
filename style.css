@@ -727,3 +727,8 @@
 .ctp-panel-body.ctp-panel-multi .ctp-panel-img {
     height: auto;
 }
+/* 图片插在正文中间: the image block inside the story text. */
+.mes_text .ctp-wrap {
+    margin: 10px 0;
+    text-indent: 0;
+}

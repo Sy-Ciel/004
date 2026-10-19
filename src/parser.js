@@ -319,6 +319,8 @@ export async function buildParserPrompt(mesId, target) {
     const negative = !!settings.parserNegative;
     // 多张图: earlier parts of the floor (another time or place) get pictures of their own.
     const scenes = sceneLimit(settings.parser);
+    // 图片插在正文中间: the parser picks the sentence each picture goes after.
+    const place = !!settings.placeInStory;
     // The parser picks the aspect ratio (resolution selector), unless this parser preset sets its own size.
     const aspect = parserPicksAspect(settings.comfy) && !presetResolution(preset)
         ? { ratios: ASPECT_RATIOS, fallback: parseAspect(settings.comfy.aspectRatio) || '1:1' }
@@ -351,7 +353,7 @@ export async function buildParserPrompt(mesId, target) {
         target: target.auto ? '（由你从候选角色中选择）' : target.name,
         appearance: [referenceBlock(target, mode), allowOthers ? othersReference(mesId, target) : ''].filter(Boolean).join('\n'),
         fixed_fields: fixedFieldsBlock(preset),
-        output_rules: outputRules(mode, allowOthers, negative, aspect, scenes),
+        output_rules: outputRules(mode, allowOthers, negative, aspect, scenes, place),
         candidates,
         last_state: target.auto ? '（自动模式下不提供）' : formatState(lastState, shownFloors),
         prev_outputs: prevOutputs,
@@ -381,7 +383,7 @@ export async function buildParserPrompt(mesId, target) {
     let systemTemplate = String(preset.system || '');
     if ((mode === 'ai' || allowOthers) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += '\n\n{{output_rules}}';
     // Only extra fields are asked for: such a prompt keeps its own format and just gets those fields.
-    else if ((negative || aspect || scenes) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += `\n\n${extraFieldRules(negative, aspect, scenes)}`;
+    else if ((negative || aspect || scenes || place) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += `\n\n${extraFieldRules(negative, aspect, scenes, place)}`;
 
     const triggerRule = triggerWordsRule(mode);
     // Anima in natural-language mode: the presets were written for tags, so this rule overrides them.
@@ -402,6 +404,7 @@ export async function buildParserPrompt(mesId, target) {
             negative ? '解析模型补充反向提示词' : '',
             aspect ? '解析模型选择宽高比' : '',
             scenes ? `多张图：正文换了时间或地点时最多画 ${scenes} 张` : '',
+            place ? '图片插在正文中间：由解析模型选位置' : '',
             describeThinking(settings.parser),
             worldInfo.note,
             records.length ? `参考了之前 ${records.length} 次配图输出` : '',
@@ -658,7 +661,11 @@ function parseScenes(value) {
     const scenes = [];
     for (const item of value) {
         if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
-        const scene = { label: normalizeValue(item.label ?? item.time ?? item.name), start: normalizeValue(item.start ?? item.begin ?? item.quote) };
+        const scene = {
+            label: normalizeValue(item.label ?? item.time ?? item.name),
+            start: normalizeValue(item.start ?? item.begin ?? item.quote),
+            place: normalizeValue(item.place ?? item.position),
+        };
         for (const field of PARSED_FIELDS) scene[field] = normalizeValue(item[field]);
         scene.prompt = normalizeValue(item.prompt);
         scene.negative = normalizeValue(item.negative ?? item.negative_prompt);
@@ -730,6 +737,8 @@ export function parseParserOutput(raw) {
     result.earlierScenes = parseScenes(object.earlier_scenes ?? object.earlierScenes);
     // The opening words of the last part (the end of the floor), to put its picture at its place in the text.
     result.start = result.earlierScenes.length ? normalizeValue(object.start) : '';
+    // Only with 图片插在正文中间: the sentence the (end of the floor) picture goes after.
+    result.place = normalizeValue(object.place ?? object.position);
     if (!result.skip && !result.prompt && PARSED_FIELDS.every(field => !result[field])) {
         throw new Error('解析结果里没有任何画面字段');
     }

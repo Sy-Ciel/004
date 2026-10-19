@@ -299,6 +299,10 @@ export const DEFAULT_SETTINGS = {
     autoModelByRating: false,
     /** Debugging: every parser request is shown (editable) before it is sent (see debug.js reviewParserInput). */
     reviewParserInput: false,
+    /** 图片插在正文中间: the parser picks the sentence each picture goes after, and it is put there in the text. */
+    placeInStory: false,
+    /** Side panel layouts: the message shows the pictures too, not only the compact bar. */
+    panelAlsoInMessage: false,
     /** Words every prompt of this mode starts with (e.g. a style LoRA's trigger); the parser is told about them. */
     triggerWords: '',
     /** Anima only: prompts in English sentences instead of Danbooru tags (see modes.js promptStyle). */

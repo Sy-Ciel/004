@@ -1,6 +1,6 @@
 import { EXTRA_KEY, modeDefaults } from './constants.js';
 import { addExtraLoras, getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
-import { comparable, locateQuotes } from './anchors.js';
+import { comparable, findQuote, locateQuotes } from './anchors.js';
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
 import { buildParserPrompt, parserLabel, requestParse, storyText } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution, sceneLimit } from './parserPresets.js';
@@ -270,7 +270,7 @@ function applyRating(message, swipeId) {
  * A floor's picture state: what 🔄 and ✏️ reuse and what continuity reads. All of it belongs to one image model
  * mode, data.modelMode (a Krea 2 sentence prompt or preset id means nothing to Anima, and the other way round).
  */
-const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'parsed', 'prompt', 'negative', 'scenes', 'endStart', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
+const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'parsed', 'prompt', 'negative', 'scenes', 'endStart', 'place', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
 
 /** Whether a floor has picture state of its own (a parse or a prompt), as opposed to nothing or only an error. */
 function hasFloorState(data) {
@@ -573,13 +573,14 @@ async function runJob(message, job, options) {
             const limit = sceneLimit(settings.parser);
             const scenes = limit > 1 ? (parsed.earlierScenes ?? []).slice(0, limit - 1) : [];
             data.scenes = scenes.map((scene, index) => {
-                const { label, start, ...fields } = scene;
+                const { label, start, place, ...fields } = scene;
                 // A field the parser left out is taken from the end of the floor (usually the same outfit).
                 const sceneBuilt = promptFromParse(target.preset, { ...built.parsed, prompt: '', negative: '', others: '', ...fields }, parserPrompt, []);
                 return {
                     label: label || `第 ${index + 1} 段`,
-                    // The part's opening words in the text: where its picture goes (see anchors.js).
+                    // The part's opening words in the text, and the sentence its picture goes after (see anchors.js).
                     start: start || '',
+                    place: place || '',
                     parsed: sceneBuilt.parsed,
                     prompt: sceneBuilt.prompt,
                     negative: buildNegativePrompt(target.preset, sceneBuilt.parsed, sceneBuilt.prompt),
@@ -598,6 +599,16 @@ async function runJob(message, job, options) {
                 }
             }
             if ((parsed.earlierScenes?.length ?? 0) > scenes.length) data.debug.notes.push(`解析模型多写了 ${parsed.earlierScenes.length - scenes.length} 段，超过「最多几张」的没有画`);
+            // 图片插在正文中间: the sentence the end of the floor's picture goes after.
+            if (parsed.place) data.place = parsed.place;
+            else delete data.place;
+            if (settings.placeInStory) {
+                const story = comparable(plainText(storyText(swipeText(message, job.swipeId))));
+                const places = [...(data.scenes ?? []).map(scene => scene.place), data.place];
+                if (places.some(place => !place || findQuote(story, place) < 0)) {
+                    data.debug.notes.push('解析模型选的插图位置在正文里没找到（没写或抄得不对），这张图按「图片位置」显示');
+                }
+            }
             data.parserPresetId = parserPrompt.preset.id;
             data.parserPresetName = parserPrompt.preset.name;
             data.promptMode = parserPrompt.mode;
@@ -692,7 +703,7 @@ async function runJob(message, job, options) {
                 assertMode(modelMode);
                 const stored = await storePicture(picture, data.debug.notes);
                 assertMode(modelMode);
-                scenes.push({ ...stored, seed: sceneSeed, width, height, prompt: scene.prompt, negative: scene.negative || '', refined: refinedText(template, picture) || undefined, label: scene.label, start: scene.start || '' });
+                scenes.push({ ...stored, seed: sceneSeed, width, height, prompt: scene.prompt, negative: scene.negative || '', refined: refinedText(template, picture) || undefined, label: scene.label, start: scene.start || '', place: scene.place || '' });
             } catch (error) {
                 if (isAbortError(error)) throw error;
                 warn(error);
@@ -707,6 +718,8 @@ async function runJob(message, job, options) {
             refined: data.refinedPrompt || undefined,
             // 多张图: where the end of the floor starts in the text, and the earlier parts' pictures.
             start: scenes.length ? data.endStart || '' : undefined,
+            // 图片插在正文中间: the sentence this picture goes after.
+            place: data.place || undefined,
             scenes: scenes.length ? scenes : undefined,
             mode: modelMode,
             time: Date.now(),

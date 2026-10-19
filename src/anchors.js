@@ -1,6 +1,7 @@
 /**
- * 多张图 inside the text: the parser copies the opening words of every part of a floor (`start`), and each part's
- * picture is put into the shown message where that part begins or ends.
+ * Pictures inside the text. 多张图: the parser copies the opening words of every part of a floor (`start`), and
+ * each part's picture is put where that part begins or ends. 「图片插在正文中间」: the parser copies the sentence
+ * each picture fits best after (`place`), and the picture goes right after that line.
  *
  * The quote is what the parser read (plain text, markdown symbols and all); the chat shows rendered HTML. Both are
  * compared by their letters and digits only, so punctuation, spacing, quotes and markdown do not matter.
@@ -43,7 +44,7 @@ export function locateQuotes(text, quotes) {
 }
 
 /** Inside these the text is not the story (code pages, the status bar) or is ours. */
-const SKIP = 'pre, code, script, style, iframe, details, .ctp-inserted';
+const SKIP = 'pre, code, script, style, iframe, details, .ctp-inserted, .ctp-wrap';
 const BLOCKS = new Set(['P', 'DIV', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TABLE', 'PRE', 'HR', 'SECTION', 'ARTICLE', 'DETAILS', 'FIGURE', 'DL', 'CENTER']);
 
 /** The shown text of an element as comparable characters, with the text node each one comes from. */
@@ -93,6 +94,57 @@ function insertAtLine(root, node, figure) {
     if (previous) previous.after(figure);
     else root.prepend(figure);
     return true;
+}
+
+/** Puts `element` right after the line `node` is on: after the line break that ends it, else after its block. */
+function insertAtLineEnd(root, node, element) {
+    let top = node;
+    while (top.parentNode && top.parentNode !== root) top = top.parentNode;
+    if (top.parentNode !== root) return false;
+    if (top !== node) {
+        const walker = document.createTreeWalker(top, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+        walker.currentNode = node;
+        for (let next = walker.nextNode(); next; next = walker.nextNode()) {
+            if (next.nodeName === 'BR') {
+                next.after(element);
+                return true;
+            }
+            if (next.nodeType === Node.ELEMENT_NODE && BLOCKS.has(next.nodeName)) {
+                next.before(element);
+                return true;
+            }
+        }
+        if (BLOCKS.has(top.nodeName)) {
+            top.after(element);
+            return true;
+        }
+    }
+    // Text or an inline element straight in the message: the line ends at the next break or block.
+    let next = top.nextSibling;
+    while (next && next.nodeName !== 'BR' && !(next.nodeType === Node.ELEMENT_NODE && BLOCKS.has(next.nodeName))) {
+        next = next.nextSibling;
+    }
+    if (!next) root.append(element);
+    else if (next.nodeName === 'BR') next.after(element);
+    else next.before(element);
+    return true;
+}
+
+/**
+ * 「图片插在正文中间」: finds the sentences the parser chose for the pictures (`place`), in order when it can,
+ * else each one anywhere (two pictures may follow the same sentence).
+ * @returns {Node[] | null} The text node each sentence starts in, or null when one is not found
+ */
+export function findPlaces(root, quotes) {
+    if (!quotes.length || quotes.some(quote => !quote)) return null;
+    const { text, positions } = textMap(root);
+    const found = locateQuotes(text, quotes) ?? quotes.map(quote => findQuote(text, quote));
+    return found.every(index => index >= 0) ? found.map(index => positions[index]) : null;
+}
+
+/** Inserts `element` right after the line the text node `node` (from findPlaces) is on. */
+export function insertAfterLine(root, node, element) {
+    return root.contains(node) && insertAtLineEnd(root, node, element);
 }
 
 /**

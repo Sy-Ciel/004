@@ -111,7 +111,7 @@ function validateExtraBody() {
 }
 
 function onSettingChanged(path) {
-    if (['debug', 'imagePosition', 'imagePositionNarrow', 'sideWidth', 'sideTextWrap', 'imageMaxWidth'].includes(path)) renderAll();
+    if (['debug', 'imagePosition', 'imagePositionNarrow', 'sideWidth', 'sideTextWrap', 'imageMaxWidth', 'placeInStory', 'panelAlsoInMessage'].includes(path)) renderAll();
     if (path === 'imagePosition') {
         updateSideOptionsVisibility();
         // A remembered panel position belongs to the old side.
@@ -926,6 +926,8 @@ async function resetAllSettings() {
     if (!keep('reset-other')) {
         fresh.enabled = settings.enabled;
         fresh.autoModelByRating = settings.autoModelByRating;
+        fresh.placeInStory = settings.placeInStory;
+        fresh.panelAlsoInMessage = settings.panelAlsoInMessage;
     }
     if (keep('reset-other')) {
         const key = otherSlotKey(other);
