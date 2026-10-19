@@ -17,13 +17,17 @@ export function statusHtml(job) {
  * The pictures of one version in story order: with 多张图 the earlier parts of the floor first, then the end.
  * @returns {{ src: string, label: string, scene: number, start: string, place: string }[]} scene = index in
  *   image.scenes, -1 for the end; start = the opening words of that part in the text; place = the sentence the
- *   picture goes after (图片插在正文中间)
+ *   picture goes after (图片插在正文中间); startAt / placeAt = the same as a share (0–1) of the story, from the
+ *   paragraph the parser named (used when the words are not found in the shown text)
  */
 export function versionPictures(image) {
     const scenes = Array.isArray(image?.scenes) ? image.scenes : [];
     return [
-        ...scenes.map((scene, index) => ({ src: scene.src, label: scene.label || `第 ${index + 1} 段`, scene: index, start: scene.start || '', place: scene.place || '' })),
-        { src: image?.src, label: scenes.length ? '结束时' : '', scene: -1, start: image?.start || '', place: image?.place || '' },
+        ...scenes.map((scene, index) => ({
+            src: scene.src, label: scene.label || `第 ${index + 1} 段`, scene: index,
+            start: scene.start || '', place: scene.place || '', startAt: scene.startAt, placeAt: scene.placeAt,
+        })),
+        { src: image?.src, label: scenes.length ? '结束时' : '', scene: -1, start: image?.start || '', place: image?.place || '', startAt: image?.startAt, placeAt: image?.placeAt },
     ];
 }
 

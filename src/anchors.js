@@ -21,11 +21,17 @@ const QUOTE_MIN = 6;
  * (at least a few characters). -1 when it is not there.
  */
 export function findQuote(text, quote, from = 0) {
-    const wanted = comparable(quote).slice(0, QUOTE_MAX);
+    const wanted = comparable(quote);
     if (wanted.length < 4) return -1;
-    for (let length = wanted.length; length >= Math.min(QUOTE_MIN, wanted.length); length--) {
-        const index = text.indexOf(wanted.slice(0, length), from);
-        if (index >= 0) return index;
+    // The opening first; then a little further in, for an opening the shown text changed (a label a display
+    // rule added, a word the model left out …).
+    for (const skip of [0, 4, 8]) {
+        const part = wanted.slice(skip, skip + QUOTE_MAX);
+        if (part.length < Math.min(QUOTE_MIN, wanted.length)) break;
+        for (let length = part.length; length >= Math.min(QUOTE_MIN, part.length); length--) {
+            const index = text.indexOf(part.slice(0, length), from);
+            if (index >= 0) return Math.max(from, index - skip);
+        }
     }
     return -1;
 }
@@ -70,19 +76,39 @@ function textMap(root) {
 }
 
 /**
- * Where quotes start in the shown text of `root`: in order (each after the one before), or, when `lenient`,
- * each one anywhere if they are not all found in order.
- * @returns {{ node: Text, offset: number }[] | null} null when one is not found
+ * Where pictures go in the shown story text, one spot per anchor, never none: by the anchor's words when they are
+ * found (in order when they all are, else each anywhere), else at the anchor's share of the story (`at`, from the
+ * paragraph the parser named), else at `even` (pictures spread evenly).
+ * side 'after': the picture follows that point's line; 'before': it comes before that point's line.
+ * @param {{ quote?: string, at?: number|null, even: number, side: 'after'|'before' }[]} anchors
+ * @param {{ first?: string, last?: string }} [bounds] The story's first and last words (shares are of that stretch)
+ * @returns {{ node: Text, offset: number, found: boolean }[] | null} null when there is no story text to place in
  */
-export function findQuotePositions(root, quotes, lenient = false) {
-    if (!quotes.length || quotes.some(quote => !quote)) return null;
+export function placeAnchors(root, anchors, bounds = {}) {
     const { text, positions } = textMap(root);
-    let found = locateQuotes(text, quotes);
-    if (!found && lenient) found = quotes.map(quote => findQuote(text, quote));
-    return found?.every(index => index >= 0) ? found.map(index => positions[index]) : null;
+    if (!positions.length) return null;
+    const quotes = anchors.map(anchor => anchor.quote || '');
+    let found = quotes.every(Boolean) ? locateQuotes(text, quotes) : null;
+    if (!found) found = quotes.map(quote => (quote ? findQuote(text, quote) : -1));
+    // The story's own stretch of the shown text, when its first and last words are found: spots without words
+    // of their own go inside it, not among code pages or panels around it.
+    let first = 0;
+    let last = positions.length - 1;
+    const start = bounds.first ? findQuote(text, bounds.first) : -1;
+    if (start >= 0) first = start;
+    const end = bounds.last ? findQuote(text, bounds.last, first) : -1;
+    if (end >= 0) last = Math.min(last, end + comparable(bounds.last).length - 1);
+    const size = last - first + 1;
+    return anchors.map((anchor, index) => {
+        if (found[index] >= 0) return { ...positions[found[index]], found: true };
+        const share = Math.min(1, Math.max(0, Number.isFinite(anchor.at) ? anchor.at : anchor.even));
+        // 'after': the last character of that share of the story; 'before': the first one past it.
+        const at = first + (anchor.side === 'after' ? Math.round(share * size) - 1 : Math.round(share * size));
+        return { ...positions[Math.min(last, Math.max(first, at))], found: false };
+    });
 }
 
-/** The top on screen (viewport y) of the line a position from findQuotePositions is on. */
+/** The top on screen (viewport y) of the line a position from placeAnchors is on. */
 export function positionTop({ node, offset }) {
     const range = document.createRange();
     range.setStart(node, offset);
@@ -155,30 +181,12 @@ function insertAtLineEnd(root, node, element) {
     return true;
 }
 
-/**
- * 「图片插在正文中间」: finds the sentences the parser chose for the pictures (`place`), in order when it can,
- * else each one anywhere (two pictures may follow the same sentence).
- * @returns {Node[] | null} The text node each sentence starts in, or null when one is not found
- */
-export function findPlaces(root, quotes) {
-    return findQuotePositions(root, quotes, true)?.map(position => position.node) ?? null;
-}
-
-/** Inserts `element` right after the line the text node `node` (from findPlaces) is on. */
+/** Inserts `element` right after the line the text node `node` (from placeAnchors) is on. */
 export function insertAfterLine(root, node, element) {
     return root.contains(node) && insertAtLineEnd(root, node, element);
 }
 
-/**
- * Finds where the parts of a floor start in the shown text of `root`.
- * @param {string[]} quotes The opening words of the 2nd, 3rd … part
- * @returns {Node[] | null} The text node each part starts in, or null when one is not found
- */
-export function findPartStarts(root, quotes) {
-    return findQuotePositions(root, quotes)?.map(position => position.node) ?? null;
-}
-
-/** Inserts `figure` at the start of the line the text node `node` (from findPartStarts) is on. */
+/** Inserts `figure` at the start of the line the text node `node` (from placeAnchors) is on. */
 export function insertBeforeLine(root, node, figure) {
     return root.contains(node) && insertAtLine(root, node, figure);
 }

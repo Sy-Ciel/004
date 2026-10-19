@@ -1,4 +1,4 @@
-import { findQuotePositions, positionTop } from './anchors.js';
+import { placeAnchors, positionTop } from './anchors.js';
 import { layoutMode } from './layout.js';
 import { currentIndex, pictureHtml, statusHtml, toolbarHtml, versionPictures } from './markup.js';
 import { getJob } from './pipeline.js';
@@ -71,23 +71,21 @@ function floorAtReadingPosition(floors) {
 }
 
 /**
- * 多张图: where on screen the panel turns from one picture of a floor to the next. From the parts' opening words
- * (each part starts there), else the sentences the pictures were placed after (halfway between two of them),
- * else the text split evenly.
+ * 多张图: where on screen the panel turns from one picture of a floor to the next: where the parts begin, else
+ * halfway between the paragraphs the pictures were placed after (图片插在正文中间), else the text split evenly.
+ * Spots not found in the shown text fall back as in the message (see placeAnchors).
  */
-function pageBoundaries(mesId, text, pictures) {
-    const key = JSON.stringify([mesId, pictures.map(picture => [picture.src, picture.start, picture.place])]);
+function pageBoundaries(mesId, text, pictures, bounds) {
+    const count = pictures.length;
+    const key = JSON.stringify([mesId, bounds, pictures.map(picture => [picture.src, picture.start, picture.place, picture.startAt, picture.placeAt])]);
     const stale = pageAnchors?.positions?.some(position => !position.node.isConnected);
     if (pageAnchors?.key !== key || pageAnchors.text !== text || stale) {
-        const starts = pictures.slice(1).map(picture => picture.start);
-        const places = pictures.map(picture => picture.place);
-        let positions = starts.every(Boolean) ? findQuotePositions(text, starts) : null;
-        let kind = 'starts';
-        if (!positions && places.every(Boolean)) {
-            positions = findQuotePositions(text, places, true);
-            kind = 'places';
-        }
-        pageAnchors = { key, text, kind: positions ? kind : 'even', positions };
+        const starts = pictures.slice(1).some(picture => picture.start || Number.isFinite(picture.startAt));
+        const places = !starts && pictures.some(picture => picture.place || Number.isFinite(picture.placeAt));
+        const positions = places
+            ? placeAnchors(text, pictures.map((picture, index) => ({ quote: picture.place, at: picture.placeAt, even: (index + 1) / count, side: 'after' })), bounds)
+            : placeAnchors(text, pictures.slice(1).map((picture, index) => ({ quote: picture.start, at: picture.startAt, even: (index + 1) / count, side: 'before' })), bounds);
+        pageAnchors = { key, text, kind: positions ? places ? 'places' : 'starts' : 'even', positions };
     }
     const { kind, positions } = pageAnchors;
     if (kind === 'starts') return positions.map(positionTop);
@@ -96,16 +94,16 @@ function pageBoundaries(mesId, text, pictures) {
         return tops.slice(1).map((top, index) => (tops[index] + top) / 2);
     }
     const box = text.getBoundingClientRect();
-    return pictures.slice(1).map((_, index) => box.top + box.height * (index + 1) / pictures.length);
+    return pictures.slice(1).map((_, index) => box.top + box.height * (index + 1) / count);
 }
 
 /** 多张图: the picture whose part of the floor is at the middle of the visible chat (the floor's first one before it). */
-function pageAtReadingPosition(mesId, pictures) {
+function pageAtReadingPosition(mesId, pictures, bounds) {
     const text = floorElement(mesId)?.querySelector('.mes_text');
     const chatBox = document.getElementById('chat')?.getBoundingClientRect();
     if (!text || !chatBox) return 0;
     const line = chatBox.top + chatBox.height / 2;
-    return pageBoundaries(mesId, text, pictures).filter(top => top < line).length;
+    return pageBoundaries(mesId, text, pictures, bounds).filter(top => top < line).length;
 }
 
 /** Shows the current page of a floor with several pictures, its "2/3 · label", and points the toolbar at it. */
@@ -353,13 +351,16 @@ export function refreshPanel() {
     const job = getJob(message);
     const showJob = job && job.swipeId === (message?.swipe_id ?? 0) ? job : null;
     // 多张图: turn to the part being read, like the panel moves on to the floor being read.
-    const pictures = versionPictures(data.images[currentIndex(data)]);
+    const shownImage = data.images[currentIndex(data)];
+    const pictures = versionPictures(shownImage);
     if (pagedMesId !== shownMesId) {
         pagedMesId = shownMesId;
         pageSticky = false;
         shownPage = 0;
     }
-    if (pictures.length > 1 && panelSettings().follow && !pageSticky) shownPage = pageAtReadingPosition(shownMesId, pictures);
+    if (pictures.length > 1 && panelSettings().follow && !pageSticky) {
+        shownPage = pageAtReadingPosition(shownMesId, pictures, { first: shownImage.storyStart, last: shownImage.storyEnd });
+    }
     shownPage = Math.min(Math.max(0, shownPage), pictures.length - 1);
     const html = panelHtml(shownMesId, data, showJob);
     panel.dataset.mesid = String(shownMesId);

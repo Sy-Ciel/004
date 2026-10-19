@@ -1,6 +1,6 @@
 import { renderHints } from './hints.js';
 import { layoutMode } from './layout.js';
-import { findPartStarts, findPlaces, insertAfterLine, insertBeforeLine } from './anchors.js';
+import { insertAfterLine, insertBeforeLine, placeAnchors } from './anchors.js';
 import { currentIndex, pictureHtml, statusHtml, toolbarHtml, versionPictures } from './markup.js';
 import { getPanelMesId, schedulePanelRefresh } from './panel.js';
 import { getJob } from './pipeline.js';
@@ -72,19 +72,21 @@ function insertedFigure(picture) {
 
 /**
  * Where the shown version's pictures go:
- * - 图片插在正文中间, with the sentences the parser chose found in the text: every picture right after its
- *   sentence's line; the end of the floor's picture comes with the image block, so the toolbar stays with it.
- * - 多张图, with the parts' opening words found: the earlier pictures into the text at their parts (layout below:
- *   after the part; above / beside: before it), one picture staying in the image block at its usual place.
- * - otherwise all pictures in the image block.
+ * - 图片插在正文中间: every picture right after the paragraph the parser chose for it; the end of the floor's
+ *   picture comes with the image block, so the toolbar stays with it.
+ * - 多张图: the earlier pictures where their parts are (layout below: after the part; above / beside: before it),
+ *   one picture staying in the image block at its usual place.
+ * A spot whose words are not found in the shown text is taken at the same share of the story (the paragraph the
+ * parser named), else the pictures are spread evenly; a lone picture then goes after the story's last line, still
+ * above code pages and the like. All pictures stay in the image block only when there is no story text at all.
  * A placement that has not changed is left alone (SillyTavern redraws the text when it changes, which takes the
  * pictures out; they are put back then).
  * @returns {{ kept: object[], wrapInText: boolean }} kept: the pictures shown in the image block
  */
-function placePictures(element, wrap, pictures, kind, inStory) {
+function placePictures(element, wrap, pictures, kind, inStory, bounds = {}) {
     const text = element.find('.mes_text').get(0);
     if (!text) return { kept: pictures, wrapInText: false };
-    const signature = JSON.stringify([kind, inStory, pictures.map(picture => [picture.src, picture.start, picture.place])]);
+    const signature = JSON.stringify([kind, inStory, bounds, pictures.map(picture => [picture.src, picture.start, picture.place, picture.startAt, picture.placeAt])]);
     const state = text.ctpPlacement;
     if (state?.signature === signature && text.querySelectorAll('.ctp-inserted').length === state.inserted && (!state.wrapInText || text.contains(wrap))) {
         return { kept: pictures.filter(picture => state.kept.includes(picture.scene)), wrapInText: state.wrapInText };
@@ -94,29 +96,30 @@ function placePictures(element, wrap, pictures, kind, inStory) {
         text.ctpPlacement = { signature, kept: kept.map(picture => picture.scene), wrapInText, inserted: pictures.length - kept.length };
         return { kept, wrapInText };
     };
+    const count = pictures.length;
 
-    if (inStory && pictures.every(picture => picture.place)) {
-        const lines = findPlaces(text, pictures.map(picture => picture.place));
-        if (lines) {
+    if (inStory && pictures.some(picture => picture.place || Number.isFinite(picture.placeAt))) {
+        const spots = placeAnchors(text, pictures.map((picture, index) => ({ quote: picture.place, at: picture.placeAt, even: (index + 1) / count, side: 'after' })), bounds);
+        if (spots) {
             // The image block first, then the other pictures from the last back, so pictures after the same
-            // sentence keep their order.
-            let placed = insertAfterLine(text, lines.at(-1), wrap);
-            for (let index = pictures.length - 2; placed && index >= 0; index--) {
-                placed = insertAfterLine(text, lines[index], insertedFigure(pictures[index]));
+            // paragraph keep their order.
+            let placed = insertAfterLine(text, spots.at(-1).node, wrap);
+            for (let index = count - 2; placed && index >= 0; index--) {
+                placed = insertAfterLine(text, spots[index].node, insertedFigure(pictures[index]));
             }
             if (placed) return remember([pictures.at(-1)], true);
             clearInserted(element);
         }
     }
 
-    if (pictures.length > 1) {
-        const starts = findPartStarts(text, pictures.slice(1).map(picture => picture.start));
+    if (count > 1) {
+        // starts[k] is where part k + 1 begins: below, picture k goes there; otherwise picture k + 1 does.
+        const starts = placeAnchors(text, pictures.slice(1).map((picture, index) => ({ quote: picture.start, at: picture.startAt, even: (index + 1) / count, side: 'before' })), bounds);
         if (starts) {
             const below = kind !== 'above' && kind !== 'inline';
             const kept = below ? pictures.at(-1) : pictures[0];
-            // starts[k] is where part k + 1 begins: below, picture k goes there; otherwise picture k + 1 does.
             const placed = pictures.every((picture, index) => picture === kept
-                || insertBeforeLine(text, starts[below ? index : index - 1], insertedFigure(picture)));
+                || insertBeforeLine(text, starts[below ? index : index - 1].node, insertedFigure(picture)));
             if (placed) return remember([kept], false);
             clearInserted(element);
         }
@@ -179,9 +182,11 @@ export function renderMessage(mesId) {
     let several = false;
     let wrapInText = false;
     if (hasImages && kind !== 'panel') {
-        const all = versionPictures(data.images[currentIndex(data)]);
+        const image = data.images[currentIndex(data)];
+        const all = versionPictures(image);
         several = all.length > 1;
-        ({ kept: pictures, wrapInText } = placePictures(element, wrap[0], all, kind, !!settings.placeInStory));
+        const bounds = { first: image.storyStart, last: image.storyEnd };
+        ({ kept: pictures, wrapInText } = placePictures(element, wrap[0], all, kind, !!settings.placeInStory, bounds));
     } else {
         clearInserted(element);
     }

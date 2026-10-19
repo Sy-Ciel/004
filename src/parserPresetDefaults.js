@@ -153,12 +153,14 @@ function scenesRules(scenes, mode = 'fixed', allowOthers = false, negative = fal
     if (mode === 'ai') fields.push('prompt');
     if (negative) fields.push('negative');
     // Where each part's picture goes: the sentence it fits after (图片插在正文中间), else the part's opening words.
+    // Where each part's picture goes, as a paragraph number of 【当前楼层】 (shown numbered [1], [2] …): the
+    // paragraph it goes after (图片插在正文中间), else the paragraph the part begins with.
     const anchor = place
-        ? 'place（这一段的图最适合插在正文哪一句话后面，通常是这一段里画面那一刻的那句话：原样复制那句话开头的 10～20 个字，用原文的语言，不要翻译、改写或概括）'
-        : 'start（这一段在【当前楼层】正文里开头的那句话，原样复制开头的 10～20 个字，用原文的语言，不要翻译、改写或概括，用来把图插到正文里对应的位置；第一段就复制正文开头那句）';
+        ? 'place（这一段的图插在【当前楼层】第几段后面：写那一段前面的编号数字，通常是这一段里画面那一刻所在的那一段）'
+        : 'start（这一段从【当前楼层】第几段开始：写那一段前面的编号数字，第一段写 1）';
     const last = place
         ? '主字段永远写结束时刻（最后一段），不要再放进 earlier_scenes'
-        : '主字段永远写结束时刻（最后一段），不要再放进 earlier_scenes；顶层再写一个 start：最后这一段在正文里开头的那句话，同样原样复制开头的 10～20 个字。earlier_scenes 是 [] 时，顶层 start 写 ""';
+        : '主字段永远写结束时刻（最后一段），不要再放进 earlier_scenes；顶层再写一个 start：最后这一段从【当前楼层】第几段开始（编号数字）。earlier_scenes 是 [] 时，顶层 start 写 0';
     return `多张图：这一楼的正文如果明显分成了前后几个时间段或场景（例如前半段是晚上，后半段跳到了第二天早上；或者从酒馆换到了森林），除了主字段写的结束时刻这一张，再为前面的每一段各写一张，按时间顺序放进 earlier_scenes（最多 ${scenes - 1} 个）：
 - 只有时间、地点或画面明显变化才分开；整段都是同一个时间段、同一个场景时，earlier_scenes 写 []（只出一张图）
 - 每一段是一个对象：label（中文，几个字说明是哪一段，例如「前半段·深夜」）；${anchor}；再加上和主字段一样的画面字段（${fields.join('、')}），全部按那一段当时的情况写，规则和长度限制都一样；那一段的衣服、地点、光线和结束时刻不一样，就按那一段写
@@ -185,7 +187,7 @@ function absentRules(model, mode, auto) {
 }
 
 /** Only with 图片插在正文中间: the sentence the (end of the floor) picture is put after, copied from the text. */
-const PLACE_RULE = '图在正文里的位置：再写 place：这张图最适合插在正文哪一句话的后面（通常就是画面时刻的那句话），从【当前楼层】的正文里原样复制那句话开头的 10～20 个字，用原文的语言，不要翻译、改写或概括。图会插在这句话所在的那一段后面。';
+const PLACE_RULE = '图在正文里的位置：再写 place：这张图插在【当前楼层】第几段后面。【当前楼层】每一段前面有编号 [1]、[2]……，写那一段的编号数字（例如 3），通常就是画面时刻所在的那一段。图会插在那一段后面。';
 
 /**
  * For a custom system prompt without {{output_rules}} that keeps its own output format: only the rules of the
@@ -196,8 +198,8 @@ export function extraOnlyRules(model, negative = false, aspect = null, scenes = 
         absent ? '"absent"（true / false）、"target"（字符串）、"looks"（字符串）' : '',
         negative ? '"negative"（字符串，没有就写 ""）' : '',
         aspect ? '"aspect"（字符串，例如 "2:3"）' : '',
-        place ? '"place"（字符串）' : '',
-        scenes > 1 && !place ? '"start"（字符串，没有分段就写 ""）' : '',
+        place ? '"place"（段落编号数字）' : '',
+        scenes > 1 && !place ? '"start"（段落编号数字，没有分段就写 0）' : '',
         scenes > 1 ? '"earlier_scenes"（数组，没有就写 []）' : '',
     ].filter(Boolean);
     return [
@@ -219,8 +221,8 @@ function outputFormat(mode, allowOthers, negative = false, aspect = null, scenes
     if (negative) fields.push('"negative": ""');
     if (aspect) fields.push(`"aspect": "${aspect.fallback}"`);
     if (mode === 'ai') fields.push('"prompt": "完整的英文提示词"');
-    if (place) fields.push('"place": ""');
-    if (scenes > 1 && !place) fields.push('"start": ""');
+    if (place) fields.push('"place": 0');
+    if (scenes > 1 && !place) fields.push('"start": 0');
     if (scenes > 1) fields.push('"earlier_scenes": []');
     return `输出格式：\n{${fields.join(', ')}}`;
 }

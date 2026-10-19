@@ -1,8 +1,8 @@
 import { EXTRA_KEY, modeDefaults } from './constants.js';
 import { addExtraLoras, getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
-import { comparable, findQuote, locateQuotes } from './anchors.js';
+import { comparable, findQuote } from './anchors.js';
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
-import { buildParserPrompt, parserLabel, requestParse, storyText } from './parser.js';
+import { buildParserPrompt, floorParagraphs, parserLabel, requestParse } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution, sceneLimit } from './parserPresets.js';
 import { buildImagePrompt, buildNegativePrompt, finishPrompt } from './prompt.js';
 import { modeForRating, readRating } from './rating.js';
@@ -15,7 +15,6 @@ import {
     getSettings,
     isAbortError,
     log,
-    plainText,
     randomSeed,
     resolveMacros,
     roundTo16,
@@ -67,6 +66,32 @@ function subjectsOf(chosen, parsed, parserPrompt, message, notes) {
         return chosen;
     };
     return { subject, sceneSubject };
+}
+
+/**
+ * 图片插在正文中间 / 多张图: the parser names paragraphs of the floor by number ([1], [2] … as it saw them, see
+ * floorParagraphs). An anchor becomes that paragraph's opening words (searched for in the shown text) and its share
+ * of the story (where the picture goes when the words are not found). A quote the parser wrote instead is kept.
+ * @param {'after'|'start'} side after: the picture follows that paragraph; start: a part begins with it
+ * @returns {{ text: string, at: number | undefined }}
+ */
+function paragraphAnchor(value, paragraphs, side) {
+    const number = String(value ?? '').match(/^\s*(?:第\s*)?(\d+)\s*段?\s*$/);
+    if (!number) return { text: String(value ?? '').trim(), at: undefined };
+    const index = Number(number[1]) - 1;
+    if (index < 0 || !paragraphs.length) return { text: '', at: undefined };
+    const clamped = Math.min(index, paragraphs.length - 1);
+    // The share is counted in letters and digits, like the shown text is measured (see placeAnchors).
+    const size = paragraphs.map(paragraph => comparable(paragraph).length);
+    const total = size.reduce((sum, length) => sum + length, 0) || 1;
+    const before = size.slice(0, side === 'after' ? clamped + 1 : clamped).reduce((sum, length) => sum + length, 0);
+    return { text: paragraphs[clamped].slice(0, 40), at: before / total };
+}
+
+/** The story's first and last words, so pictures without a spot of their own stay inside it (see placeAnchors). */
+function storyBounds(paragraphs) {
+    if (!paragraphs.length) return {};
+    return { storyStart: paragraphs[0].slice(0, 40), storyEnd: paragraphs.at(-1).slice(-24) };
 }
 
 /** The preset a subject's looks come from: its character preset, else what the parser wrote about them. */
@@ -314,7 +339,7 @@ function applyRating(message, swipeId) {
  * A floor's picture state: what 🔄 and ✏️ reuse and what continuity reads. All of it belongs to one image model
  * mode, data.modelMode (a Krea 2 sentence prompt or preset id means nothing to Anima, and the other way round).
  */
-const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'subject', 'parsed', 'prompt', 'negative', 'scenes', 'endStart', 'place', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
+const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'subject', 'parsed', 'prompt', 'negative', 'scenes', 'endStart', 'endStartAt', 'place', 'placeAt', 'storyStart', 'storyEnd', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
 
 /** Whether a floor has picture state of its own (a parse or a prompt), as opposed to nothing or only an error. */
 function hasFloorState(data) {
@@ -686,16 +711,23 @@ async function runJob(message, job, options) {
             // 多张图: the earlier parts of the floor (another time or place), drawn before the end in the floor.
             const limit = sceneLimit(settings.parser);
             const scenes = limit > 1 ? (parsed.earlierScenes ?? []).slice(0, limit - 1) : [];
+            // Where pictures go: the paragraphs the parser named, as their words and share of the story.
+            const paragraphs = floorParagraphs(message);
+            Object.assign(data, storyBounds(paragraphs));
             data.scenes = scenes.map((scene, index) => {
                 const who = sceneSubject(scene);
                 const sceneBuilt = scenePrompt(scene, who, target, built.parsed, parserPrompt);
                 const label = scene.label || `第 ${index + 1} 段`;
                 if (!sameSubject(who, target)) data.debug.notes.push(`「${label}」这一张画的是${who.nobody ? '场景（没有人）' : `「${who.name}」`}`);
+                const start = paragraphAnchor(scene.start, paragraphs, 'start');
+                const place = paragraphAnchor(scene.place, paragraphs, 'after');
                 return {
                     label,
-                    // The part's opening words in the text, and the sentence its picture goes after (see anchors.js).
-                    start: scene.start || '',
-                    place: scene.place || '',
+                    // Where the part begins in the text, and the paragraph its picture goes after (see anchors.js).
+                    start: start.text,
+                    startAt: start.at,
+                    place: place.text,
+                    placeAt: place.at,
                     // Who this part shows: its own character preset (and LoRA) when it is not the end's.
                     target: who.name,
                     presetId: who.preset?.id ?? null,
@@ -705,28 +737,33 @@ async function runJob(message, job, options) {
                     negative: buildNegativePrompt(who.preset, sceneBuilt.parsed, sceneBuilt.prompt),
                 };
             });
+            const story = comparable(paragraphs.join('\n'));
+            const missing = quotes => quotes.some(quote => !quote || findQuote(story, quote) < 0);
             if (!data.scenes.length) {
                 delete data.scenes;
                 delete data.endStart;
+                delete data.endStartAt;
             } else {
-                data.endStart = parsed.start || '';
+                const endStart = paragraphAnchor(parsed.start, paragraphs, 'start');
+                data.endStart = endStart.text;
+                data.endStartAt = endStart.at;
                 data.debug.notes.push(`正文分成了 ${data.scenes.length + 1} 段，画 ${data.scenes.length + 1} 张：${[...data.scenes.map(scene => scene.label), '结束时'].join(' → ')}`);
-                // Where the parts start (the 2nd one on): checked against the text the parser read.
-                const quotes = [...data.scenes.slice(1).map(scene => scene.start), data.endStart];
-                if (!locateQuotes(comparable(plainText(storyText(swipeText(message, job.swipeId)))), quotes)) {
-                    data.debug.notes.push('解析模型给的分段开头在正文里对不上，这几张图会放在一起显示，不插进正文');
+                if (!settings.placeInStory && missing([...data.scenes.slice(1).map(scene => scene.start), data.endStart])) {
+                    data.debug.notes.push('解析模型没给全每一段从第几段开始（或给的对不上），缺的按比例插进正文');
                 }
             }
             if ((parsed.earlierScenes?.length ?? 0) > scenes.length) data.debug.notes.push(`解析模型多写了 ${parsed.earlierScenes.length - scenes.length} 段，超过「最多几张」的没有画`);
-            // 图片插在正文中间: the sentence the end of the floor's picture goes after.
-            if (parsed.place) data.place = parsed.place;
-            else delete data.place;
-            if (settings.placeInStory) {
-                const story = comparable(plainText(storyText(swipeText(message, job.swipeId))));
-                const places = [...(data.scenes ?? []).map(scene => scene.place), data.place];
-                if (places.some(place => !place || findQuote(story, place) < 0)) {
-                    data.debug.notes.push('解析模型选的插图位置在正文里没找到（没写或抄得不对），这张图按「图片位置」显示');
-                }
+            // 图片插在正文中间: the paragraph the end of the floor's picture goes after.
+            const place = paragraphAnchor(parsed.place, paragraphs, 'after');
+            if (place.text) {
+                data.place = place.text;
+                data.placeAt = place.at;
+            } else {
+                delete data.place;
+                delete data.placeAt;
+            }
+            if (settings.placeInStory && missing([...(data.scenes ?? []).map(scene => scene.place), data.place])) {
+                data.debug.notes.push('解析模型没给出插图位置（或给的对不上），缺的按比例插进正文（只有一张图时放在正文最后）');
             }
             data.parserPresetId = parserPrompt.preset.id;
             data.parserPresetName = parserPrompt.preset.name;
@@ -760,6 +797,7 @@ async function runJob(message, job, options) {
             // The edited prompt is the end of the floor only: the earlier parts are not drawn again.
             delete data.scenes;
             delete data.endStart;
+            delete data.endStartAt;
             data.debug.notes.push('提示词由用户手动编辑（原样发送）');
         } else if (!data.promptEdited && !data.editOverrides) {
             // 🔄 keeps the prompt, but trigger words added or changed since then are put in (not into an edited prompt).
@@ -837,6 +875,8 @@ async function runJob(message, job, options) {
                     label: scene.label,
                     start: scene.start || '',
                     place: scene.place || '',
+                    startAt: scene.startAt,
+                    placeAt: scene.placeAt,
                     ...('presetId' in scene ? { presetId: scene.presetId, target: scene.target } : {}),
                 });
             } catch (error) {
@@ -853,8 +893,12 @@ async function runJob(message, job, options) {
             refined: data.refinedPrompt || undefined,
             // 多张图: where the end of the floor starts in the text, and the earlier parts' pictures.
             start: scenes.length ? data.endStart || '' : undefined,
-            // 图片插在正文中间: the sentence this picture goes after.
+            startAt: scenes.length ? data.endStartAt : undefined,
+            // 图片插在正文中间: the paragraph this picture goes after.
             place: data.place || undefined,
+            placeAt: data.placeAt,
+            // Where the story is in the text, for pictures placed by share (only when they go into the text).
+            ...(scenes.length || data.place ? { storyStart: data.storyStart, storyEnd: data.storyEnd } : {}),
             scenes: scenes.length ? scenes : undefined,
             mode: modelMode,
             time: Date.now(),

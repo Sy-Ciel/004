@@ -69,6 +69,23 @@ function formatMessage(message, maxChars, text = message.mes) {
     return `${speakerLabel(message)}: ${truncate(plainText(storyText(text)), maxChars)}`;
 }
 
+/** The paragraphs (lines) of a floor's text as the parser reads it. */
+export function paragraphsOf(text) {
+    return String(text ?? '').split(/\n+/).map(line => line.trim()).filter(Boolean);
+}
+
+/**
+ * The paragraphs of the floor being drawn, exactly as the parser saw them numbered ([1], [2] …) when it was asked
+ * where pictures go (图片插在正文中间, 多张图): its text without the status bar, story tag applied, cut to the
+ * per-floor limit.
+ */
+export function floorParagraphs(message) {
+    const settings = getSettings();
+    const status = settings.statusBar.parserFocus ? findStatusBar(message?.mes) : null;
+    const maxChars = Number(settings.parser.maxCharsPerMessage) || 0;
+    return paragraphsOf(truncate(plainText(storyText(withoutStatusBar(message?.mes, status))), maxChars));
+}
+
 /** The current floor's status bar as its own block, so the parser treats it as the main source. */
 function statusBarBlock(found) {
     if (!found) return '';
@@ -384,7 +401,10 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
         last_state: target.auto ? '（自动模式下不提供）' : formatState(lastState, shownFloors),
         prev_outputs: prevOutputs,
         history: history.length ? history.join('\n\n') : '（无）',
-        latest: formatMessage(chat[mesId], maxChars, withoutStatusBar(chat[mesId].mes, status)),
+        // Where pictures go is asked as paragraph numbers: the floor is shown numbered then.
+        latest: place || scenes > 1
+            ? `${speakerLabel(chat[mesId])}:\n${floorParagraphs(chat[mesId]).map((paragraph, index) => `[${index + 1}] ${paragraph}`).join('\n')}`
+            : formatMessage(chat[mesId], maxChars, withoutStatusBar(chat[mesId].mes, status)),
         status_bar: statusBarBlock(status),
         floor: String(mesId),
     };
