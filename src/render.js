@@ -47,9 +47,12 @@ function imageStyle() {
 
 /** The image block: the pictures that are not in the text (see placePictures) and the toolbar. */
 function imageHtml(data, debug, pictures, several, panelButton) {
-    const figures = pictures.map(picture => `<div class="ctp-figure">${pictureHtml(picture, several, { style: imageStyle() })}</div>`);
+    // Only one of several pictures here (the others are in the text): the toolbar under it acts on that one.
+    const scene = several && pictures.length === 1 ? pictures[0].scene : null;
+    const tools = scene === null ? 'all' : 'link';
+    const figures = pictures.map(picture => `<div class="ctp-figure">${pictureHtml(picture, several, { style: imageStyle(), tools })}</div>`);
     return `${figures.join('')}
-    ${toolbarHtml(data, debug, { panelButton })}`;
+    ${toolbarHtml(data, debug, { panelButton, scene })}`;
 }
 
 /** Takes the pictures put into a message's text out again (the image block is moved by placeWrap). */

@@ -108,9 +108,13 @@ function pageAtReadingPosition(mesId, pictures) {
     return pageBoundaries(mesId, text, pictures).filter(top => top < line).length;
 }
 
-/** Shows the current page of a floor with several pictures, and its "2/3 · label" under it. */
+/** Shows the current page of a floor with several pictures, its "2/3 · label", and points the toolbar at it. */
 function applyPage(pictures) {
     panel.querySelectorAll('.ctp-panel-page').forEach((page, index) => page.classList.toggle('ctp-on', index === shownPage));
+    const scene = pictures[shownPage]?.scene;
+    if (scene !== undefined) {
+        panel.querySelectorAll('.ctp-toolbar [data-act^="picture-"]').forEach(button => { button.dataset.scene = String(scene); });
+    }
     const label = panel.querySelector('.ctp-panel-page-label');
     if (label) label.textContent = `${shownPage + 1}/${pictures.length}${pictures[shownPage]?.label ? ` · ${pictures[shownPage].label}` : ''}`;
 }
@@ -285,6 +289,8 @@ function ensurePanel() {
 function panelHtml(mesId, data, job) {
     const settings = getSettings();
     const image = data.images[currentIndex(data)];
+    // 多张图: one picture per page; the toolbar under it acts on the page shown (see applyPage).
+    const pictures = versionPictures(image);
     const follow = panelSettings().follow;
     const name = data.target || ctx().chat[mesId]?.name || '';
     return `<div class="ctp-panel-header" title="拖动标题栏移动，拖右下角调整大小">
@@ -297,15 +303,15 @@ function panelHtml(mesId, data, job) {
         <i class="fa-solid fa-xmark ctp-panel-btn" data-panel-act="close" title="关闭（有新图或点聊天里的配图条时会重新打开）"></i>
     </div>
     ${job ? statusHtml(job) : ''}
-    ${picturesHtml(versionPictures(image))}
-    ${toolbarHtml(data, settings.debug)}`;
+    ${picturesHtml(pictures)}
+    ${toolbarHtml(data, settings.debug, { scene: pictures.length > 1 ? pictures[0].scene : null })}`;
 }
 
 /** The picture, or with 多张图 one page per picture (the shown one is picked by applyPage) and ‹ › under them. */
 function picturesHtml(pictures) {
     if (pictures.length < 2) return `<div class="ctp-panel-body">${pictureHtml(pictures[0], false, { imgClass: 'ctp-panel-img' })}</div>`;
     return `<div class="ctp-panel-body ctp-panel-paged">
-        ${pictures.map((picture, index) => `<div class="ctp-panel-page" data-page="${index}">${pictureHtml(picture, true, { imgClass: 'ctp-panel-img' })}</div>`).join('')}
+        ${pictures.map((picture, index) => `<div class="ctp-panel-page" data-page="${index}">${pictureHtml(picture, true, { imgClass: 'ctp-panel-img', tools: 'link' })}</div>`).join('')}
     </div>
     <div class="ctp-panel-pager">
         <i class="fa-solid fa-chevron-left ctp-panel-btn" data-panel-act="page-prev" title="这一楼的上一张"></i>
