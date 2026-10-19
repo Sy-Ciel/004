@@ -281,7 +281,7 @@ export const SETTINGS_VERSION = 6;
 /** A render profile's LoRA set to this means "no style LoRA", as opposed to empty = use the default. */
 export const LORA_NONE = '__none__';
 
-export const EMPTY_LISTS = { unet: [], clip: [], vae: [], lora: [], sampler: [], scheduler: [] };
+export const EMPTY_LISTS = { unet: [], clip: [], vae: [], lora: [], sampler: [], scheduler: [], upscale: [] };
 
 /**
  * Krea 2's defaults; Anima's are these with ANIMA_DEFAULTS on top (see modeDefaults). Everything except the
@@ -426,6 +426,10 @@ export const DEFAULT_SETTINGS = {
         parserAspect: false,
         /** LoRAs also patch the text encoder (ComfyUI's "Load LoRA" node) instead of only the model. */
         loraClip: false,
+        /** 放大: after drawing, an upscale model (e.g. a 4x DAT) enlarges the picture; it is then resized to upscaleFactor × the drawn size. */
+        upscale: false,
+        upscaleModel: '',
+        upscaleFactor: 2,
         /** More LoRAs: [{ name, strength, presetId }] — presetId '' = every picture, else only that character's. */
         extraLoras: [],
         // Let ComfyUI rewrite the prompt first, like the official template's "Refine Prompt?" (built-in workflow only).
@@ -453,6 +457,8 @@ const ANIMA_DEFAULTS = {
         filenamePrefix: 'ST_anima',
         // Like ComfyUI's usual "Load LoRA" node: Anima LoRAs often train the text encoder too.
         loraClip: true,
+        // An anime illustration upscaler; used once 放大 is turned on.
+        upscaleModel: '4x_IllustrationJaNai_V3detail_DAT2_28k_bf16.safetensors',
     },
 };
 

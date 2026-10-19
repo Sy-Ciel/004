@@ -438,6 +438,21 @@
                     </div>
                     <small class="ctp-hint" id="ctp_mp">会自动对齐到 16 的倍数。Krea 2 Turbo 适合约 1–2 MP。</small>
 
+                    <h4>放大</h4>
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="comfy.upscale"> 出图后用放大模型放大</label>
+                    <div class="ctp-row">
+                        <label class="flex1">放大模型 (upscale_models) <select class="text_pole" data-picker="comfy.upscaleModel" data-list="upscale"></select></label>
+                        <label class="ctp-narrow">放大到
+                            <select class="text_pole" data-ctp="comfy.upscaleFactor" data-type="float">
+                                <option value="1.5">1.5 倍</option>
+                                <option value="2">2 倍</option>
+                                <option value="3">3 倍</option>
+                                <option value="4">4 倍</option>
+                            </select>
+                        </label>
+                    </div>
+                    <small class="ctp-hint">画完后先用放大模型放大，再缩放到选的倍数（例：4x 模型选 2 倍 = 先放大 4 倍再缩回一半，比直接放大 2 倍更清晰）。模型文件放在 ComfyUI/models/upscale_models/。Anima 模式已经填好了 4x_IllustrationJaNai_V3detail_DAT2_28k_bf16.safetensors，打开开关就能用。出图会慢一些、图片文件更大；「编辑提示词后生成」里可以单独关掉这一次的放大。</small>
+
                     <h4>采样</h4>
                     <div class="ctp-row">
                         <label>步数 <input type="number" class="text_pole" min="1" data-ctp="comfy.steps" data-type="int"></label>

@@ -58,6 +58,9 @@ export async function openEditDialog(mesId, sceneArg) {
     if (plan.boundProfile) {
         extras.push(checkbox('profile', `渲染配置「${escapeHtml(plan.boundProfile.name)}」（换掉模型、LoRA、采样）`, previous.profile !== false));
     }
+    if (plan.upscale) {
+        extras.push(checkbox('upscale', `放大：${escapeHtml(plan.upscale.model)} → ×${plan.upscale.factor}`, previous.upscale !== false));
+    }
     // Only Krea 2's built-in workflow has the refine step.
     if (currentMode() === MODEL_KREA2) {
         extras.push(checkbox('refine', 'ComfyUI 端提示词扩写', typeof previous.refine === 'boolean' ? previous.refine : !!comfy.refinePrompt));

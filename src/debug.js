@@ -139,6 +139,7 @@ export async function showFloorDebug(mesId) {
         ['全局 LoRA', params.lora || '（无）'],
         ['更多 LoRA', params.extraLoras || '（无）'],
         ['LoRA 作用于', data.params ? (params.loraClip ? '模型 + 文本编码器（加载 LoRA）' : '仅模型') : ''],
+        ['放大', params.upscale],
         ['图片路径', image?.path || (image?.src?.startsWith('data:') ? 'base64 内嵌' : image?.src)],
     ])}
         ${data.debug?.workflow ? block('最终提交给 ComfyUI 的工作流 (API)', data.debug.workflow, { open: false }) : ''}

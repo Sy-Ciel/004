@@ -1,5 +1,5 @@
 import { EXTRA_KEY, modeDefaults } from './constants.js';
-import { addExtraLoras, getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
+import { addExtraLoras, addUpscale, getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
 import { comparable, findQuote } from './anchors.js';
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
 import { buildParserPrompt, floorParagraphs, parserLabel, requestParse } from './parser.js';
@@ -286,7 +286,16 @@ export function renderPlan(data, overrides = null) {
         // "更多 LoRA": the ones for every picture plus this character's.
         extraLoras: overrides?.extraLoras === false ? [] : extraLorasFor(preset),
         loraClip: !!getSettings().comfy.loraClip,
+        upscale: overrides?.upscale === false ? null : upscaleOf(comfy),
     };
+}
+
+/** 放大: the upscale model and the final size factor, or null when it is off (or no model is set). */
+function upscaleOf(comfy) {
+    const model = String(comfy.upscaleModel || '').trim();
+    if (!comfy.upscale || !model) return null;
+    const factor = Number(comfy.upscaleFactor);
+    return { model, factor: Number.isFinite(factor) && factor >= 1 && factor <= 8 ? factor : 2 };
 }
 
 /** The "更多 LoRA" entries used for a character preset (entries for every picture and the preset's own). */
@@ -315,6 +324,7 @@ function describeOverrides(overrides) {
     if (overrides.profile === false) parts.push('不用渲染配置');
     if (overrides.refine === false) parts.push('不扩写');
     if (overrides.refine === true) parts.push('ComfyUI 端扩写');
+    if (overrides.upscale === false) parts.push('不放大');
     return parts.length ? `按编辑窗口的设置出图：${parts.join('、')}` : '';
 }
 
@@ -387,10 +397,11 @@ function workflowValues(plan, modelMode, { prompt, negative, width, height, seed
     };
 }
 
-/** The workflow for one picture: the template filled in, plus the "更多 LoRA" chain. */
+/** The workflow for one picture: the template filled in, plus the "更多 LoRA" chain and the 放大 step. */
 function buildWorkflow(template, values, plan, notes = []) {
     const { workflow, notes: prepared } = prepareWorkflow(template.text, values);
     addExtraLoras(workflow, plan.extraLoras, plan.loraClip, prepared);
+    if (plan.upscale) addUpscale(workflow, plan.upscale, values.width, values.height, prepared);
     notes.push(...prepared);
     return workflow;
 }
@@ -417,6 +428,7 @@ function drawingParams(plan, template, values, modelMode) {
         charLora: values.char_lora ? `${values.char_lora} @ ${values.char_lora_strength}` : '',
         extraLoras: plan.extraLoras.map(lora => `${lora.name} @ ${lora.strength}`).join('、'),
         loraClip: plan.loraClip,
+        upscale: plan.upscale ? `${plan.upscale.model} → ×${plan.upscale.factor}（${Math.round(values.width * plan.upscale.factor)}×${Math.round(values.height * plan.upscale.factor)}）` : '',
     };
 }
 

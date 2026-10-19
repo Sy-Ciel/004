@@ -295,6 +295,38 @@ export function addExtraLoras(workflow, loras, withClip, notes = []) {
     return workflow;
 }
 
+/**
+ * 放大: an upscale model between the decoded picture and the nodes that save it (UpscaleModelLoader →
+ * ImageUpscaleWithModel), then the result resized to `factor` × the drawn size (ImageScale), so a 4x model can
+ * give 2x. Works on custom workflows too: every SaveImage / PreviewImage gets the enlarged picture.
+ * @param {{ model: string, factor: number }} upscale
+ */
+export function addUpscale(workflow, { model, factor }, width, height, notes = []) {
+    const outputs = Object.values(workflow).filter(node => ['SaveImage', 'PreviewImage'].includes(node.class_type) && isLink(node.inputs?.images));
+    if (!outputs.length) {
+        notes.push('没有找到 SaveImage 节点，放大没有加上');
+        return workflow;
+    }
+    const target = { width: Math.round(width * factor), height: Math.round(height * factor) };
+    const loader = nextNodeId(workflow);
+    workflow[loader] = { class_type: 'UpscaleModelLoader', inputs: { model_name: model }, _meta: { title: '放大模型' } };
+    // One enlarged picture per picture saved (usually just the decoded one).
+    const enlarged = new Map();
+    for (const node of outputs) {
+        const source = JSON.stringify(node.inputs.images);
+        if (!enlarged.has(source)) {
+            const upscale = nextNodeId(workflow);
+            workflow[upscale] = { class_type: 'ImageUpscaleWithModel', inputs: { upscale_model: [loader, 0], image: node.inputs.images }, _meta: { title: '用放大模型放大' } };
+            const resize = nextNodeId(workflow);
+            workflow[resize] = { class_type: 'ImageScale', inputs: { image: [upscale, 0], upscale_method: 'lanczos', ...target, crop: 'disabled' }, _meta: { title: `缩放到 ×${factor}` } };
+            enlarged.set(source, [resize, 0]);
+        }
+        node.inputs.images = enlarged.get(source);
+    }
+    notes.push(`放大：${model}，再缩放到 ×${factor}（${target.width}×${target.height}）`);
+    return workflow;
+}
+
 /** ComfyUI address as seen from the SillyTavern server (proxy mode). */
 function comfyBase() {
     const url = getSettings().comfy.url.trim().replace(/\/+$/, '');
@@ -484,8 +516,10 @@ async function listsViaProxy() {
 
 /** Complete lists from ComfyUI's object_info. Needs CORS and an address reachable from the browser. */
 async function listsDirect() {
-    const [unet, clip, vae, lora, sampler] = await Promise.all([
+    const [unet, clip, vae, lora, sampler, upscale] = await Promise.all([
         objectInfo('UNETLoader'), objectInfo('CLIPLoader'), objectInfo('VAELoader'), objectInfo('LoraLoaderModelOnly'), objectInfo('KSampler'),
+        // Upscale models (models/upscale_models) are optional: a failure here leaves the rest.
+        objectInfo('UpscaleModelLoader').catch(() => ({})),
     ]);
     return {
         unet: strings(unet.unet_name?.[0]),
@@ -494,6 +528,7 @@ async function listsDirect() {
         lora: strings(lora.lora_name?.[0]),
         sampler: strings(sampler.sampler_name?.[0]),
         scheduler: strings(sampler.scheduler?.[0]),
+        upscale: strings(upscale.model_name?.[0]),
     };
 }
 
