@@ -19,13 +19,13 @@ export function promptMode() {
     return getSettings().promptMode === 'ai' ? 'ai' : 'fixed';
 }
 
-export function outputRules(mode, allowOthers = false, negative = false, aspect = null, scenes = 0, place = false) {
-    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers, promptStyle(), negative, aspect, scenes, place);
+export function outputRules(mode, allowOthers = false, negative = false, aspect = null, scenes = 0, place = false, absent = null) {
+    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers, promptStyle(), negative, aspect, scenes, place, absent);
 }
 
-/** Just the extra fields' rules (negative, aspect, earlier scenes, place), for custom system prompts that keep their own format. */
-export function extraFieldRules(negative, aspect, scenes = 0, place = false) {
-    return extraOnlyRules(promptStyle(), negative, aspect, scenes, place);
+/** Just the extra fields' rules (negative, aspect, earlier scenes, place, absent target), for custom system prompts that keep their own format. */
+export function extraFieldRules(negative, aspect, scenes = 0, place = false, absent = null) {
+    return extraOnlyRules(promptStyle(), negative, aspect, scenes, place, absent);
 }
 
 /** Pictures per floor with 多张图 (2–4), or 0 when it is off. */

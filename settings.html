@@ -55,6 +55,8 @@
                     <select class="text_pole" id="ctp_target"></select>
                 </label>
                 <small class="ctp-hint">「自动」= 让解析模型从 {{user}}、当前角色和所有预设里挑本楼的主角。</small>
+                <label class="checkbox_label"><input type="checkbox" data-ctp="absentFallback"> 画谁不在画面里时，改画画面里的人或场景（关掉 = 这一楼不配图）</label>
+                <small class="ctp-hint">比如主角选了 {{user}}，这一楼却只写了别的人物：解析 AI 改画这一楼的主要人物（有角色预设的用预设的外貌和角色 LoRA，没有的按正文写外貌）；一个人都没有就只画场景。立绘模式不受影响。两个模型模式共用。</small>
                 <div class="ctp-row ctp-wrap-row">
                     <div class="menu_button" id="ctp_generate_last">为最新楼层生成</div>
                     <div class="menu_button" id="ctp_debug_chat">查看各楼层提示词</div>

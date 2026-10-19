@@ -1,4 +1,4 @@
-import { ANIMA_OTHERS_LINE, ANIMA_PROMPT_TEMPLATE, ANIMA_SOLO_LINE, DEFAULT_PROMPT_TEMPLATE, OTHERS_LINE, PARSED_FIELDS, SOLO_LINE } from './constants.js';
+import { ANIMA_NOBODY_LINE, ANIMA_OTHERS_LINE, ANIMA_PROMPT_TEMPLATE, ANIMA_SOLO_LINE, DEFAULT_PROMPT_TEMPLATE, NOBODY_LINE, OTHERS_LINE, PARSED_FIELDS, SOLO_LINE } from './constants.js';
 import { promptStyle } from './modes.js';
 import { fillTemplate, getSettings, resolveMacros } from './utils.js';
 
@@ -45,7 +45,15 @@ function joinParts(parts, tags) {
  * With other people in the picture the template's "solo" line would contradict it, so it is dropped, and the
  * people go in {{others}} (added before the camera / lighting line when the template has no such slot).
  */
-function templateFor(template, hasOthers, tags) {
+function templateFor(template, hasOthers, tags, nobody = false) {
+    if (nobody) {
+        // Nobody in the scene: the "one person" line says "no people" instead; the person lines are empty and drop out.
+        const lines = template.split('\n');
+        const at = lines.findIndex(line => [SOLO_LINE, ANIMA_SOLO_LINE].includes(line.trim()));
+        if (at >= 0) lines[at] = tags ? ANIMA_NOBODY_LINE : NOBODY_LINE;
+        else lines.splice(Math.min(1, lines.length), 0, tags ? ANIMA_NOBODY_LINE : NOBODY_LINE);
+        return lines.join('\n');
+    }
     if (!hasOthers) return template;
     const lines = template.split('\n').filter(line => ![SOLO_LINE, ANIMA_SOLO_LINE].includes(line.trim()));
     if (!lines.some(line => line.includes('{{others}}'))) {
@@ -164,9 +172,9 @@ export function finishPrompt(prompt) {
  * Other people (`others`) are only used when the parser preset allows them.
  * @param {object|null} preset Character preset
  * @param {object} parsed Parser output
- * @param {{ parserPreset?: object, mode?: 'fixed'|'ai' }} [options]
+ * @param {{ parserPreset?: object, mode?: 'fixed'|'ai', nobody?: boolean }} [options] nobody: only the scenery (画谁不在画面里)
  */
-export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = 'fixed' } = {}) {
+export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = 'fixed', nobody = false } = {}) {
     const settings = getSettings();
     // Anima writes tags, unless its "英文自然语言" switch is on: then sentences, like Krea 2.
     const style = promptStyle();
@@ -175,7 +183,7 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
 
     const clean = tags ? cleanTags : text => cleanLine(String(text || ''));
     if (mode === 'ai' && parsed?.prompt) {
-        const parts = [resolveMacros(preset?.trigger || ''), prefix, parsed.prompt, resolveMacros(settings.suffix || '')]
+        const parts = [resolveMacros(preset?.trigger || ''), prefix, nobody ? (tags ? ANIMA_NOBODY_LINE : NOBODY_LINE) : '', parsed.prompt, resolveMacros(settings.suffix || '')]
             .map(clean)
             .filter(Boolean);
         return finishPrompt(joinParts(parts, tags));
@@ -192,12 +200,14 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
         vars[field] = String(parsed?.[field] || '').trim();
     }
     if (!parserPreset?.allowOthers) vars.others = '';
+    // 画谁不在画面里, nobody there: only the place is drawn.
+    if (nobody) for (const field of ['appearance', 'outfit', 'action', 'expression', 'demeanor', 'others']) vars[field] = '';
 
     const lines = [];
     // The untouched tag template does not fit sentences: natural-language Anima uses the sentence template then.
     let template = String(settings.promptTemplate || '');
     if (style === 'anima-natural' && template === ANIMA_PROMPT_TEMPLATE) template = DEFAULT_PROMPT_TEMPLATE;
-    for (const line of templateFor(template, !!vars.others, tags).split('\n')) {
+    for (const line of templateFor(template, !!vars.others, tags, nobody).split('\n')) {
         const keys = [...line.matchAll(/\{\{(\w+)\}\}/g)].map(match => match[1]).filter(key => Object.hasOwn(vars, key));
         if (keys.length && keys.every(key => !vars[key])) continue;
         const cleaned = clean(fillTemplate(line, vars));

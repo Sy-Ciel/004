@@ -8,7 +8,7 @@ import { buildImagePrompt, buildNegativePrompt, finishPrompt } from './prompt.js
 import { modeForRating, readRating } from './rating.js';
 import { baseSize } from './resolution.js';
 import { effectiveComfy, renderProfileFor } from './renderProfiles.js';
-import { findPresetById, presetForName, resolveTarget, settleAutoTarget } from './targets.js';
+import { findPresetById, presetForName, resolveTarget, settleAutoTarget, substituteTarget } from './targets.js';
 import {
     ctx,
     errorMessage,
@@ -45,8 +45,52 @@ function applyFixedFields(parsed, parserPreset) {
     return { parsed: { ...parsed, ...fixed }, forced: Object.keys(fixed) };
 }
 
+/**
+ * 画谁不在画面里: who the pictures of a parse show. `chosen` is the target the floor was parsed for; when the
+ * parser says that target is not in the scene, someone else (or nobody, only the scenery) is drawn instead.
+ * @returns {{ subject: object, sceneSubject: (scene: object) => object }} subject: the end of the floor's picture
+ */
+function subjectsOf(chosen, parsed, parserPrompt, message, notes) {
+    const original = chosen.auto ? settleAutoTarget(chosen, parsed.target, message) : chosen;
+    let subject = original;
+    if (parserPrompt.absent && parsed.absent) {
+        subject = substituteTarget(parsed.target, parsed.looks);
+        const who = chosen.auto ? '候选角色都' : `「${chosen.name}」`;
+        notes.push(subject.nobody
+            ? `${who}不在这一楼的画面里，画面里也没有别人：只画场景`
+            : `${who}不在这一楼的画面里，改画「${subject.name}」${subject.preset ? '（用 ta 的角色预设）' : '（按解析模型写的外貌）'}`);
+    }
+    // 多张图: each part shows its own target, someone else when the target is not in that part.
+    const sceneSubject = scene => {
+        if (parserPrompt.absent && scene.absent) return substituteTarget(scene.target, scene.looks);
+        if (chosen.auto) return scene.target ? settleAutoTarget(chosen, scene.target, message) : subject;
+        return chosen;
+    };
+    return { subject, sceneSubject };
+}
+
+/** The preset a subject's looks come from: its character preset, else what the parser wrote about them. */
+function subjectPreset(subject) {
+    if (subject.preset || !subject.looks) return subject.preset ?? null;
+    return { id: null, name: subject.name, appearance: subject.looks, trigger: '', negative: '' };
+}
+
+function sameSubject(a, b) {
+    return a === b || (a.name === b.name && !!a.nobody === !!b.nobody);
+}
+
+/** Builds the prompt of one earlier part of the floor (多张图), with its own subject. */
+function scenePrompt(scene, who, mainSubject, mainParsed, parserPrompt) {
+    const { label, start, place, absent, target, looks, ...fields } = scene;
+    // A field the parser left out is taken from the end of the floor (usually the same outfit) when the part
+    // shows the same person.
+    const filled = Object.fromEntries(Object.entries(fields).filter(([, value]) => value));
+    const base = sameSubject(who, mainSubject) ? { ...mainParsed, prompt: '', negative: '', others: '' } : {};
+    return promptFromParse(subjectPreset(who), { ...base, ...filled }, parserPrompt, [], { nobody: !!who.nobody });
+}
+
 /** Builds the final prompt for a parse result; shared by real runs and the dry run. */
-function promptFromParse(characterPreset, parsed, parserPrompt, notes) {
+function promptFromParse(characterPreset, parsed, parserPrompt, notes, { nobody = false } = {}) {
     const { parsed: final, forced } = applyFixedFields(parsed, parserPrompt.preset);
     if (forced.length) notes.push(`固定内容覆盖了：${forced.join(', ')}`);
     if (parserPrompt.mode === 'ai' && !final.prompt) {
@@ -55,7 +99,7 @@ function promptFromParse(characterPreset, parsed, parserPrompt, notes) {
     if (parserPrompt.preset?.allowOthers && final.others) notes.push('画面里有其他人物（others）');
     return {
         parsed: final,
-        prompt: buildImagePrompt(characterPreset, final, { parserPreset: parserPrompt.preset, mode: parserPrompt.mode }),
+        prompt: buildImagePrompt(characterPreset, final, { parserPreset: parserPrompt.preset, mode: parserPrompt.mode, nobody }),
     };
 }
 
@@ -270,7 +314,7 @@ function applyRating(message, swipeId) {
  * A floor's picture state: what 🔄 and ✏️ reuse and what continuity reads. All of it belongs to one image model
  * mode, data.modelMode (a Krea 2 sentence prompt or preset id means nothing to Anima, and the other way round).
  */
-const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'parsed', 'prompt', 'negative', 'scenes', 'endStart', 'place', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
+const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'subject', 'parsed', 'prompt', 'negative', 'scenes', 'endStart', 'place', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
 
 /** Whether a floor has picture state of its own (a parse or a prompt), as opposed to nothing or only an error. */
 function hasFloorState(data) {
@@ -398,7 +442,9 @@ async function redrawPicture(message, job, data, options, modelMode, otherMode) 
     const prompt = edit ? String(options.prompt ?? '') : String(picture.prompt ?? '');
     if (!prompt.trim()) throw new Error('提示词是空的');
     const negative = edit && typeof options.negative === 'string' ? options.negative : picture.negative || '';
-    const plan = renderPlan(data, overrides);
+    // A part showing someone else than the floor's subject keeps that person's character LoRA.
+    const own = scene >= 0 && 'presetId' in picture && picture.presetId !== (data.presetId ?? null);
+    const plan = renderPlan(own ? { ...data, presetId: picture.presetId, target: picture.target } : data, overrides);
     const width = overrides?.width ? plan.width : picture.width || plan.width;
     const height = overrides?.height ? plan.height : picture.height || plan.height;
     const seed = Number.isFinite(overrides?.seed) && overrides.seed >= 0 ? overrides.seed : randomSeed();
@@ -494,10 +540,14 @@ async function runJob(message, job, options) {
                 data.target = resolved.auto ? '' : resolved.name;
                 data.presetId = resolved.preset?.id ?? null;
                 data.fixed = {
-                    appearance: resolveMacros(resolved.preset?.appearance || ''),
+                    appearance: resolveMacros(resolved.preset?.appearance || resolved.looks || ''),
                     trigger: resolveMacros(resolved.preset?.trigger || ''),
                     preset: resolved.preset ? resolveMacros(resolved.preset.name) : '',
                 };
+                // 画谁不在画面里: someone else, or nobody, is drawn instead of the chosen target.
+                if (resolved.nobody) data.subject = 'nobody';
+                else if (resolved.substitute) data.subject = 'substitute';
+                else delete data.subject;
             };
             // Recorded before the request so a failed floor still shows who it was for.
             applyTarget(target);
@@ -556,14 +606,16 @@ async function runJob(message, job, options) {
                 log(`#${mesId} 跳过:`, data.skipped);
                 return;
             }
-            if (target.auto) {
-                target = settleAutoTarget(target, parsed.target, message);
-                applyTarget(target);
-            }
-            if (!target.preset) {
+            // Who is drawn: the target (auto: the one the parser picked), or, when the target is not in the scene,
+            // whoever is (画谁不在画面里).
+            const chosen = target;
+            const { subject, sceneSubject } = subjectsOf(chosen, parsed, parserPrompt, message, data.debug.notes);
+            target = subject;
+            applyTarget(target);
+            if (!target.preset && !target.looks && !target.nobody) {
                 data.debug.notes.push(`没有找到「${target.name}」的角色预设，固定外貌为空`);
             }
-            const built = promptFromParse(target.preset, parsed, parserPrompt, data.debug.notes);
+            const built = promptFromParse(subjectPreset(target), parsed, parserPrompt, data.debug.notes, { nobody: !!target.nobody });
             data.modelMode = modelMode;
             converted = true;
             data.parsed = built.parsed;
@@ -573,17 +625,22 @@ async function runJob(message, job, options) {
             const limit = sceneLimit(settings.parser);
             const scenes = limit > 1 ? (parsed.earlierScenes ?? []).slice(0, limit - 1) : [];
             data.scenes = scenes.map((scene, index) => {
-                const { label, start, place, ...fields } = scene;
-                // A field the parser left out is taken from the end of the floor (usually the same outfit).
-                const sceneBuilt = promptFromParse(target.preset, { ...built.parsed, prompt: '', negative: '', others: '', ...fields }, parserPrompt, []);
+                const who = sceneSubject(scene);
+                const sceneBuilt = scenePrompt(scene, who, target, built.parsed, parserPrompt);
+                const label = scene.label || `第 ${index + 1} 段`;
+                if (!sameSubject(who, target)) data.debug.notes.push(`「${label}」这一张画的是${who.nobody ? '场景（没有人）' : `「${who.name}」`}`);
                 return {
-                    label: label || `第 ${index + 1} 段`,
+                    label,
                     // The part's opening words in the text, and the sentence its picture goes after (see anchors.js).
-                    start: start || '',
-                    place: place || '',
+                    start: scene.start || '',
+                    place: scene.place || '',
+                    // Who this part shows: its own character preset (and LoRA) when it is not the end's.
+                    target: who.name,
+                    presetId: who.preset?.id ?? null,
+                    subject: who.nobody ? 'nobody' : who.substitute ? 'substitute' : undefined,
                     parsed: sceneBuilt.parsed,
                     prompt: sceneBuilt.prompt,
-                    negative: buildNegativePrompt(target.preset, sceneBuilt.parsed, sceneBuilt.prompt),
+                    negative: buildNegativePrompt(who.preset, sceneBuilt.parsed, sceneBuilt.prompt),
                 };
             });
             if (!data.scenes.length) {
@@ -698,12 +755,28 @@ async function runJob(message, job, options) {
             const sceneSeed = mode !== 'reroll' && fixedSeed >= 0 ? fixedSeed : randomSeed();
             setStage(job, message, 'drawing', `ComfyUI 生成中：「${scene.label}」（${index + 2}/${earlier.length + 1}）…`);
             try {
-                const sceneValues = { ...values, prompt: scene.prompt, negative_prompt: scene.negative || '', seed: sceneSeed };
-                const picture = await runWorkflow(buildWorkflow(template, sceneValues, plan), signal, text => setStage(job, message, 'drawing', `「${scene.label}」${text}`));
+                // A part showing someone else is drawn with their character LoRA and render profile.
+                const own = 'presetId' in scene && scene.presetId !== (data.presetId ?? null);
+                const scenePlan = own ? renderPlan({ ...data, presetId: scene.presetId, target: scene.target }, overrides) : plan;
+                const sceneTemplate = own ? await getWorkflowTemplate(scenePlan.comfy, scenePlan.profile, modelMode) : template;
+                assertMode(modelMode);
+                const sceneValues = own
+                    ? workflowValues(scenePlan, modelMode, { prompt: scene.prompt, negative: scene.negative, width, height, seed: sceneSeed })
+                    : { ...values, prompt: scene.prompt, negative_prompt: scene.negative || '', seed: sceneSeed };
+                const picture = await runWorkflow(buildWorkflow(sceneTemplate, sceneValues, scenePlan), signal, text => setStage(job, message, 'drawing', `「${scene.label}」${text}`));
                 assertMode(modelMode);
                 const stored = await storePicture(picture, data.debug.notes);
                 assertMode(modelMode);
-                scenes.push({ ...stored, seed: sceneSeed, width, height, prompt: scene.prompt, negative: scene.negative || '', refined: refinedText(template, picture) || undefined, label: scene.label, start: scene.start || '', place: scene.place || '' });
+                scenes.push({
+                    ...stored, seed: sceneSeed, width, height,
+                    prompt: scene.prompt,
+                    negative: scene.negative || '',
+                    refined: refinedText(sceneTemplate, picture) || undefined,
+                    label: scene.label,
+                    start: scene.start || '',
+                    place: scene.place || '',
+                    ...('presetId' in scene ? { presetId: scene.presetId, target: scene.target } : {}),
+                });
             } catch (error) {
                 if (isAbortError(error)) throw error;
                 warn(error);
@@ -757,14 +830,16 @@ export async function dryRun(mesId, targetOverride) {
     const parserPrompt = await buildParserPrompt(mesId, target);
     const { reply, parsed: raw } = await requestParse(parserPrompt.system, parserPrompt.user);
     if (currentMode() !== modelMode) throw new Error('试运行期间切换了模型模式，结果已丢弃');
-    if (target.auto && !raw.skip) target = settleAutoTarget(target, raw.target, message);
     const notes = [...parserPrompt.notes];
-    const built = raw.skip ? { parsed: raw, prompt: '' } : promptFromParse(target.preset, raw, parserPrompt, notes);
+    const chosen = target;
+    const { subject, sceneSubject } = raw.skip ? { subject: target, sceneSubject: () => target } : subjectsOf(chosen, raw, parserPrompt, message, notes);
+    target = subject;
+    const built = raw.skip ? { parsed: raw, prompt: '' } : promptFromParse(subjectPreset(target), raw, parserPrompt, notes, { nobody: !!target.nobody });
     const limit = sceneLimit(getSettings().parser);
-    const scenes = raw.skip || limit < 2 ? [] : (raw.earlierScenes ?? []).slice(0, limit - 1).map((scene, index) => {
-        const { label, ...fields } = scene;
-        return { label: label || `第 ${index + 1} 段`, prompt: promptFromParse(target.preset, { ...built.parsed, prompt: '', negative: '', others: '', ...fields }, parserPrompt, []).prompt };
-    });
+    const scenes = raw.skip || limit < 2 ? [] : (raw.earlierScenes ?? []).slice(0, limit - 1).map((scene, index) => ({
+        label: scene.label || `第 ${index + 1} 段`,
+        prompt: scenePrompt(scene, sceneSubject(scene), target, built.parsed, parserPrompt).prompt,
+    }));
     return {
         scenes,
         target,

@@ -147,6 +147,22 @@ export function autoCandidates(message) {
     });
 }
 
+/** What the parser may write as `target` when nobody is in the scene. */
+const NOBODY = new Set(['', '无', '没有', '无人', '空', 'none', 'nobody', 'null', 'n/a']);
+
+/**
+ * 画谁不在画面里: who a picture shows when the parser says the target is not in the scene: the character preset of
+ * that name, else that person as the parser described them (`looks`), else (no name) nobody: only the scenery.
+ * @returns {{ auto: false, name: string, preset: object|null, candidates: [], substitute?: true, looks?: string, nobody?: true }}
+ */
+export function substituteTarget(name, looks) {
+    const wanted = String(name ?? '').trim();
+    if (NOBODY.has(wanted.toLowerCase())) return { auto: false, name: '', preset: null, candidates: [], nobody: true };
+    const preset = presetForName(wanted);
+    if (preset) return { auto: false, name: presetName(preset), preset, candidates: [], substitute: true };
+    return { auto: false, name: wanted, preset: null, candidates: [], substitute: true, looks: String(looks ?? '').trim() };
+}
+
 /** Maps the name returned by the parser in auto mode back onto a candidate/preset. */
 export function settleAutoTarget(target, parsedName, message) {
     const wanted = String(parsedName || '').trim();

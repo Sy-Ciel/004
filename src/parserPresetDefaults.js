@@ -147,7 +147,7 @@ function aspectRules(aspect) {
  * each earlier part as well, in `earlier_scenes`; the main fields stay the end of the floor.
  * @param {number} scenes Pictures per floor at most, the end of the floor included
  */
-function scenesRules(scenes, mode = 'fixed', allowOthers = false, negative = false, place = false) {
+function scenesRules(scenes, mode = 'fixed', allowOthers = false, negative = false, place = false, absent = false) {
     const fields = ['outfit', 'action', 'expression', 'demeanor', 'scene', 'camera', 'lighting'];
     if (allowOthers) fields.push('others');
     if (mode === 'ai') fields.push('prompt');
@@ -162,8 +162,26 @@ function scenesRules(scenes, mode = 'fixed', allowOthers = false, negative = fal
     return `多张图：这一楼的正文如果明显分成了前后几个时间段或场景（例如前半段是晚上，后半段跳到了第二天早上；或者从酒馆换到了森林），除了主字段写的结束时刻这一张，再为前面的每一段各写一张，按时间顺序放进 earlier_scenes（最多 ${scenes - 1} 个）：
 - 只有时间、地点或画面明显变化才分开；整段都是同一个时间段、同一个场景时，earlier_scenes 写 []（只出一张图）
 - 每一段是一个对象：label（中文，几个字说明是哪一段，例如「前半段·深夜」）；${anchor}；再加上和主字段一样的画面字段（${fields.join('、')}），全部按那一段当时的情况写，规则和长度限制都一样；那一段的衣服、地点、光线和结束时刻不一样，就按那一段写
-- ${last}
+- ${last}${absent ? `
+- 某一段里目标角色不在画面里时，那一段的对象里同样写 absent、target、looks（规则同「画谁不在画面里」）；那一段一个人都没有就 target 写 ""` : ''}
 - 「画面时刻是当前楼层结束的那一刻」只管主字段；earlier_scenes 画的就是前面已经发生过的那几段`;
+}
+
+/**
+ * Only with 画谁不在画面里 (absentFallback): when the target is not in the scene, the parser draws whoever is
+ * (fields absent, target, looks) or only the scenery, instead of skipping the floor. Overrides a preset's "skip
+ * when the target is absent".
+ */
+function absentRules(model, mode, auto) {
+    const looks = model === 'anima' ? '英文 Danbooru 风格标签，先写 1girl / 1boy 这样的人数标签' : '英文短语';
+    const who = auto ? '候选角色都不在当前楼层的画面里' : '【目标角色】不在当前楼层的画面里（例如已经离开，或者这一段只写了别的人物）';
+    return `画谁不在画面里（这一条优先于上面「目标角色不在场就输出 skip」的要求）：
+- ${who}时，不要输出 skip，改画这一楼画面里的主要人物："absent": true，target 写这个人的名字（【可能同框的其他角色】或候选角色里有的照原样写，没有就写正文里对 ta 的称呼）
+- 再写 looks：这个人的外貌（性别、年龄感、发型发色、体型、明显特征），${looks}；上面给了这个人外貌的，照着写
+- outfit、action、expression、demeanor 都写这个人${mode === 'ai' ? '；prompt 也画这个人，外貌照 looks 写' : ''}
+- 画面里一个人都没有（只有风景、建筑、物品）时："absent": true，target 写 ""，只写 scene、camera、lighting（只画场景），outfit、action、expression、demeanor 写 ""
+- ${auto ? '选中了候选角色' : '目标角色在画面里'}时 absent 写 false，照常画
+- 只有当前楼层完全没有可以画面化的内容（例如系统提示、纯说明文字）才输出 skip`;
 }
 
 /** Only with 图片插在正文中间: the sentence the (end of the floor) picture is put after, copied from the text. */
@@ -173,8 +191,9 @@ const PLACE_RULE = '图在正文里的位置：再写 place：这张图最适合
  * For a custom system prompt without {{output_rules}} that keeps its own output format: only the rules of the
  * extra fields asked for (negative, aspect, earlier scenes), plus the fields to add to that format.
  */
-export function extraOnlyRules(model, negative = false, aspect = null, scenes = 0, place = false) {
+export function extraOnlyRules(model, negative = false, aspect = null, scenes = 0, place = false, absent = null) {
     const fields = [
+        absent ? '"absent"（true / false）、"target"（字符串）、"looks"（字符串）' : '',
         negative ? '"negative"（字符串，没有就写 ""）' : '',
         aspect ? '"aspect"（字符串，例如 "2:3"）' : '',
         place ? '"place"（字符串）' : '',
@@ -182,17 +201,18 @@ export function extraOnlyRules(model, negative = false, aspect = null, scenes = 
         scenes > 1 ? '"earlier_scenes"（数组，没有就写 []）' : '',
     ].filter(Boolean);
     return [
+        absent ? absentRules(model, 'fixed', absent.auto) : '',
         negative ? negativeRules(model) : '',
         aspect ? aspectRules(aspect) : '',
         place ? PLACE_RULE : '',
-        scenes > 1 ? scenesRules(scenes, 'fixed', false, negative, place) : '',
+        scenes > 1 ? scenesRules(scenes, 'fixed', false, negative, place, !!absent) : '',
         `在你输出的 JSON 里再加 ${fields.join('、')} 字段。`,
     ].filter(Boolean).join('\n\n');
 }
 
-function outputFormat(mode, allowOthers, negative = false, aspect = null, scenes = 0, place = false) {
+function outputFormat(mode, allowOthers, negative = false, aspect = null, scenes = 0, place = false, absent = null) {
     const fields = [
-        '"skip": false', '"target": "目标角色名"', '"now_doing": ""', '"now_wearing": ""', '"pending": ""',
+        '"skip": false', '"target": "目标角色名"', ...(absent ? ['"absent": false', '"looks": ""'] : []), '"now_doing": ""', '"now_wearing": ""', '"pending": ""',
         '"outfit": ""', '"action": ""', '"expression": ""', '"demeanor": ""', '"scene": ""', '"camera": ""', '"lighting": ""',
     ];
     if (allowOthers) fields.push('"others": ""');
@@ -215,18 +235,20 @@ function outputFormat(mode, allowOthers, negative = false, aspect = null, scenes
  * - aspect: { ratios, fallback } when the parser picks the aspect ratio (field `aspect`).
  * - scenes: with 多张图, pictures per floor at most (field `earlier_scenes`); 0 = one picture.
  * - place: with 图片插在正文中间, the sentence each picture goes after (field `place`).
+ * - absent: with 画谁不在画面里, { auto } — who to draw when the target is not in the scene (fields absent, looks).
  */
-export function buildOutputRules(mode, allowOthers = false, model = 'krea2', negative = false, aspect = null, scenes = 0, place = false) {
+export function buildOutputRules(mode, allowOthers = false, model = 'krea2', negative = false, aspect = null, scenes = 0, place = false, absent = null) {
     return [
         TIMELINE_RULES,
         mode === 'ai' ? APPEARANCE_AI : APPEARANCE_FIXED,
         allowOthers ? othersRules(model) : '',
+        absent ? absentRules(model, mode, absent.auto) : '',
         mode === 'ai' ? promptRule(allowOthers, model) : '',
         negative ? negativeRules(model) : '',
         aspect ? aspectRules(aspect) : '',
         place ? PLACE_RULE : '',
-        scenes > 1 ? scenesRules(scenes, mode, allowOthers, negative, place) : '',
-        outputFormat(mode, allowOthers, negative, aspect, scenes, place),
+        scenes > 1 ? scenesRules(scenes, mode, allowOthers, negative, place, !!absent) : '',
+        outputFormat(mode, allowOthers, negative, aspect, scenes, place, absent),
     ].filter(Boolean).join('\n\n');
 }
 

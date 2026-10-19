@@ -137,7 +137,7 @@ export function previousOutputs(mesId, count) {
 function formatOutputs(records, includePrompt) {
     if (!records.length) return '';
     const blocks = records.map(({ floor, data }) => {
-        const lines = [`#${floor} · 目标：${data.target || '?'}`];
+        const lines = [`#${floor} · 目标：${data.subject === 'nobody' ? '（这一楼只画了场景，没有人物）' : data.target || '?'}`];
         for (const field of [...STATE_FIELDS, ...PARSED_FIELDS]) {
             if (data.parsed[field]) lines.push(`${field}: ${data.parsed[field]}`);
         }
@@ -210,7 +210,7 @@ function referenceBlock(target, mode) {
  * Fixed looks of characters who may share the frame when the preset allows other people: the {{user}} and
  * {{char}} presets and any preset named in the last two messages, except the target itself.
  */
-function othersReference(mesId, target) {
+function othersReference(mesId, target, absent = false) {
     if (target.auto) return '';
     const chat = chatUpTo(mesId);
     const text = [chat[mesId - 1], chat[mesId]].filter(Boolean).map(message => plainText(storyText(message.mes))).join('\n');
@@ -223,7 +223,10 @@ function othersReference(mesId, target) {
         lines.push(`- ${presetName(preset)}: ${truncate(resolveMacros(preset.appearance), 600)}`);
         if (lines.length >= 4) break;
     }
-    return lines.length ? `【可能同框的其他角色（画进 others 时照这些外貌写，不写名字）】\n${lines.join('\n')}` : '';
+    const use = absent
+        ? '画进 others 时照这些外貌写、不写名字；目标角色不在画面里、改画其中一人时，target 写这里的名字，looks 照这个外貌写'
+        : '画进 others 时照这些外貌写，不写名字';
+    return lines.length ? `【可能同框的其他角色（${use}）】\n${lines.join('\n')}` : '';
 }
 
 /** Entries the current story activates, via SillyTavern's own scan in dry-run mode (no events, no timed effects). */
@@ -321,6 +324,9 @@ export async function buildParserPrompt(mesId, target) {
     const scenes = sceneLimit(settings.parser);
     // 图片插在正文中间: the parser picks the sentence each picture goes after.
     const place = !!settings.placeInStory;
+    // 画谁不在画面里: who to draw when the target is not in the scene, instead of skipping (not for sprites,
+    // which always show the target).
+    const absent = settings.absentFallback !== false && preset.id !== 'sprite' ? { auto: !!target.auto } : null;
     // The parser picks the aspect ratio (resolution selector), unless this parser preset sets its own size.
     const aspect = parserPicksAspect(settings.comfy) && !presetResolution(preset)
         ? { ratios: ASPECT_RATIOS, fallback: parseAspect(settings.comfy.aspectRatio) || '1:1' }
@@ -351,9 +357,9 @@ export async function buildParserPrompt(mesId, target) {
 
     const vars = {
         target: target.auto ? '（由你从候选角色中选择）' : target.name,
-        appearance: [referenceBlock(target, mode), allowOthers ? othersReference(mesId, target) : ''].filter(Boolean).join('\n'),
+        appearance: [referenceBlock(target, mode), allowOthers || absent ? othersReference(mesId, target, !!absent) : ''].filter(Boolean).join('\n'),
         fixed_fields: fixedFieldsBlock(preset),
-        output_rules: outputRules(mode, allowOthers, negative, aspect, scenes, place),
+        output_rules: outputRules(mode, allowOthers, negative, aspect, scenes, place, absent),
         candidates,
         last_state: target.auto ? '（自动模式下不提供）' : formatState(lastState, shownFloors),
         prev_outputs: prevOutputs,
@@ -383,7 +389,7 @@ export async function buildParserPrompt(mesId, target) {
     let systemTemplate = String(preset.system || '');
     if ((mode === 'ai' || allowOthers) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += '\n\n{{output_rules}}';
     // Only extra fields are asked for: such a prompt keeps its own format and just gets those fields.
-    else if ((negative || aspect || scenes || place) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += `\n\n${extraFieldRules(negative, aspect, scenes, place)}`;
+    else if ((negative || aspect || scenes || place || absent) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += `\n\n${extraFieldRules(negative, aspect, scenes, place, absent)}`;
 
     const triggerRule = triggerWordsRule(mode);
     // Anima in natural-language mode: the presets were written for tags, so this rule overrides them.
@@ -393,6 +399,7 @@ export async function buildParserPrompt(mesId, target) {
         user: fillTemplate(userTemplate, vars).replace(/\n{3,}/g, '\n\n'),
         preset,
         mode,
+        absent: !!absent,
         notes: [
             `${modeLabel()} 模式 · 解析预设：${preset.name} · ${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`,
             triggerRule ? `触发词：${triggerWordList().join(', ')}` : '',
@@ -405,6 +412,7 @@ export async function buildParserPrompt(mesId, target) {
             aspect ? '解析模型选择宽高比' : '',
             scenes ? `多张图：正文换了时间或地点时最多画 ${scenes} 张` : '',
             place ? '图片插在正文中间：由解析模型选位置' : '',
+            absent ? '画谁不在画面里时，改画在场的人或场景' : '',
             describeThinking(settings.parser),
             worldInfo.note,
             records.length ? `参考了之前 ${records.length} 次配图输出` : '',
@@ -655,6 +663,10 @@ function normalizeValue(value) {
     return String(value).replace(/\s+/g, ' ').trim().replace(/[.。]+$/, '');
 }
 
+function isTrue(value) {
+    return value === true || String(value).trim().toLowerCase() === 'true';
+}
+
 /** The `earlier_scenes` of a reply: objects with a label and picture fields; anything else is dropped. */
 function parseScenes(value) {
     if (!Array.isArray(value)) return [];
@@ -665,6 +677,10 @@ function parseScenes(value) {
             label: normalizeValue(item.label ?? item.time ?? item.name),
             start: normalizeValue(item.start ?? item.begin ?? item.quote),
             place: normalizeValue(item.place ?? item.position),
+            // 画谁不在画面里: who this part shows when the target is not in it.
+            absent: isTrue(item.absent),
+            target: normalizeValue(item.target),
+            looks: normalizeValue(item.looks),
         };
         for (const field of PARSED_FIELDS) scene[field] = normalizeValue(item[field]);
         scene.prompt = normalizeValue(item.prompt);
@@ -704,7 +720,7 @@ export function parseParserOutput(raw) {
         // Salvage fields from broken or truncated JSON, or from "key: value" lines. A quoted value only counts
         // when its closing quote is present, so a reply cut off mid-value does not leak half a phrase.
         object = {};
-        for (const key of ['skip', 'reason', 'target', 'prompt', 'negative', 'negative_prompt', 'aspect', ...STATE_FIELDS, ...PARSED_FIELDS]) {
+        for (const key of ['skip', 'reason', 'target', 'looks', 'place', 'prompt', 'negative', 'negative_prompt', 'aspect', ...STATE_FIELDS, ...PARSED_FIELDS]) {
             // Whole keys only: "prompt" must not match the end of "negative_prompt".
             const quoted = text.match(new RegExp(`(?<![\\w])["']?${key}["']?\\s*[:：]\\s*"([^"\\n]*)"`, 'i'));
             const line = text.match(new RegExp(`^\\s*${key}\\s*[:：]\\s*([^"{}\\n]+)$`, 'im'));
@@ -713,6 +729,8 @@ export function parseParserOutput(raw) {
         }
         const skip = text.match(/["']?skip["']?\s*[:：]\s*(true|false)/i);
         if (skip) object.skip = skip[1].toLowerCase() === 'true';
+        const absent = text.match(/["']?absent["']?\s*[:：]\s*(true|false)/i);
+        if (absent) object.absent = absent[1].toLowerCase() === 'true';
         if (!Object.keys(object).length) {
             throw new Error('解析模型没有返回可识别的 JSON');
         }
@@ -739,6 +757,9 @@ export function parseParserOutput(raw) {
     result.start = result.earlierScenes.length ? normalizeValue(object.start) : '';
     // Only with 图片插在正文中间: the sentence the (end of the floor) picture goes after.
     result.place = normalizeValue(object.place ?? object.position);
+    // Only with 画谁不在画面里: the target is not in the scene; `target` is who is drawn instead ('' = nobody).
+    result.absent = isTrue(object.absent);
+    result.looks = normalizeValue(object.looks);
     if (!result.skip && !result.prompt && PARSED_FIELDS.every(field => !result[field])) {
         throw new Error('解析结果里没有任何画面字段');
     }

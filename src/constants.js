@@ -73,6 +73,10 @@ export const SOLO_LINE = 'A solo image of a single person, only one person in th
 /** Inserted into templates without {{others}} when other people are in the picture. */
 export const OTHERS_LINE = 'Also in the scene: {{others}}.';
 
+/** 画谁不在画面里 with nobody in the scene: the picture shows the place only. */
+export const NOBODY_LINE = 'A scenery illustration with no people in it.';
+export const ANIMA_NOBODY_LINE = 'no humans, scenery';
+
 /** Anima's versions: Danbooru tags instead of sentences. */
 export const ANIMA_SOLO_LINE = 'solo';
 export const ANIMA_OTHERS_LINE = '{{others}}';
@@ -303,6 +307,8 @@ export const DEFAULT_SETTINGS = {
     placeInStory: false,
     /** Side panel layouts: the message shows the pictures too, not only the compact bar. */
     panelAlsoInMessage: false,
+    /** 画谁不在画面里: the parser draws who is in the scene (or the scenery) instead of skipping the floor. */
+    absentFallback: true,
     /** Words every prompt of this mode starts with (e.g. a style LoRA's trigger); the parser is told about them. */
     triggerWords: '',
     /** Anima only: prompts in English sentences instead of Danbooru tags (see modes.js promptStyle). */

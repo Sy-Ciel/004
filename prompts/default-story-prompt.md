@@ -74,7 +74,7 @@ Anima 打开「英文自然语言」开关时，扩展会在后面再加一条�
 ## 附录：默认设置下 `{{output_rules}}` 展开后的内容
 
 <details>
-<summary>Krea 2（固定外貌 + AI 补充，允许其他人物）</summary>
+<summary>Krea 2（固定外貌 + AI 补充，允许其他人物，画谁不在画面里时改画在场的人或场景）</summary>
 
 ```text
 时间线（最重要，先想清楚再写画面）：
@@ -99,14 +99,22 @@ JSON 里先写三个分析字段，再根据它们写画面字段。这三个字
 - 把他们写进 others（英文，自然语言）：每人写外貌（性别、年龄感、发型发色、体型）、穿着、在画面中的位置、动作和表情，不写人名；【可能同框的其他角色】里给了外貌的人，照着那个外貌写
 - 没有其他人同框时，others 留空
 
+画谁不在画面里（这一条优先于上面「目标角色不在场就输出 skip」的要求）：
+- 【目标角色】不在当前楼层的画面里（例如已经离开，或者这一段只写了别的人物）时，不要输出 skip，改画这一楼画面里的主要人物："absent": true，target 写这个人的名字（【可能同框的其他角色】或候选角色里有的照原样写，没有就写正文里对 ta 的称呼）
+- 再写 looks：这个人的外貌（性别、年龄感、发型发色、体型、明显特征），英文短语；上面给了这个人外貌的，照着写
+- outfit、action、expression、demeanor 都写这个人
+- 画面里一个人都没有（只有风景、建筑、物品）时："absent": true，target 写 ""，只写 scene、camera、lighting（只画场景），outfit、action、expression、demeanor 写 ""
+- 目标角色在画面里时 absent 写 false，照常画
+- 只有当前楼层完全没有可以画面化的内容（例如系统提示、纯说明文字）才输出 skip
+
 输出格式：
-{"skip": false, "target": "目标角色名", "now_doing": "", "now_wearing": "", "pending": "", "outfit": "", "action": "", "expression": "", "demeanor": "", "scene": "", "camera": "", "lighting": "", "others": ""}
+{"skip": false, "target": "目标角色名", "absent": false, "looks": "", "now_doing": "", "now_wearing": "", "pending": "", "outfit": "", "action": "", "expression": "", "demeanor": "", "scene": "", "camera": "", "lighting": "", "others": ""}
 ```
 
 </details>
 
 <details>
-<summary>Anima（固定外貌 + AI 补充，允许其他人物，解析模型补充反向提示词）</summary>
+<summary>Anima（固定外貌 + AI 补充，允许其他人物，画谁不在画面里时改画在场的人或场景，解析模型补充反向提示词）</summary>
 
 ```text
 时间线（最重要，先想清楚再写画面）：
@@ -131,6 +139,14 @@ JSON 里先写三个分析字段，再根据它们写画面字段。这三个字
 - 把他们写进 others（英文 Danbooru 风格标签，每人一组，先写 1boy / 1girl 这样的人数标签）：每人写外貌（性别、年龄感、发型发色、体型）、穿着、在画面中的位置、动作和表情，不写人名；【可能同框的其他角色】里给了外貌的人，照着那个外貌写
 - 没有其他人同框时，others 留空
 
+画谁不在画面里（这一条优先于上面「目标角色不在场就输出 skip」的要求）：
+- 【目标角色】不在当前楼层的画面里（例如已经离开，或者这一段只写了别的人物）时，不要输出 skip，改画这一楼画面里的主要人物："absent": true，target 写这个人的名字（【可能同框的其他角色】或候选角色里有的照原样写，没有就写正文里对 ta 的称呼）
+- 再写 looks：这个人的外貌（性别、年龄感、发型发色、体型、明显特征），英文 Danbooru 风格标签，先写 1girl / 1boy 这样的人数标签；上面给了这个人外貌的，照着写
+- outfit、action、expression、demeanor 都写这个人
+- 画面里一个人都没有（只有风景、建筑、物品）时："absent": true，target 写 ""，只写 scene、camera、lighting（只画场景），outfit、action、expression、demeanor 写 ""
+- 目标角色在画面里时 absent 写 false，照常画
+- 只有当前楼层完全没有可以画面化的内容（例如系统提示、纯说明文字）才输出 skip
+
 反向提示词：再写 negative，列出这张图里不该出现、模型容易画错的东西，英文 Danbooru 风格标签（小写，用空格代替下划线），逗号隔开：
 - 按这个画面写：画面只有一个人时写 multiple girls、multiple boys 这类多人标签；角色此刻没穿戴、但模型容易加上的衣物或配饰；和场景、时间不符的东西；pending 里还没发生的动作或道具
 - 针对这张图实际可能出错的地方写，不要堆砌。人物画面常见的问题有 duplicate person、extra arms、extra legs、extra fingers、fused fingers、malformed hands、duplicated limbs、multiple faces、ghosting、afterimage、duplicated body、bad proportions、cropped head，按画面的实际风险挑着用（例如手部动作复杂写手部相关的，翘腿、交叉腿写 extra legs，动作幅度大写 ghosting、afterimage）
@@ -139,7 +155,7 @@ JSON 里先写三个分析字段，再根据它们写画面字段。这三个字
 - 最多 15 个，没有需要补充的就写空字符串 ""（不要写「无」或 none）
 
 输出格式：
-{"skip": false, "target": "目标角色名", "now_doing": "", "now_wearing": "", "pending": "", "outfit": "", "action": "", "expression": "", "demeanor": "", "scene": "", "camera": "", "lighting": "", "others": "", "negative": ""}
+{"skip": false, "target": "目标角色名", "absent": false, "looks": "", "now_doing": "", "now_wearing": "", "pending": "", "outfit": "", "action": "", "expression": "", "demeanor": "", "scene": "", "camera": "", "lighting": "", "others": "", "negative": ""}
 ```
 
 </details>

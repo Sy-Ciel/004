@@ -928,6 +928,7 @@ async function resetAllSettings() {
         fresh.autoModelByRating = settings.autoModelByRating;
         fresh.placeInStory = settings.placeInStory;
         fresh.panelAlsoInMessage = settings.panelAlsoInMessage;
+        fresh.absentFallback = settings.absentFallback;
     }
     if (keep('reset-other')) {
         const key = otherSlotKey(other);

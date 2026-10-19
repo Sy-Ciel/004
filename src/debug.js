@@ -93,6 +93,7 @@ export async function showFloorDebug(mesId) {
         ${table([
         ['状态', status],
         ['目标角色', data.target],
+        ['画面主体', data.subject === 'nobody' ? '只画了场景（目标角色不在画面里，画面里也没有别人）' : data.subject === 'substitute' ? `改画「${data.target}」（目标角色不在画面里）` : ''],
         ['使用预设', data.fixed?.preset || '（无）'],
         ['解析模型', data.parser],
         ['解析预设', data.parserPresetName ? `${data.parserPresetName} · ${data.promptMode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}` : ''],
