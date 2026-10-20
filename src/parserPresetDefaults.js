@@ -22,7 +22,7 @@ const MODEL_TEXT = {
         model: '动漫文生图模型（Anima，用 Danbooru 风格的英文标签和英文描述训练）',
         language: '所有字段值使用英文 Danbooru 风格标签（小写，用空格代替下划线，例如 long hair、school uniform、looking at viewer；多个标签用英文逗号隔开，标签说不清的细节可以补一个很短的英文短语）',
         camera: '如 upper body、cowboy shot、full body、close-up，以及 from above、from side 等机位',
-        others: '英文 Danbooru 风格标签，每人一组，先写 1boy / 1girl 这样的人数标签',
+        others: '英文 Danbooru 风格标签，每人一组，每组开头写这个人自己的人数标签（1girl / 1boy / 1other，不要写 2girls 这类合计，程序会把所有人的人数合计好放到最前面）',
     },
     /** Anima with the "英文自然语言" switch: the same model, written to in plain English sentences. */
     'anima-natural': {
@@ -46,7 +46,7 @@ const MODEL_TEXT = {
  * Appended to the system prompt in Anima's natural-language mode. Built-in and saved parser presets were written
  * for tags, so this overrides their wording for this request.
  */
-export const NATURAL_STYLE_RULE = `写法（优先于上面所有关于 Danbooru 标签的要求）：这次所有画面字段和 prompt 都用英文自然语言来写——具体、可视化的短语或完整的句子，像描述一张插画那样连贯地写，不要写成逗号分隔的 Danbooru 标签串（例如写 "a red wool coat buttoned to the neck"，不要写 "red coat, buttons"）。人数可以在 prompt 开头用一句话说明，例如 "A solo illustration of one girl"。`;
+export const NATURAL_STYLE_RULE = `写法（优先于上面所有关于 Danbooru 标签的要求）：这次所有画面字段和 prompt 都用英文自然语言来写——具体、可视化的短语或完整的句子，像描述一张插画那样连贯地写，不要写成逗号分隔的 Danbooru 标签串（例如写 "a red wool coat buttoned to the neck"，不要写 "red coat, buttons"）。人数可以在 prompt 开头用一句话说明，例如 "A solo illustration of one girl"。按 Anima 官方的建议，自然语言要写得具体：prompt 至少写两句，太短的描述出图不稳定。`;
 
 function modelText(model) {
     return MODEL_TEXT[model] ?? MODEL_TEXT.krea2;
@@ -110,13 +110,13 @@ function promptRule(allowOthers, model) {
         const order = allowOthers
             ? '开头说明画面里有几个人、谁是主角；先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写镜头构图、场景环境、光线色彩'
             : '开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、镜头构图、场景环境、光线色彩';
-        return `除了上面的字段，还要写 prompt：一段完整、流畅的英文画面描述（自然语言，适合 Anima 这样的动漫插画模型）。${order}；【固定内容】里的字段必须原样体现。画质 / 评分标签（masterpiece、best quality、score_7 等）由程序自动加，不要写。不要写人名，不要要求画面里出现文字。`;
+        return `除了上面的字段，还要写 prompt：一段完整、流畅、具体的英文画面描述（自然语言，适合 Anima 这样的动漫插画模型，至少两句）。${order}；【固定内容】里的字段必须原样体现。画质 / 评分 / 安全分级标签（masterpiece、best quality、score_7、safe 等）和触发词由程序加在最前面，不要写。不要写人名，不要要求画面里出现文字。`;
     }
     if (model === 'anima') {
         const order = allowOthers
             ? '先写人数标签（如 1girl, 1boy 或 2girls），然后先完整写主角的外貌、服装、表情、动作姿势，再写 others 里每个人的样子和位置，最后写构图镜头、背景场景、光影'
             : '先写 1girl / 1boy 这样的人数标签和 solo，然后依次写角色外貌、服装、表情、动作姿势、构图镜头、背景场景、光影';
-        return `除了上面的字段，还要写 prompt：一串英文 Danbooru 风格标签（小写，用空格代替下划线，英文逗号隔开，最后可以补一两句简短的英文描述），适合 Anima。${order}；【固定内容】里的字段必须原样体现。画质 / 评分标签（masterpiece、best quality、score_7 等）由程序自动加，不要写。不要写人名，不要要求画面里出现文字。`;
+        return `除了上面的字段，还要写 prompt：Anima 官方推荐的完整标签列表（英文 Danbooru 风格标签，小写，用空格代替下划线，英文逗号隔开，最后可以补一两句简短的英文描述）。${order}，画面里看得见的服装、动作、背景都写具体；【固定内容】里的字段必须原样体现。画质 / 评分 / 安全分级标签（masterpiece、best quality、score_7、safe 等）和触发词由程序按官方顺序加，不要写。不要写人名，不要要求画面里出现文字。`;
     }
     const order = allowOthers
         ? '开头说明画面里有几个人、谁是主角；先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写镜头构图、场景环境、光线色彩'
@@ -158,9 +158,10 @@ function aspectRules(aspect) {
  * each earlier part as well, in `earlier_scenes`; the main fields stay the end of the floor.
  * @param {number} scenes Pictures per floor at most, the end of the floor included
  */
-function scenesRules(scenes, mode = 'fixed', allowOthers = false, negative = false, place = false, absent = false) {
+function scenesRules(scenes, mode = 'fixed', allowOthers = false, negative = false, place = false, absent = false, rating = false) {
     const fields = ['outfit', 'action', 'expression', 'demeanor', 'scene', 'camera', 'lighting'];
     if (allowOthers) fields.push('others');
+    if (rating) fields.push('rating');
     if (mode === 'ai') fields.push('prompt');
     if (negative) fields.push('negative');
     // Where each part's picture goes: the sentence it fits after (图片插在正文中间), else the part's opening words.
@@ -197,6 +198,20 @@ function absentRules(model, mode, auto) {
 - 只有当前楼层完全没有可以画面化的内容（例如系统提示、纯说明文字）才输出 skip`;
 }
 
+/**
+ * Anima only: the tag order its model card recommends (the extension puts the final prompt in it, see
+ * officialTagOrder in prompt.js) and the safety tag of each picture (field `rating`).
+ */
+function animaRules(model, mode) {
+    const where = mode === 'ai' ? 'prompt' : '字段';
+    const order = model === 'anima-natural'
+        ? '画质 / 评分标签、安全分级（rating）、角色的 LoRA 触发词和画师由程序作为标签放在最前面，后面接你写的英文描述'
+        : '画质 / 年份 / 安全分级（rating）→ 人数（1girl、1boy、2girls……）→ 角色 → 作品 → 画师（@画师名）→ 其他标签（外貌、服装、动作、表情、背景、镜头、光线）';
+    return `Anima 官方推荐的写法：
+- 顺序：最终提示词由程序按官方推荐的顺序拼好：${order}。你按要求写${where}就行，画质 / 评分标签、画师和触发词不要写
+- rating：这张图的安全分级（Anima 官方的安全标签，放在画质标签后面），只能写下面四个之一：safe（没有任何性暗示或暴露）、sensitive（轻微性感：泳装、内衣、暴露的衣服、诱惑的姿势）、nsfw（明显的性暗示或部分裸露）、explicit（露骨的性内容或完全裸露）。按这张图实际画的内容写`;
+}
+
 /** Only with 图片插在正文中间: the sentence the (end of the floor) picture is put after, copied from the text. */
 const PLACE_RULE = '图在正文里的位置：再写 place：这张图插在【当前楼层】第几段后面。【当前楼层】每一段前面有编号 [1]、[2]……，写那一段的编号数字（例如 3），通常就是画面时刻所在的那一段。图会插在那一段后面。';
 
@@ -223,9 +238,10 @@ export function extraOnlyRules(model, negative = false, aspect = null, scenes = 
     ].filter(Boolean).join('\n\n');
 }
 
-function outputFormat(mode, allowOthers, negative = false, aspect = null, scenes = 0, place = false, absent = null) {
+function outputFormat(mode, allowOthers, negative = false, aspect = null, scenes = 0, place = false, absent = null, rating = false) {
     const fields = [
         '"skip": false', '"target": "目标角色名"', ...(absent ? ['"absent": false', '"looks": ""'] : []), '"now_doing": ""', '"now_wearing": ""', '"pending": ""',
+        ...(rating ? ['"rating": ""'] : []),
         '"outfit": ""', '"action": ""', '"expression": ""', '"demeanor": ""', '"scene": ""', '"camera": ""', '"lighting": ""',
     ];
     if (allowOthers) fields.push('"others": ""');
@@ -249,19 +265,22 @@ function outputFormat(mode, allowOthers, negative = false, aspect = null, scenes
  * - scenes: with 多张图, pictures per floor at most (field `earlier_scenes`); 0 = one picture.
  * - place: with 图片插在正文中间, the sentence each picture goes after (field `place`).
  * - absent: with 画谁不在画面里, { auto } — who to draw when the target is not in the scene (fields absent, looks).
+ * Anima (tags or sentences) also gets its official tag order and writes each picture's safety tag (field `rating`).
  */
 export function buildOutputRules(mode, allowOthers = false, model = 'krea2', negative = false, aspect = null, scenes = 0, place = false, absent = null) {
+    const anima = String(model).startsWith('anima');
     return [
         TIMELINE_RULES,
         mode === 'ai' ? APPEARANCE_AI : APPEARANCE_FIXED,
+        anima ? animaRules(model, mode) : '',
         allowOthers ? othersRules(model) : '',
         absent ? absentRules(model, mode, absent.auto) : '',
         mode === 'ai' ? promptRule(allowOthers, model) : '',
         negative ? negativeRules(model) : '',
         aspect ? aspectRules(aspect) : '',
         place ? PLACE_RULE : '',
-        scenes > 1 ? scenesRules(scenes, mode, allowOthers, negative, place, !!absent) : '',
-        outputFormat(mode, allowOthers, negative, aspect, scenes, place, absent),
+        scenes > 1 ? scenesRules(scenes, mode, allowOthers, negative, place, !!absent, anima) : '',
+        outputFormat(mode, allowOthers, negative, aspect, scenes, place, absent, anima),
     ].filter(Boolean).join('\n\n');
 }
 
@@ -269,10 +288,9 @@ export const OUTPUT_RULES_FIXED = buildOutputRules('fixed');
 export const OUTPUT_RULES_AI = buildOutputRules('ai');
 
 /**
- * What the story prompt says per image model: how to write, length limits (upper bounds, so the prompt stays
- * short and the action and outfit carry the weight) and setting examples. Anima counts tags; its natural-language
- * switch adds NATURAL_STYLE_RULE after the preset, so the word counts are given too. MOSS-Image is written to
- * like Krea 2.
+ * What the story prompt says for the sentence models (Krea 2, MOSS-Image): how to write, length limits (upper
+ * bounds, so the prompt stays short and the action and outfit carry the weight) and setting examples. Anima has a
+ * prompt of its own (animaStorySystem).
  */
 const STORY_TEXT = {
     krea2: {
@@ -280,25 +298,74 @@ const STORY_TEXT = {
         limit: n => `最多 ${n.words} 个英文单词`,
         scene: '"a medieval tavern"、"a modern bedroom"、"a fantasy forest at night"',
     },
-    anima: {
-        style: '按 Danbooru 标签的习惯写，一个标签只说一件事，常用标签优先；画质 / 评分标签（masterpiece、best quality、score_7 等）由程序自动加，不要写',
-        limit: n => `最多 ${n.tags} 个标签（用自然语言写时最多 ${n.words} 个词）`,
-        scene: '"medieval, tavern, indoors"、"modern, bedroom"、"fantasy, forest, night"',
-    },
 };
 
 const LIMITS = {
-    outfit: { tags: 6, words: 20 },
-    action: { tags: 6, words: 25 },
-    expression: { tags: 2, words: 6 },
-    demeanor: { tags: 1, words: 3 },
-    scene: { tags: 3, words: 6 },
-    camera: { tags: 1, words: 3 },
-    others: { tags: 8, words: 20 },
-    prompt: { tags: 30, words: 60 },
+    outfit: { words: 20 },
+    action: { words: 25 },
+    expression: { words: 6 },
+    demeanor: { words: 3 },
+    scene: { words: 6 },
+    camera: { words: 3 },
+    others: { words: 20 },
+    prompt: { words: 60 },
 };
 
+/**
+ * Anima's lengths, in tags (and in words for its natural-language switch). Its model card's example is a full
+ * Danbooru tag list of some 45 tags, and newer checkpoints (the 2.9B ones) draw a bland background and miss parts
+ * of the scene when the prompt is short, so these are about a full tag list rather than a few key words.
+ */
+const ANIMA_LIMITS = {
+    outfit: { tags: 10, words: 30 },
+    action: { tags: 8, words: 40 },
+    expression: { tags: 4, words: 12 },
+    demeanor: { tags: 2, words: 6 },
+    scene: { tags: 10, words: 30 },
+    camera: { tags: 3, words: 8 },
+    lighting: { tags: 3, words: 10 },
+    others: { tags: 10, words: 30 },
+    prompt: { tags: 50, words: 120 },
+};
+
+/**
+ * The story prompt for Anima, written the way its model card recommends: a full Danbooru-style tag list for what
+ * the picture shows (the extension puts the tags in the official order, see officialTagOrder).
+ */
+function animaStorySystem() {
+    const text = modelText('anima');
+    const limit = field => `最多 ${ANIMA_LIMITS[field].tags} 个标签（用自然语言写时最多 ${ANIMA_LIMITS[field].words} 个词）`;
+    return `你是一名专业的 AI 绘图提示词工程师，为${text.model}写提示词。读懂剧情，把【目标角色】在【当前楼层】结束时刻的画面，按 Anima 官方推荐的写法整理成下面几项，输出一个 JSON 对象。
+
+长度按官方推荐：像 Danbooru 图站上一张图的完整标签列表那样，把这一刻画面里看得见的东西都写成标签——每件衣物和颜色、配饰、姿势、手在做什么、表情和视线、背景里的主要东西、时间和天气。标签太少时，Anima（尤其是 2.9B 这类新版本）容易画出单调的背景，或者漏掉想要的内容。下面的数量是上限：按画面需要写够，但只写这一刻看得见的，不要为了凑数写画面里没有的东西。
+
+只写这几项：
+- 角色：就是【目标角色】，名字填在 target；外貌按下面「外貌」那一条处理，不用你另外描写
+- 心情：demeanor 写心情，${limit('demeanor')}（如 happy、nervous）；expression 写表情、视线、脸红等（如 smile、looking at viewer、blush），${limit('expression')}
+- 衣服：outfit 写此刻穿着的每件衣物、颜色和配饰，看得见的袜子和鞋也写（如 white shirt、red neckerchief、pleated skirt、black thighhighs、loafers），${limit('outfit')}
+- 在做什么、什么动作：action 写身体姿势（standing / sitting / kneeling / squatting / lying）、手在做什么、拿着什么、和周围东西的互动，${limit('action')}；不要只写 dynamic pose 这类笼统的词
+- 和谁：和别人一起时，在 action 里写出和谁在做什么（不写名字）。输出格式里有 others 字段时，同框的人写进 others，每人${limit('others')}；没有 others 字段时，画面里只有目标角色一个人，对方不入镜，action 只写角色自己的动作
+- 环境：scene 写背景：indoors / outdoors、时代或风格、地点类型、看得见的主要背景物件、时间、天气，例如 "indoors, classroom, desk, chair, chalkboard, window, day"、"outdoors, fantasy, forest, tree, dirt road, night, moon"，${limit('scene')}；不要写楼层（第几楼、几层、xx 楼）、门牌号、地名、建筑名
+- camera 写景别和机位（${text.camera}），${limit('camera')}；lighting 写看得见的光线（如 sunlight、backlighting、dim lighting），${limit('lighting')}，没有特别的光线就写 ""
+- prompt（只在要求写 prompt 时）：不算画质标签和触发词，${limit('prompt')}；同样写上面这几项
+
+要点：
+- 目标角色是画面主角。同一个人、同一件衣服只描述一次，不要换个说法重复写（重复描写容易画出重影、多人）
+- 字段之间、字段和【固定内容】之间不能矛盾；【固定内容】里的字段原样使用
+- ${text.language}；按 Danbooru 标签的习惯写，一个标签只说一件事，常用标签优先
+- 画质 / 评分标签（masterpiece、best quality、score_7 等）、画师和触发词由程序按官方顺序加在前面，不要写；outfit、action 这些字段里也不要写人数标签（1girl / 1boy），目标角色的人数由程序从外貌里取（写 prompt 时照 prompt 的要求先写人数）
+- 不要比喻、不要人名、不要写剧情的楼层编号（#12、第 12 楼这类）、不要要求画面里出现文字或标志、不要写画风词（画风由画风前缀、画师和 LoRA 负责）
+- 剧情没写明的部分，参考【上一次状态】和【之前的配图输出】保持连贯（尤其衣服：没有换装情节就不变）；之前的输出只用来保持连贯，不要照抄与当前剧情不符的内容
+- 【用户画图指令】是用户直接指定的画面内容，优先级最高：必须体现在对应字段里（翻译成英文），不能被剧情覆盖或忽略
+- 当前楼层里目标角色不在场，或者没有任何可以画面化的内容，输出 {"skip": true, "reason": "原因"}；有【用户画图指令】时不要输出 skip
+
+只输出 JSON 本身，不要解释，不要 markdown 代码块。
+
+{{output_rules}}`;
+}
+
 function storySystem(model) {
+    if (model === 'anima') return animaStorySystem();
     const text = modelText(model);
     const story = STORY_TEXT[model] ?? STORY_TEXT.krea2;
     const limit = field => story.limit(LIMITS[field]);
@@ -340,10 +407,10 @@ function fingerprint(text) {
     return `${text.length}:${hash.toString(16)}`;
 }
 
-/** Earlier built-in story prompts (up to v1.23, v1.24). */
+/** Earlier built-in story prompts (up to v1.23, v1.24; Anima's also v1.25 to v1.38, the short one). */
 const PREVIOUS_STORY = {
     krea2: ['807:cda41aea', '1532:d6d556eb'],
-    anima: ['939:558892a3', '1641:584cb314'],
+    anima: ['939:558892a3', '1641:584cb314', '1712:c9dcdba5'],
 };
 
 /** Whether a story preset still has an earlier built-in prompt nobody edited (it is upgraded, see migrateSettings). */

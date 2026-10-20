@@ -13,6 +13,7 @@ const FIELD_ALIASES = {
     镜头: 'camera', 构图: 'camera',
     光线: 'lighting', 灯光: 'lighting',
     其他人物: 'others', 其他人: 'others',
+    安全分级: 'rating', 分级: 'rating',
 };
 
 export function promptMode() {

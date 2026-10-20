@@ -1,4 +1,6 @@
 import {
+    ANIMA_PROMPT_TEMPLATE,
+    ANIMA_PROMPT_TEMPLATE_V1,
     EXTRA_KEY,
     LEGACY_PARSER_SYSTEM,
     LEGACY_PARSER_USER,
@@ -7,6 +9,7 @@ import {
     SETTINGS_VERSION,
     V3_PARSER_SYSTEM,
     V3_PARSER_USER,
+    MODEL_ANIMA,
     makeId,
     modeDefaults,
     normalizeMode,
@@ -32,8 +35,8 @@ export function fillDefaults(target, defaults) {
 }
 
 /**
- * One-time changes for settings saved by older versions. These all predate the Anima mode, so only the flat
- * (Krea 2) settings need them; a future migration must also update the other mode's copy in modeStore.
+ * One-time changes for settings saved by older versions. The early ones predate the Anima mode, so only the flat
+ * (Krea 2) settings need them; later ones update every mode's copy in modeStore too.
  */
 function migrateSettings(settings) {
     const version = Number(settings.settingsVersion) || 1;
@@ -63,14 +66,17 @@ function migrateSettings(settings) {
         delete settings.parser.systemPrompt;
         delete settings.parser.userTemplate;
     }
-    if (version < 6) {
-        // The built-in story prompt was rewritten (v1.24 prompt engineer, v1.25 short, with whom the character is):
-        // copies nobody edited get the current text and let other people in, in both modes and every profile.
+    if (version < 7) {
+        // The built-in story prompt was rewritten (v1.24 prompt engineer, v1.25 short, with whom the character is;
+        // v1.39 Anima's written the way its model card recommends): copies nobody edited get the current text (and,
+        // from before v1.25, let other people in), in every mode and every profile. Anima's untouched assembly
+        // template gets the official tag order.
         const upgrade = (own, mode) => {
+            if (mode === MODEL_ANIMA && own?.promptTemplate === ANIMA_PROMPT_TEMPLATE_V1) own.promptTemplate = ANIMA_PROMPT_TEMPLATE;
             const story = Array.isArray(own?.parserPresets) ? own.parserPresets.find(preset => preset?.id === 'story') : null;
             if (!story || !isPreviousStorySystem(story.system, mode)) return;
             story.system = builtinParserPresets(mode)[0].system;
-            story.allowOthers = true;
+            if (version < 6) story.allowOthers = true;
         };
         upgrade(settings, normalizeMode(settings.modelMode));
         if (isPlainObject(settings.modeStore)) {

@@ -14,6 +14,7 @@ const FIELD_LABELS = {
     camera: '镜头',
     lighting: '光线',
     others: '其他人物',
+    rating: '安全分级',
 };
 
 const STATE_LABELS = {

@@ -299,12 +299,16 @@ export async function worldInfoBlock(mesId) {
 
 /**
  * Tells the parser about the mode's trigger words. They are added to every prompt by the extension anyway (see
- * finishPrompt); when the AI writes the whole prompt it is asked to start with them.
+ * finishPrompt); when the AI writes the whole prompt it is asked to start with them, except in Anima, where they
+ * take the artist's place of the official tag order.
  */
 function triggerWordsRule(mode) {
     const words = triggerWordList();
     if (!words.length) return '';
     const list = words.join(', ');
+    if (String(promptStyle()).startsWith('anima')) {
+        return `触发词：${list}。程序会把它们放在 Anima 官方顺序里画师的位置（人数和角色之后、其他标签之前），${mode === 'ai' ? 'prompt' : '字段'}里不用写。`;
+    }
     return mode === 'ai'
         ? `触发词：最终提示词必须带上这些触发词：${list}。把它们原样写在 prompt 的最前面（不翻译、不改写、不加括号或权重），每次都要写。`
         : `触发词：最终提示词的开头会自动加上这些触发词：${list}。它们由程序添加，你的字段里不用再写。`;

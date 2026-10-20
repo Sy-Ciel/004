@@ -1,4 +1,4 @@
-import { ANIMA_NOBODY_LINE, ANIMA_OTHERS_LINE, ANIMA_PROMPT_TEMPLATE, ANIMA_SOLO_LINE, DEFAULT_PROMPT_TEMPLATE, NOBODY_LINE, OTHERS_LINE, PARSED_FIELDS, SOLO_LINE } from './constants.js';
+import { ANIMA_NATURAL_TEMPLATE, ANIMA_NOBODY_LINE, ANIMA_OTHERS_LINE, ANIMA_PROMPT_TEMPLATE, ANIMA_PROMPT_TEMPLATE_V1, ANIMA_SOLO_LINE, NOBODY_LINE, OTHERS_LINE, PARSED_FIELDS, SOLO_LINE } from './constants.js';
 import { promptStyle } from './modes.js';
 import { fillTemplate, getSettings, resolveMacros } from './utils.js';
 
@@ -156,10 +156,112 @@ function matchingClose(source, start) {
     return -1;
 }
 
-/** Last step for every generated prompt: the mode's trigger words, then escaping if the mode wants it. */
-export function finishPrompt(prompt) {
+/**
+ * Anima's tag order, from its model card: quality / meta / year / safety tags, then the subject count (1girl,
+ * 1boy …), then character, series and artist, then the general tags. Within a section the order is free.
+ */
+const LEAD_TAGS = new Set([
+    'masterpiece', 'best quality', 'good quality', 'normal quality', 'low quality', 'worst quality',
+    'highres', 'absurdres', 'lowres', 'official art', 'anime screenshot',
+    'newest', 'recent', 'mid', 'early', 'old',
+]);
+const SAFETY_TAGS = new Set(['safe', 'sensitive', 'nsfw', 'explicit']);
+/** score_7, score_8_up, year 2025 */
+const LEAD_PATTERN = /^(?:score_\d+(?:_up)?|year \d{4})$/;
+/** 1girl, 2girls, 6+girls, 1boy, 1other, multiple girls … */
+const COUNT_TAG = /^(?:\d+\+?|multiple )(?:girl|boy|other)s?$/;
+const NUMBERED_COUNT = /^(\d+)\+?(girl|boy|other)s?$/;
+
+/** A tag as compared: lower case, without a weight group "(tag:1.2)", escaped parentheses read as plain ones. */
+function tagKey(tag) {
+    const text = unescapeParens(tag).trim().toLowerCase();
+    const weighted = text.match(/^\((.+?)(?::\s*-?[\d.]+)?\)$/);
+    return (weighted ? weighted[1] : text).trim();
+}
+
+const RATINGS = { safe: 'safe', general: 'safe', sensitive: 'sensitive', nsfw: 'nsfw', questionable: 'nsfw', explicit: 'explicit' };
+
+/** The parser's safety rating as one of Anima's safety tags ('' when it is none of them). */
+export function ratingTag(value) {
+    const key = String(value ?? '').trim().toLowerCase();
+    return Object.hasOwn(RATINGS, key) ? RATINGS[key] : '';
+}
+
+/** Whether a tag list has one of Anima's safety tags. */
+function hasSafetyTag(text) {
+    return String(text ?? '').split(',').some(tag => SAFETY_TAGS.has(tagKey(tag)));
+}
+
+/** Splits the count tags (1girl, 2boys …) off a tag list: [the list without them, their keys]. */
+function takeCounts(text) {
+    const counts = [];
+    const kept = String(text ?? '').split(',').filter(tag => {
+        const key = tagKey(tag);
+        if (!COUNT_TAG.test(key)) return true;
+        counts.push(key);
+        return false;
+    });
+    return [kept.join(','), counts];
+}
+
+/**
+ * Everyone in the picture as count tags: the character's own count (from its look) plus one count tag per other
+ * person, added up ("1girl" + "1girl" → "2girls"; "1girl" + "1boy" → "1girl, 1boy").
+ */
+function mergeCounts(own, others) {
+    const totals = new Map();
+    const kept = [];
+    const add = key => {
+        const numbered = key.match(NUMBERED_COUNT);
+        if (numbered) totals.set(numbered[2], (totals.get(numbered[2]) ?? 0) + Number(numbered[1]));
+        else if (!kept.includes(key)) kept.push(key);
+    };
+    [...new Set(own)].forEach(add);
+    others.forEach(add);
+    const counted = [...totals].map(([kind, n]) => (n === 1 ? `1${kind}` : n >= 6 ? `6+${kind}s` : `${n}${kind}s`));
+    return [...counted, ...kept];
+}
+
+/**
+ * Puts a tag prompt in Anima's recommended order: quality / meta / year / safety tags first (one safety tag: the
+ * first one there, else the parser's rating), then the subject count, then the character's own tags (the preset's
+ * trigger: a character LoRA's trigger, or the character and series names), then the rest as it was (artist and
+ * trigger words, then the general tags). A part that ends a sentence stays where it is.
+ * @param {{ rating?: string, count?: string[]|null, character?: string[] }} [order] count: everyone's count tags,
+ *   in place of the ones in the text (none given: the ones in the text, once each)
+ */
+export function officialTagOrder(text, { rating = '', count = null, character = [] } = {}) {
+    const lead = [];
+    const counts = [];
+    const own = [];
+    const rest = [];
+    const ownKeys = new Set(character.map(tagKey));
+    const once = (list, item, key) => {
+        if (!list.some(tag => tagKey(tag) === key)) list.push(item);
+    };
+    const safety = () => lead.some(tag => SAFETY_TAGS.has(tagKey(tag)));
+    for (const item of String(text ?? '').split(',').map(part => part.trim()).filter(Boolean)) {
+        const key = tagKey(item);
+        if (SAFETY_TAGS.has(key)) {
+            if (!safety()) lead.push(item);
+        } else if (LEAD_TAGS.has(key) || LEAD_PATTERN.test(key)) once(lead, item, key);
+        else if (COUNT_TAG.test(key) || key === 'no humans') once(counts, item, key);
+        else if (ownKeys.has(key)) once(own, item, key);
+        else rest.push(item);
+    }
+    if (rating && !safety()) lead.push(rating);
+    return [...lead, ...(count?.length ? count : counts), ...own, ...rest].join(', ');
+}
+
+/**
+ * Last step for every generated prompt: the mode's trigger words, Anima's tag order, then escaping if the mode
+ * wants it.
+ * @param {{ rating?: string, count?: string[]|null, character?: string[] }} [order] see officialTagOrder
+ */
+export function finishPrompt(prompt, order = {}) {
     const settings = getSettings();
-    const text = withTriggerWords(prompt, triggerWordList(settings.triggerWords));
+    let text = withTriggerWords(prompt, triggerWordList(settings.triggerWords));
+    if (promptStyle() === 'anima') text = officialTagOrder(text, order);
     return settings.escapeParens ? escapeParens(text) : text;
 }
 
@@ -168,7 +270,8 @@ export function finishPrompt(prompt) {
  * - "fixed" mode: the character preset's appearance plus the parsed fields, through the assembly template.
  *   A template line whose placeholders are all empty is dropped, so missing fields leave no dangling labels.
  * - "ai" mode: the parser's own `prompt`, with the LoRA trigger and style prefixes around it.
- * Either way the mode's trigger words are added (see finishPrompt). Anima joins the parts as tags.
+ * Either way the mode's trigger words are added (see finishPrompt). Anima joins the parts as tags, in the order its
+ * model card recommends (officialTagOrder), with the parser's safety rating and everyone's count tags.
  * Other people (`others`) are only used when the parser preset allows them.
  * @param {object|null} preset Character preset
  * @param {object} parsed Parser output
@@ -182,31 +285,62 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
     const prefix = [settings.prefix, parserPreset?.prefix].map(text => resolveMacros(text || '')).filter(Boolean).join(tags ? ', ' : ' ');
 
     const clean = tags ? cleanTags : text => cleanLine(String(text || ''));
+    const anima = String(style).startsWith('anima');
+    // Anima: the character's own tags (its LoRA trigger, or its character and series names) and the mode's trigger
+    // words (artist) have places of their own in the official order; the parser rates each picture's safety,
+    // unless the user's own tags already set it.
+    const character = resolveMacros(preset?.trigger || '');
+    const artist = triggerWordList(settings.triggerWords).join(', ');
+    const own = [prefix, character, artist, resolveMacros(settings.suffix || ''), resolveMacros(preset?.appearance || '')].join(', ');
+    const rating = anima && !hasSafetyTag(own) ? ratingTag(parsed?.rating) : '';
+    const order = { rating, character: triggerWordList(character) };
     if (mode === 'ai' && parsed?.prompt) {
-        const parts = [resolveMacros(preset?.trigger || ''), prefix, nobody ? (tags ? ANIMA_NOBODY_LINE : NOBODY_LINE) : '', parsed.prompt, resolveMacros(settings.suffix || '')]
+        const scenery = nobody ? (tags ? ANIMA_NOBODY_LINE : NOBODY_LINE) : '';
+        // The parser's tags start with the count (put in its place by officialTagOrder); the trigger words go in
+        // the artist's place. In sentences, the tags lead and the description follows.
+        const lead = !anima ? [character, prefix] : tags ? [[prefix, rating, character].join(', ')] : [[prefix, rating, character, artist].join(', ')];
+        const parts = [...lead, scenery, parsed.prompt, resolveMacros(settings.suffix || '')]
             .map(clean)
             .filter(Boolean);
-        return finishPrompt(joinParts(parts, tags));
+        return finishPrompt(joinParts(parts, tags), order);
     }
 
     const vars = {
         // The mode's trigger words first, then the character LoRA's.
-        trigger: [...triggerWordList(settings.triggerWords), resolveMacros(preset?.trigger || '')].filter(Boolean).join(', '),
+        trigger: [...triggerWordList(settings.triggerWords), character].filter(Boolean).join(', '),
         prefix,
         suffix: resolveMacros(settings.suffix || ''),
         appearance: resolveMacros(preset?.appearance || ''),
+        character,
+        artist,
     };
     for (const field of PARSED_FIELDS) {
         vars[field] = String(parsed?.[field] || '').trim();
     }
+    vars.rating = rating;
+    vars.count = '';
     if (!parserPreset?.allowOthers) vars.others = '';
     // 画谁不在画面里, nobody there: only the place is drawn.
     if (nobody) for (const field of ['appearance', 'outfit', 'action', 'expression', 'demeanor', 'others']) vars[field] = '';
+    if (tags) {
+        // Everyone's count tags go together after the quality tags: the character's own (from its look) and one
+        // per other person, added up.
+        const mine = [];
+        for (const field of ['appearance', 'outfit', 'action', 'expression', 'demeanor', 'scene', 'camera', 'lighting']) {
+            const [kept, found] = takeCounts(vars[field]);
+            vars[field] = kept;
+            mine.push(...found);
+        }
+        const [others, theirs] = takeCounts(vars.others);
+        vars.others = others;
+        order.count = mergeCounts(mine, theirs);
+        vars.count = order.count.join(', ');
+    }
 
     const lines = [];
     // The untouched tag template does not fit sentences: natural-language Anima uses the sentence template then.
     let template = String(settings.promptTemplate || '');
-    if (style === 'anima-natural' && template === ANIMA_PROMPT_TEMPLATE) template = DEFAULT_PROMPT_TEMPLATE;
+    if (style === 'anima-natural' && [ANIMA_PROMPT_TEMPLATE, ANIMA_PROMPT_TEMPLATE_V1].includes(template)) template = ANIMA_NATURAL_TEMPLATE;
     for (const line of templateFor(template, !!vars.others, tags, nobody).split('\n')) {
         const keys = [...line.matchAll(/\{\{(\w+)\}\}/g)].map(match => match[1]).filter(key => Object.hasOwn(vars, key));
         if (keys.length && keys.every(key => !vars[key])) continue;
@@ -214,7 +348,7 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
         // Lines are joined into one paragraph, so each is closed (sentences) or comma-separated (tags).
         if (cleaned) lines.push(cleaned);
     }
-    return finishPrompt(joinParts(lines, tags));
+    return finishPrompt(joinParts(lines, tags), order);
 }
 
 const EMPTY_ANSWERS = new Set(['无', '没有', '空', '无需', 'none', 'n/a', 'na', 'null', 'false', '-']);

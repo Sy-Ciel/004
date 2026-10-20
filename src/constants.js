@@ -93,10 +93,16 @@ Setting: {{scene}}.
 {{suffix}}`;
 
 /**
- * Anima's template: one tag group per line, joined with commas (see prompt.js). Quality / score tags go in the
- * prefix, the count tag (1girl, 1boy …) in the character's appearance.
+ * Anima's template: one tag group per line, joined with commas (see prompt.js), in the order Anima's model card
+ * recommends: quality / meta / year / safety tags ({{prefix}}, the parser's {{rating}}), the subject count
+ * ({{count}}: everyone's, from the character's appearance and the other people), the character's own tags
+ * ({{character}}: its LoRA trigger or character and series names), the artist ({{artist}}: the mode's trigger
+ * words), then the general tags. prompt.js keeps that order for any template (officialTagOrder).
  */
-export const ANIMA_PROMPT_TEMPLATE = `{{trigger}}, {{prefix}}
+export const ANIMA_PROMPT_TEMPLATE = `{{prefix}}, {{rating}}
+{{count}}
+{{character}}
+{{artist}}
 ${ANIMA_SOLO_LINE}
 {{appearance}}
 {{outfit}}
@@ -106,8 +112,36 @@ ${ANIMA_SOLO_LINE}
 {{camera}}, {{lighting}}
 {{suffix}}`;
 
-/** Fields the parser model is asked to produce. `others` only when the parser preset allows other people. */
-export const PARSED_FIELDS = ['outfit', 'action', 'expression', 'demeanor', 'scene', 'camera', 'lighting', 'others'];
+/** Anima's template up to v1.38 (trigger words first), to recognise an untouched copy when migrating. */
+export const ANIMA_PROMPT_TEMPLATE_V1 = `{{trigger}}, {{prefix}}
+${ANIMA_SOLO_LINE}
+{{appearance}}
+{{outfit}}
+{{action}}
+{{expression}}, {{demeanor}}
+{{scene}}
+{{camera}}, {{lighting}}
+{{suffix}}`;
+
+/**
+ * Anima in English sentences (its "英文自然语言" switch): the tags lead, as in the model card's natural-language
+ * examples ("masterpiece, best quality, score_7, safe. Digital artwork of …"), then the sentences.
+ */
+export const ANIMA_NATURAL_TEMPLATE = `{{prefix}}, {{rating}}, {{character}}, {{artist}}
+${SOLO_LINE}
+{{appearance}}
+Wearing {{outfit}}.
+{{action}}.
+Facial expression: {{expression}}. {{demeanor}}.
+Setting: {{scene}}.
+{{camera}}, {{lighting}}.
+{{suffix}}`;
+
+/**
+ * Fields the parser model is asked to produce. `others` only when the parser preset allows other people;
+ * `rating` (the picture's safety tag: safe / sensitive / nsfw / explicit) only in Anima.
+ */
+export const PARSED_FIELDS = ['outfit', 'action', 'expression', 'demeanor', 'scene', 'camera', 'lighting', 'others', 'rating'];
 
 /**
  * Timeline analysis the parser writes before the picture fields (in Chinese): what the character is doing and
@@ -335,7 +369,7 @@ export const MOSS_QUALITY = {
 };
 
 /** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */
-export const SETTINGS_VERSION = 6;
+export const SETTINGS_VERSION = 7;
 
 /** A render profile's LoRA set to this means "no style LoRA", as opposed to empty = use the default. */
 export const LORA_NONE = '__none__';

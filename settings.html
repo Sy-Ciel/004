@@ -32,7 +32,7 @@
                 <label>触发词（本模式每张图都带上）
                     <input type="text" class="text_pole" data-ctp="triggerWords" id="ctp_trigger_words">
                 </label>
-                <small class="ctp-hint">逗号分隔，放在提示词最前面。「AI 写完整提示词」时会要求解析 AI 每次写上，漏写的自动补上；和角色预设里的「LoRA 触发词」可以同时用。</small>
+                <small class="ctp-hint">逗号分隔，放在提示词最前面（Anima 模式按官方顺序放在画师的位置：画质、安全分级、人数、角色之后，其他标签之前）。「AI 写完整提示词」时会要求解析 AI 每次写上，漏写的自动补上；和角色预设里的「LoRA 触发词」可以同时用。</small>
             </div>
 
             <!-- ============ 常用（始终显示） ============ -->
@@ -322,7 +322,7 @@
                         <label>模板 <span class="ctp-link" data-reset="promptTemplate">恢复默认</span>
                             <textarea class="text_pole" rows="9" data-ctp="promptTemplate"></textarea>
                         </label>
-                        <small class="ctp-hint">{{trigger}} = 本模式触发词 + 角色的 LoRA 触发词。Anima 模式每行之间用逗号连接（标签），Krea 2、MOSS-Image 模式每行是一句话。变量：{{trigger}} {{prefix}} {{suffix}} {{appearance}}（固定）＋ {{outfit}} {{action}} {{expression}} {{demeanor}} {{scene}} {{camera}} {{lighting}} {{others}}（AI）。某一行的变量全为空时整行省略。画面里有其他人物时，「A solo image…」这一行会自动去掉；模板里没写 {{others}} 时自动加在镜头那一行前面。</small>
+                        <small class="ctp-hint">{{trigger}} = 本模式触发词 + 角色的 LoRA 触发词。Anima 模式每行之间用逗号连接（标签），按官方推荐的顺序拼：画质 / 安全分级 {{prefix}} {{rating}} → 人数 {{count}} → 角色 {{character}}（角色的 LoRA 触发词 / 角色名）→ 画师 {{artist}}（本模式触发词）→ 其他标签；自己改了模板，这个顺序也会自动排好。Krea 2、MOSS-Image 模式每行是一句话。变量：{{trigger}} {{prefix}} {{suffix}} {{appearance}}（固定）＋ {{outfit}} {{action}} {{expression}} {{demeanor}} {{scene}} {{camera}} {{lighting}} {{others}}（AI）。某一行的变量全为空时整行省略。画面里有其他人物时，「A solo image…」这一行会自动去掉；模板里没写 {{others}} 时自动加在镜头那一行前面。</small>
                     </details>
                 </div>
             </div>
@@ -401,6 +401,7 @@
                             <label class="ctp-narrow">强度 <input type="number" class="text_pole" step="0.05" data-charlora="loraStrength" data-type="float"></label>
                         </div>
                         <label>LoRA 触发词（放在提示词最前）<input type="text" class="text_pole" data-charlora="trigger"></label>
+                        <small class="ctp-hint ctp-mode-only" data-mode="anima">Anima 模式按官方顺序放在人数标签后面（角色、作品的位置）。同人角色可以在这里写 Danbooru 的角色名和作品名，例如 <code>hatsune miku, vocaloid</code>，有角色 LoRA 时连同它的触发词一起写。</small>
                     </div>
                     <small class="ctp-hint">风格 LoRA 每张图都加；角色 LoRA 只在画这个角色时加，两个同时用。角色预设在「角色预设」一节新建。</small>
                     <h4>更多 LoRA</h4>
