@@ -1,10 +1,13 @@
 /**
- * Pictures inside the text. 多张图: the parser copies the opening words of every part of a floor (`start`), and
- * each part's picture is put where that part begins or ends. 「图片插在正文中间」: the parser copies the sentence
- * each picture fits best after (`place`), and the picture goes right after that line.
+ * Pictures inside the text. 多张图: the parser names the paragraph every part of a floor begins with (`start`), and
+ * each part's picture is put where that part begins or ends. 「图片插在正文中间」: the parser names the paragraph
+ * each picture fits best after (`place`), and the picture goes right after it. Both are kept as the paragraph's
+ * opening words and its share of the story.
  *
- * The quote is what the parser read (plain text, markdown symbols and all); the chat shows rendered HTML. Both are
- * compared by their letters and digits only, so punctuation, spacing, quotes and markdown do not matter.
+ * Pictures only go into the story (what is inside <game>…</game>, see storyParagraphs): its paragraphs are found
+ * in the shown text one after another, and nothing outside the stretch they cover is used. The message text is
+ * plain text (markdown symbols and all); the chat shows rendered HTML. Both are compared by their letters and
+ * digits only, so punctuation, spacing, quotes and markdown do not matter.
  */
 
 /** Letters and digits only, lower case: what a quote and a text are compared by. */
@@ -34,6 +37,115 @@ export function findQuote(text, quote, from = 0) {
         }
     }
     return -1;
+}
+
+/**
+ * Where the closing words of `quote` end in comparable text, at or after `from` (the index of their last
+ * character), or -1.
+ */
+function findQuoteEnd(text, quote, from = 0) {
+    const wanted = comparable(quote);
+    if (wanted.length < 4) return -1;
+    // The closing words first; then a little before them, for an ending the shown text changed.
+    for (const skip of [0, 4, 8]) {
+        const end = wanted.length - skip;
+        const part = wanted.slice(Math.max(0, end - QUOTE_MAX), end);
+        if (part.length < Math.min(QUOTE_MIN, wanted.length)) break;
+        for (let length = part.length; length >= Math.min(QUOTE_MIN, part.length); length--) {
+            const piece = part.slice(part.length - length);
+            const index = text.indexOf(piece, from);
+            if (index >= 0) return index + piece.length - 1;
+        }
+    }
+    return -1;
+}
+
+/**
+ * Every place the opening words of `quote` stand in comparable text, matched as findQuote matches them. `full`:
+ * the whole opening matched, not just a part of it (a weaker sign: an option line may quote a paragraph's start).
+ */
+function occurrences(text, quote) {
+    const wanted = comparable(quote);
+    if (wanted.length < 4) return [];
+    for (const skip of [0, 4, 8]) {
+        const part = wanted.slice(skip, skip + QUOTE_MAX);
+        if (part.length < Math.min(QUOTE_MIN, wanted.length)) break;
+        for (let length = part.length; length >= Math.min(QUOTE_MIN, part.length); length--) {
+            const piece = part.slice(0, length);
+            const full = skip === 0 && length === part.length;
+            const found = [];
+            for (let index = text.indexOf(piece); index >= 0 && found.length < 20; index = text.indexOf(piece, index + 1)) {
+                found.push({ at: Math.max(0, index - skip), full });
+            }
+            if (found.length) return found;
+        }
+    }
+    return [];
+}
+
+/**
+ * Where each story paragraph starts in comparable text, -1 for one not found: the longest chain of the places its
+ * paragraphs' words stand in, in story order and each not much further from the one before than the paragraphs in
+ * between are long. So words that also stand somewhere else (a panel, a summary, a status bar), or that match
+ * out of order, are not taken for the story. A chain without one whole opening matched is not trusted (the story
+ * itself is not shown, only lines quoting it).
+ */
+function locateParagraphs(text, paragraphs) {
+    const sizes = paragraphs.map(paragraph => comparable(paragraph).length);
+    const better = (a, b) => !b || a.length > b.length || (a.length === b.length && a.full > b.full);
+    const chains = [];
+    let best = null;
+    paragraphs.forEach((paragraph, index) => {
+        chains[index] = occurrences(text, paragraph.slice(0, 40)).map(({ at, full }) => {
+            const own = full ? 1 : 0;
+            let chain = { length: 1, full: own, at, index, previous: null };
+            let span = 0;
+            for (let before = index - 1; before >= 0; before--) {
+                span += sizes[before];
+                for (const link of chains[before]) {
+                    const longer = { length: link.length + 1, full: link.full + own, at, index, previous: link };
+                    if (link.at < at && at - link.at <= 3 * span + 300 && better(longer, chain)) chain = longer;
+                }
+            }
+            if (better(chain, best)) best = chain;
+            return chain;
+        });
+    });
+    const starts = paragraphs.map(() => -1);
+    if (best?.full) for (let link = best; link; link = link.previous) starts[link.index] = link.at;
+    return starts;
+}
+
+/** The last character of a paragraph found at `start`: its closing words, else its length, never past `limit`. */
+function paragraphEnd(text, paragraph, start, limit) {
+    const end = findQuoteEnd(text, paragraph, start);
+    if (end >= start && end <= limit) return end;
+    return Math.max(start, Math.min(limit, start + comparable(paragraph).length - 1));
+}
+
+/**
+ * The story paragraph an anchor names (its opening words, as paragraphAnchor keeps them), among those found in the
+ * shown text; of several with the same opening, the one nearest the anchor's share. -1 when none.
+ */
+function paragraphFor(paragraphs, starts, anchor) {
+    const quote = comparable(anchor.quote);
+    if (!quote) return -1;
+    const sizes = paragraphs.map(paragraph => comparable(paragraph).length);
+    const total = sizes.reduce((sum, size) => sum + size, 0) || 1;
+    let best = -1;
+    let distance = Infinity;
+    let before = 0;
+    paragraphs.forEach((paragraph, index) => {
+        const share = (before + (anchor.side === 'after' ? sizes[index] : 0)) / total;
+        before += sizes[index];
+        if (starts[index] < 0 || comparable(paragraph.slice(0, 40)) !== quote) return;
+        const off = Number.isFinite(anchor.at) ? Math.abs(share - anchor.at) : 0;
+        if (off < distance) {
+            best = index;
+            distance = off;
+        }
+    });
+    return best;
 }
 
 /** Where each quote starts, in order (each after the one before), or null when one of them is missing. */
@@ -76,17 +188,22 @@ function textMap(root) {
 }
 
 /**
- * Where pictures go in the shown story text, one spot per anchor, never none: by the anchor's words when they are
- * found (in order when they all are, else each anywhere), else at the anchor's share of the story (`at`, from the
- * paragraph the parser named), else at `even` (pictures spread evenly).
+ * Where pictures go in the shown story, one spot per anchor: in the story's stretch of the text (its paragraphs,
+ * found one after another), at the paragraph the anchor names (after its end for 'after', at its start for
+ * 'before'); else at the anchor's own words inside the stretch; else at its share of the story (`at`, from the
+ * paragraph the parser named) or at `even` (pictures spread evenly). Never outside the story.
  * side 'after': the picture follows that point's line; 'before': it comes before that point's line.
  * @param {{ quote?: string, at?: number|null, even: number, side: 'after'|'before' }[]} anchors
- * @param {{ first?: string, last?: string }} [bounds] The story's first and last words (shares are of that stretch)
- * @returns {{ node: Text, offset: number, found: boolean }[] | null} null when there is no story text to place in
+ * @param {{ paragraphs?: string[], first?: string, last?: string }} [bounds] The story's paragraphs (storyParagraphs);
+ *   without them, its first and last words (what the version keeps)
+ * @returns {{ node: Text, offset: number, found: boolean }[] | null} null when the story is not in the shown text
  */
 export function placeAnchors(root, anchors, bounds = {}) {
     const { text, positions } = textMap(root);
     if (!positions.length) return null;
+    const paragraphs = (bounds.paragraphs ?? []).filter(paragraph => comparable(paragraph));
+    // A story of only very short lines cannot be searched for: then by its first and last words, as before.
+    if (paragraphs.some(paragraph => comparable(paragraph.slice(0, 40)).length >= 4)) return placeInStory(text, positions, anchors, paragraphs);
     const quotes = anchors.map(anchor => anchor.quote || '');
     let found = quotes.every(Boolean) ? locateQuotes(text, quotes) : null;
     if (!found) found = quotes.map(quote => (quote ? findQuote(text, quote) : -1));
@@ -101,6 +218,34 @@ export function placeAnchors(root, anchors, bounds = {}) {
     const size = last - first + 1;
     return anchors.map((anchor, index) => {
         if (found[index] >= 0) return { ...positions[found[index]], found: true };
+        const share = Math.min(1, Math.max(0, Number.isFinite(anchor.at) ? anchor.at : anchor.even));
+        // 'after': the last character of that share of the story; 'before': the first one past it.
+        const at = first + (anchor.side === 'after' ? Math.round(share * size) - 1 : Math.round(share * size));
+        return { ...positions[Math.min(last, Math.max(first, at))], found: false };
+    });
+}
+
+/** placeAnchors with the story's paragraphs: only the stretch of the text they are found in is used. */
+function placeInStory(text, positions, anchors, paragraphs) {
+    const starts = locateParagraphs(text, paragraphs);
+    const found = starts.flatMap((at, index) => (at >= 0 ? [index] : []));
+    // The story is not in the shown text (drawn in a frame, say): the pictures stay in the image block.
+    if (!found.length) return null;
+    const first = starts[found[0]];
+    const lastIndex = found.at(-1);
+    const last = paragraphEnd(text, paragraphs[lastIndex], starts[lastIndex], positions.length - 1);
+    // The end of a paragraph: before the next one found, else at the end of the story.
+    const endOf = index => {
+        const next = found.find(other => other > index);
+        return paragraphEnd(text, paragraphs[index], starts[index], next === undefined ? last : starts[next] - 1);
+    };
+    const size = last - first + 1;
+    return anchors.map(anchor => {
+        const index = paragraphFor(paragraphs, starts, anchor);
+        if (index >= 0) return { ...positions[anchor.side === 'after' ? endOf(index) : starts[index]], found: true };
+        // Words of its own (a quote the parser copied before paragraph numbers): only inside the story.
+        const quoted = anchor.quote ? findQuote(text, anchor.quote, first) : -1;
+        if (quoted >= 0 && quoted <= last) return { ...positions[quoted], found: true };
         const share = Math.min(1, Math.max(0, Number.isFinite(anchor.at) ? anchor.at : anchor.even));
         // 'after': the last character of that share of the story; 'before': the first one past it.
         const at = first + (anchor.side === 'after' ? Math.round(share * size) - 1 : Math.round(share * size));

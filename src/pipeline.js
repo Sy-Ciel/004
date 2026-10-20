@@ -2,7 +2,7 @@ import { EXTRA_KEY, modeDefaults } from './constants.js';
 import { addExtraLoras, addUpscale, getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
 import { comparable, findQuote } from './anchors.js';
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
-import { buildParserPrompt, floorParagraphs, parserLabel, requestParse } from './parser.js';
+import { buildParserPrompt, parserLabel, requestParse, storyParagraphs } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution, sceneLimit } from './parserPresets.js';
 import { buildImagePrompt, buildNegativePrompt, finishPrompt } from './prompt.js';
 import { modeForRating, readRating } from './rating.js';
@@ -70,14 +70,17 @@ function subjectsOf(chosen, parsed, parserPrompt, message, notes) {
 
 /**
  * 图片插在正文中间 / 多张图: the parser names paragraphs of the floor by number ([1], [2] … as it saw them, see
- * floorParagraphs). An anchor becomes that paragraph's opening words (searched for in the shown text) and its share
- * of the story (where the picture goes when the words are not found). A quote the parser wrote instead is kept.
+ * floorParagraphs; `paragraphs` is the whole story, storyParagraphs). An anchor becomes that paragraph's opening
+ * words (the paragraph is found by them in the shown text) and its share of the story (where the picture goes when
+ * it is not found). A quote the parser wrote instead is kept.
  * @param {'after'|'start'} side after: the picture follows that paragraph; start: a part begins with it
  * @returns {{ text: string, at: number | undefined }}
  */
 function paragraphAnchor(value, paragraphs, side) {
-    const number = String(value ?? '').match(/^\s*(?:第\s*)?(\d+)\s*段?\s*$/);
-    if (!number) return { text: String(value ?? '').trim(), at: undefined };
+    // 3, "3", "[3]", "第3段", "【3】" …, or the numbered line copied whole ("[3] 她推开门……").
+    const text = String(value ?? '');
+    const number = text.match(/^\s*[[【(（]?\s*(?:第\s*)?(\d+)\s*段?\s*[\]】)）.、]?\s*$/) ?? text.match(/^\s*[[【]\s*(\d+)\s*[\]】]/);
+    if (!number) return { text: text.trim(), at: undefined };
     const index = Number(number[1]) - 1;
     if (index < 0 || !paragraphs.length) return { text: '', at: undefined };
     const clamped = Math.min(index, paragraphs.length - 1);
@@ -727,8 +730,8 @@ async function runJob(message, job, options) {
             // 多张图: the earlier parts of the floor (another time or place), drawn before the end in the floor.
             const limit = sceneLimit(settings.parser);
             const scenes = limit > 1 ? (parsed.earlierScenes ?? []).slice(0, limit - 1) : [];
-            // Where pictures go: the paragraphs the parser named, as their words and share of the story.
-            const paragraphs = floorParagraphs(message);
+            // Where pictures go: the paragraphs the parser named, as their words and share of the whole story.
+            const paragraphs = storyParagraphs(message);
             Object.assign(data, storyBounds(paragraphs));
             data.scenes = scenes.map((scene, index) => {
                 const who = sceneSubject(scene);

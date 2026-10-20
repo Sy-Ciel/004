@@ -40,17 +40,30 @@ export function hasStoryTag(text, parser = getSettings().parser) {
     return [...String(text ?? '').matchAll(storyTagPattern(parser))].some(match => match[1].trim());
 }
 
+const CODE_BLOCK = /```[\s\S]*?(?:```|$)/g;
+
 /**
- * The part of a message the parser reads. With 「只读取标签里的正文」 only what is inside <game>…</game> (every
- * such block), so code pages, option panels and the like around the story are not taken for the story. A message
- * without the tag (the user's own, or a reply where the AI left it out) is read whole minus ``` code blocks.
+ * The story of a message: what is inside <game>…</game> (every such block), so code pages, option panels and the
+ * like around it are not taken for the story. A message without the tag (the user's own, or a reply where the AI
+ * left it out) is the whole of it minus ``` code blocks.
  */
-export function storyText(text, parser = getSettings().parser) {
+function storyPart(text, parser) {
     const source = String(text ?? '');
-    if (!parser.storyTagOnly) return source;
     const parts = [...source.matchAll(storyTagPattern(parser))].map(match => match[1].trim()).filter(Boolean);
     if (parts.length) return parts.join('\n\n');
-    return source.replace(/```[\s\S]*?(?:```|$)/g, '').trim();
+    return source.replace(CODE_BLOCK, '').trim();
+}
+
+/** What storyPart leaves out: the text around the story tag, or the code blocks of a message without it. */
+function outsideStory(text, parser) {
+    const source = String(text ?? '');
+    if (hasStoryTag(source, parser)) return source.replace(storyTagPattern(parser), '').trim();
+    return (source.match(CODE_BLOCK) ?? []).join('\n').trim();
+}
+
+/** The part of a message the parser reads: with 「只读取标签里的正文」 only the story (storyPart), else all of it. */
+export function storyText(text, parser = getSettings().parser) {
+    return parser.storyTagOnly ? storyPart(text, parser) : String(text ?? '');
 }
 
 /** Label of the AI's messages while 「隐藏角色卡的名字」 is on. */
@@ -74,16 +87,42 @@ export function paragraphsOf(text) {
     return String(text ?? '').split(/\n+/).map(line => line.trim()).filter(Boolean);
 }
 
+/** A message's text as placing pictures sees it: without the status bar the parser is shown on its own. */
+function placementSource(message) {
+    const status = getSettings().statusBar.parserFocus ? findStatusBar(message?.mes) : null;
+    return withoutStatusBar(message?.mes, status);
+}
+
 /**
- * The paragraphs of the floor being drawn, exactly as the parser saw them numbered ([1], [2] …) when it was asked
- * where pictures go (图片插在正文中间, 多张图): its text without the status bar, story tag applied, cut to the
- * per-floor limit.
+ * The story paragraphs of a floor, where its pictures may go (图片插在正文中间, 多张图): what is inside
+ * <game>…</game> when the message has that tag, whether or not 「只读取标签里的正文」 is on (pictures go into the
+ * story, never into the panels or code pages around it); else the message minus ``` code blocks. Not cut to the
+ * per-floor limit, so the story's end is its real end (the parser's numbers are the same, see floorParagraphs).
+ */
+export function storyParagraphs(message) {
+    return paragraphsOf(plainText(storyPart(placementSource(message), getSettings().parser)));
+}
+
+/**
+ * The paragraphs of the floor being drawn as the parser saw them numbered ([1], [2] …) when it was asked where
+ * pictures go: storyParagraphs, cut to the per-floor limit (so the numbers are the same, only fewer).
  */
 export function floorParagraphs(message) {
     const settings = getSettings();
-    const status = settings.statusBar.parserFocus ? findStatusBar(message?.mes) : null;
     const maxChars = Number(settings.parser.maxCharsPerMessage) || 0;
-    return paragraphsOf(truncate(plainText(storyText(withoutStatusBar(message?.mes, status))), maxChars));
+    return paragraphsOf(truncate(plainText(storyPart(placementSource(message), settings.parser)), maxChars));
+}
+
+/**
+ * The floor shown to the parser when it is asked where pictures go: the story paragraphs numbered; with
+ * 「只读取标签里的正文」 off, the rest of the message follows as reference (pictures cannot go there).
+ */
+function numberedFloor(message, maxChars) {
+    const settings = getSettings();
+    const lines = floorParagraphs(message).map((paragraph, index) => `[${index + 1}] ${paragraph}`);
+    const outside = settings.parser.storyTagOnly ? '' : plainText(outsideStory(placementSource(message), settings.parser));
+    const note = hasStoryTag(message?.mes, settings.parser) ? ` <${storyTagName(settings.parser)}> 标签外面的内容` : '代码块里的内容';
+    return `${speakerLabel(message)}:\n${lines.join('\n')}${outside ? `\n\n（下面是这一楼${note}，没有编号，只作参考，图片不能插在这里）\n${truncate(outside, maxChars)}` : ''}`;
 }
 
 /** The current floor's status bar as its own block, so the parser treats it as the main source. */
@@ -407,7 +446,7 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
         history: history.length ? history.join('\n\n') : '（无）',
         // Where pictures go is asked as paragraph numbers: the floor is shown numbered then.
         latest: place || scenes > 1
-            ? `${speakerLabel(chat[mesId])}:\n${floorParagraphs(chat[mesId]).map((paragraph, index) => `[${index + 1}] ${paragraph}`).join('\n')}`
+            ? numberedFloor(chat[mesId], maxChars)
             : formatMessage(chat[mesId], maxChars, withoutStatusBar(chat[mesId].mes, status)),
         status_bar: statusBarBlock(status),
         floor: String(mesId),

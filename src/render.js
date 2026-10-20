@@ -3,6 +3,7 @@ import { layoutMode } from './layout.js';
 import { insertAfterLine, insertBeforeLine, placeAnchors } from './anchors.js';
 import { currentIndex, pictureHtml, statusHtml, toolbarHtml, versionPictures } from './markup.js';
 import { getPanelMesId, schedulePanelRefresh } from './panel.js';
+import { storyParagraphs } from './parser.js';
 import { getJob } from './pipeline.js';
 import { decorateStatusBars } from './statusBar.js';
 import { ctx, escapeHtml, getMessageData, getSettings } from './utils.js';
@@ -56,6 +57,31 @@ function imageHtml(data, debug, pictures, several, panelButton) {
 }
 
 /** Takes the pictures put into a message's text out again (the image block is moved by placeWrap). */
+/** Message blocks watched for their text being drawn again with the pictures gone (see watchText). */
+const watched = new WeakSet();
+
+/**
+ * Pictures in the text are lost when something draws the message text again (a display regex, another extension)
+ * without telling: once the text has stopped changing, a floor whose pictures are gone is drawn again.
+ */
+function watchText(element) {
+    const block = element.find('.mes_block').get(0);
+    if (!block || watched.has(block)) return;
+    watched.add(block);
+    let timer = null;
+    new MutationObserver(() => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+            if (!block.isConnected) return;
+            const text = block.querySelector('.mes_text');
+            const state = text?.ctpPlacement;
+            const intact = state && text.querySelectorAll('.ctp-inserted').length === state.inserted && (!state.wrapInText || text.querySelector('.ctp-wrap'));
+            const mesId = Number(block.closest('.mes')?.getAttribute('mesid'));
+            if (!intact && Number.isInteger(mesId)) renderMessage(mesId);
+        }, 200);
+    }).observe(block, { childList: true, subtree: true });
+}
+
 function clearInserted(element) {
     const text = element.find('.mes_text').get(0);
     if (!text) return;
@@ -98,7 +124,8 @@ function placePictures(element, wrap, pictures, kind, inStory, bounds = {}) {
     };
     const count = pictures.length;
 
-    if (inStory && pictures.some(picture => picture.place || Number.isFinite(picture.placeAt))) {
+    // 图片插在正文中间: every picture goes into the story, one without a place of its own after its end.
+    if (inStory) {
         const spots = placeAnchors(text, pictures.map((picture, index) => ({ quote: picture.place, at: picture.placeAt, even: (index + 1) / count, side: 'after' })), bounds);
         if (spots) {
             // The image block first, then the other pictures from the last back, so pictures after the same
@@ -185,8 +212,10 @@ export function renderMessage(mesId) {
         const image = data.images[currentIndex(data)];
         const all = versionPictures(image);
         several = all.length > 1;
-        const bounds = { first: image.storyStart, last: image.storyEnd };
+        // Pictures go into the story only (what is inside <game>…</game>), found by its paragraphs.
+        const bounds = { first: image.storyStart, last: image.storyEnd, paragraphs: several || settings.placeInStory ? storyParagraphs(message) : [] };
         ({ kept: pictures, wrapInText } = placePictures(element, wrap[0], all, kind, !!settings.placeInStory, bounds));
+        if (wrapInText || pictures.length < all.length) watchText(element);
     } else {
         clearInserted(element);
     }
