@@ -13,6 +13,25 @@ function optionLabel(preset) {
     return `${preset.name}${builtinParserPreset(preset.id) ? '' : '（自定义）'}`;
 }
 
+const FIELD_NAMES = { system: 'System 提示词', user: 'User 模板' };
+
+/**
+ * Built-in presets: whether the System prompt and the User template are still the built-in text ("内置默认") or
+ * edited ("已修改"), each with its own reset link. Custom presets have no built-in text to compare with.
+ */
+function updateFieldStates() {
+    const active = activeParserPreset();
+    const builtin = builtinParserPreset(active.id);
+    for (const field of Object.keys(FIELD_NAMES)) {
+        const edited = !!builtin && String(active[field] ?? '') !== builtin[field];
+        $(`#ctp_pp_editor [data-pp-state="${field}"]`)
+            .toggle(!!builtin)
+            .text(edited ? '（已修改）' : '（内置默认）')
+            .toggleClass('ctp-warn', edited);
+        $(`#ctp_pp_editor [data-pp-reset="${field}"]`).toggle(edited);
+    }
+}
+
 /** Re-reads the selected parser preset into the editor. */
 export function refreshParserPresetUi() {
     const settings = getSettings();
@@ -27,6 +46,7 @@ export function refreshParserPresetUi() {
     $('#ctp_pp_delete').toggle(!builtin);
     $('#ctp_pp_reset').toggle(builtin);
     $('#ctp_pp_desc').text(DESCRIPTIONS[active.id] ?? '自定义预设：可以改下方所有内容。');
+    updateFieldStates();
 }
 
 async function confirm(text) {
@@ -48,6 +68,26 @@ export function initParserPresetUi() {
             preset[key] = readInput(element);
             saveSettings();
             if (key === 'name') $('#ctp_pp_select option:selected').text(optionLabel(preset));
+            if (Object.hasOwn(FIELD_NAMES, key)) updateFieldStates();
+        });
+    });
+
+    // One part of a built-in preset back to its built-in text; the rest of the preset stays as it is.
+    document.querySelectorAll('#ctp_pp_editor [data-pp-reset]').forEach(link => {
+        link.addEventListener('click', async event => {
+            event.preventDefault();
+            const preset = activeParserPreset();
+            const builtin = builtinParserPreset(preset.id);
+            const field = link.dataset.ppReset;
+            if (!builtin || !Object.hasOwn(FIELD_NAMES, field)) return;
+            if (!await confirm(`把「${escapeHtml(builtin.name)}」的 ${FIELD_NAMES[field]}恢复成内置的默认内容？你对这一段的修改会丢失，其他内容不变。`)) return;
+            // The popup can stay open while the preset or the mode changes: only reset the one it was opened for.
+            if (activeParserPreset() !== preset) return;
+            preset[field] = builtin[field];
+            saveSettings();
+            writeInput(document.querySelector(`#ctp_pp_editor [data-pp="${field}"]`), preset[field]);
+            updateFieldStates();
+            toastr.success(`${FIELD_NAMES[field]}已恢复默认`);
         });
     });
 

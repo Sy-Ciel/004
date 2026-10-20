@@ -214,13 +214,13 @@
                         </div>
                         <small class="ctp-hint">分辨率填 0 = 用「出图参数」里的分辨率。立绘适合竖图（如 832×1216），小说插画适合横图（如 1216×832）。</small>
                         <h4>解析提示词</h4>
-                        <label>System 提示词
+                        <label>System 提示词 <span class="ctp-muted" data-pp-state="system"></span> <span class="ctp-link" data-pp-reset="system">恢复默认</span>
                             <textarea class="text_pole" rows="14" data-pp="system"></textarea>
                         </label>
-                        <label>User 模板
+                        <label>User 模板 <span class="ctp-muted" data-pp-state="user"></span> <span class="ctp-link" data-pp-reset="user">恢复默认</span>
                             <textarea class="text_pole" rows="10" data-pp="user"></textarea>
                         </label>
-                        <small class="ctp-hint">System 里的 {{output_rules}} 会按生成方式换成时间线、外貌、人物规则和 JSON 输出格式。User 模板可用变量：{{target}} {{appearance}} {{candidates}} {{world_info}} {{fixed_fields}} {{last_state}} {{prev_outputs}} {{history}} {{latest}} {{floor}} {{user_hints}}，以及酒馆宏；没写的块会自动插入。</small>
+                        <small class="ctp-hint">内置的三个配图风格旁边会显示「已修改」或「内置默认」：「恢复默认」只把那一段换回当前版本的内置内容，其他内容不变（右上角 ↺ 是整个预设一起恢复）。扩展更新了内置提示词时，没改过的会自动换成新版，改过的保留你的版本，想用新版就点「恢复默认」。System 里的 {{output_rules}} 会按生成方式换成时间线、外貌、人物规则和 JSON 输出格式。User 模板可用变量：{{target}} {{appearance}} {{candidates}} {{world_info}} {{fixed_fields}} {{last_state}} {{prev_outputs}} {{history}} {{latest}} {{floor}} {{user_hints}}，以及酒馆宏；没写的块会自动插入。</small>
                     </div>
                 </div>
             </div>
