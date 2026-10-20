@@ -13,6 +13,7 @@
                     <div class="ctp-mode-switch" id="ctp_model_mode" role="radiogroup" aria-label="模型模式">
                         <div class="ctp-mode-option" data-mode="krea2" role="radio" tabindex="0">Krea 2</div>
                         <div class="ctp-mode-option" data-mode="anima" role="radio" tabindex="0">Anima</div>
+                        <div class="ctp-mode-option" data-mode="moss" role="radio" tabindex="0">MOSS-Image</div>
                     </div>
                 </div>
                 <div class="ctp-row ctp-mode-row ctp-mode-only" data-mode="anima">
@@ -25,9 +26,9 @@
                 <small class="ctp-hint ctp-mode-only" data-mode="anima" id="ctp_style_hint"></small>
                 <label class="checkbox_label ctp-auto-mode"><input type="checkbox" data-ctp="autoModelByRating"> 按画面自动切换模型：NSFW 用 Anima，其余用 Krea 2</label>
                 <small class="ctp-hint">打开后，正文 AI 每次回复会在末尾加一个看不见的标记（&lt;!-- 画面:NSFW --&gt; 或 &lt;!-- 画面:SFW --&gt;）。配图前读这一楼的标记，自动切到对应模式再画（各用该模式自己的设置）；没有标记的楼层用当前模式。手动「编辑提示词」出图时不自动切换。</small>
-                <small class="ctp-hint">两个模式的设置完全分开保存，切换时整套一起换：角色预设、渲染配置、配图风格、提示词、工作流、模型和采样、显示方式、状态栏等。两边共用的只有「解析模型」的 API 设置和 ComfyUI 的地址 / 连接方式。</small>
+                <small class="ctp-hint">三个模式的设置完全分开保存，切换时整套一起换：角色预设、渲染配置、配图风格、提示词、工作流、模型和采样、状态栏等。所有模式共用的有「解析模型」的 API 设置、ComfyUI 的地址 / 连接方式，以及「图片显示」（图片位置、大小、侧边面板等，切换模型时保持不变）。</small>
                 <label class="checkbox_label"><input type="checkbox" data-ctp="perPersonaProfiles"> 每个用户人设使用独立档案（切换人设时自动切换全部配图设置）</label>
-                <small class="ctp-hint"><b id="ctp_profile_label"></b>。打开后，每个用户人设有自己的一整套设置（两个模型模式各一套）：角色预设、LoRA、提示词、触发词、工作流、模型和采样等，切换人设时自动换过去，连同这个人设上次用的模型模式（用 Anima 的人设切过去就是 Anima 模式）；API 设置所有人设共用。新建的人设、或者某个人设没用过的模式，全部是默认设置。</small>
+                <small class="ctp-hint"><b id="ctp_profile_label"></b>。打开后，每个用户人设有自己的一整套设置（每个模型模式各一套，「图片显示」这个人设的所有模式共用一份）：角色预设、LoRA、提示词、触发词、工作流、模型和采样等，切换人设时自动换过去，连同这个人设上次用的模型模式（用 Anima 的人设切过去就是 Anima 模式）；API 设置所有人设共用。新建的人设、或者某个人设没用过的模式，全部是默认设置。</small>
                 <label>触发词（本模式每张图都带上）
                     <input type="text" class="text_pole" data-ctp="triggerWords" id="ctp_trigger_words">
                 </label>
@@ -50,13 +51,13 @@
                         <option value="4">4</option>
                     </select> 张</label>
                 </div>
-                <small class="ctp-hint">由解析 AI 自动判断：比如前半段是晚上、后半段跳到了第二天早上，就画两张（先晚上，再早上）；整段都是同一个时间、同一个地方就只画一张。几张图按时间顺序显示在这一楼，最后一张是这一楼结束时的样子。多一张就多一次出图时间。两个模型模式共用。</small>
+                <small class="ctp-hint">由解析 AI 自动判断：比如前半段是晚上、后半段跳到了第二天早上，就画两张（先晚上，再早上）；整段都是同一个时间、同一个地方就只画一张。几张图按时间顺序显示在这一楼，最后一张是这一楼结束时的样子。多一张就多一次出图时间。所有模型模式共用。</small>
                 <label>画谁（主角）
                     <select class="text_pole" id="ctp_target"></select>
                 </label>
                 <small class="ctp-hint">「自动」= 让解析模型从 {{user}}、当前角色和所有预设里挑本楼的主角。</small>
                 <label class="checkbox_label"><input type="checkbox" data-ctp="absentFallback"> 画谁不在画面里时，改画画面里的人或场景（关掉 = 这一楼不配图）</label>
-                <small class="ctp-hint">比如主角选了 {{user}}，这一楼却只写了别的人物：解析 AI 改画这一楼的主要人物（有角色预设的用预设的外貌和角色 LoRA，没有的按正文写外貌）；一个人都没有就只画场景。立绘模式不受影响。两个模型模式共用。</small>
+                <small class="ctp-hint">比如主角选了 {{user}}，这一楼却只写了别的人物：解析 AI 改画这一楼的主要人物（有角色预设的用预设的外貌和角色 LoRA，没有的按正文写外貌）；一个人都没有就只画场景。立绘模式不受影响。所有模型模式共用。</small>
                 <div class="ctp-row ctp-wrap-row">
                     <div class="menu_button" id="ctp_generate_last">为最新楼层生成</div>
                     <div class="menu_button" id="ctp_debug_chat">查看各楼层提示词</div>
@@ -105,12 +106,12 @@
                         </select>
                     </label>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="placeInStory"> 图片插在正文中间（位置由解析 AI 选）</label>
-                    <small class="ctp-hint">解析 AI 从这一楼的正文里选一句最适合配图的话（通常就是画面那一刻），图片连同工具栏插在那句话所在的段落后面，比如插在 &lt;game&gt;……&lt;/game&gt; 正文的中间，而不是整条消息（代码页、选项）的最下面；「多张图」的每一张也各自插在它那一段里。找不到那句话时照下面的「图片位置」显示。新生成的图才有位置。两个模型模式共用。</small>
+                    <small class="ctp-hint">解析 AI 从这一楼的正文里选一句最适合配图的话（通常就是画面那一刻），图片连同工具栏插在那句话所在的段落后面，比如插在 &lt;game&gt;……&lt;/game&gt; 正文的中间，而不是整条消息（代码页、选项）的最下面；「多张图」的每一张也各自插在它那一段里。找不到那句话时照下面的「图片位置」显示。新生成的图才有位置。所有模型模式共用。</small>
                     <div id="ctp_panel_options">
                         <small class="ctp-hint">图片显示在聊天栏旁边空白处的浮动面板里，聊天里只留一个配图条，点它就显示那一楼的图。
                             拖标题栏移动，拖右下角调整大小，⤢ 放大，▥ 重置到侧边；⌖「跟随阅读位置」开着时，滚动聊天会切到正在看的楼层的图。</small>
                         <label class="checkbox_label"><input type="checkbox" data-ctp="panelAlsoInMessage"> 侧边面板显示的同时，正文里也显示图片</label>
-                        <small class="ctp-hint">打开后聊天里不再只是一个配图条，而是像「正文下方」一样显示图片和工具栏（开了「图片插在正文中间」就插在正文里）；工具栏上的 ▥ 把这一楼显示到侧边面板。两个模型模式共用。</small>
+                        <small class="ctp-hint">打开后聊天里不再只是一个配图条，而是像「正文下方」一样显示图片和工具栏（开了「图片插在正文中间」就插在正文里）；工具栏上的 ▥ 把这一楼显示到侧边面板。所有模型模式共用。</small>
                     </div>
                     <div id="ctp_side_options">
                         <div class="ctp-row">
@@ -130,7 +131,7 @@
                         <label>图片最大宽度(px) <input type="number" class="text_pole" min="120" step="10" data-ctp="imageMaxWidth" data-type="int"></label>
                         <label>每楼最多保留版本 <input type="number" class="text_pole" min="1" step="1" data-ctp="maxVersions" data-type="int"></label>
                     </div>
-                    <small class="ctp-hint">图片和提示词只存在消息的扩展数据里，不写进正文，正文 AI 看不到。</small>
+                    <small class="ctp-hint">这一节的设置所有模型模式共用：比如图片显示在左侧，切换到 Krea 2、Anima 还是 MOSS-Image 都还在左侧（开了「每个用户人设使用独立档案」时，每个人设各有一份）。图片和提示词只存在消息的扩展数据里，不写进正文，正文 AI 看不到。</small>
                 </div>
             </div>
 
@@ -165,7 +166,7 @@
                         <label>套装（一行一套：名称：提示词）
                             <textarea class="text_pole ctp-mono" rows="4" data-preset="outfits" placeholder="校服：white short-sleeved sailor blouse, red neckerchief, navy pleated skirt, black knee socks, brown loafers&#10;睡衣：oversized pale pink pajama shirt and shorts, barefoot"></textarea>
                         </label>
-                        <small class="ctp-hint">发给写画图提示词的解析 AI 作参考：剧情里写到这个角色穿上某一套（或画图指令里写 <code>[[换上校服]]</code>），服装就照这套的提示词写，再按剧情补充穿着状态；剧情没写换装就不会换。不会直接放进提示词。提示词按当前模式写（Krea 2 写英文描述，Anima 写标签或英文描述）。</small>
+                        <small class="ctp-hint">发给写画图提示词的解析 AI 作参考：剧情里写到这个角色穿上某一套（或画图指令里写 <code>[[换上校服]]</code>），服装就照这套的提示词写，再按剧情补充穿着状态；剧情没写换装就不会换。不会直接放进提示词。提示词按当前模式写（Krea 2、MOSS-Image 写英文描述，Anima 写标签或英文描述）。</small>
                         <small class="ctp-hint">这个角色的 LoRA、强度和触发词在「出图参数 → LoRA」里设置。</small>
                         <label>额外反向提示词 <input type="text" class="text_pole" data-preset="negative"></label>
                         <label>渲染配置（这个角色用的模型 / LoRA）
@@ -277,9 +278,9 @@
                     </div>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="parser.storyTagOnly"> 只读取正文标签里的内容（不读代码页、选项面板）</label>
                     <label>正文标签名 <input type="text" class="text_pole" data-ctp="parser.storyTag" placeholder="game"></label>
-                    <small class="ctp-hint">打开后，每楼只读 &lt;game&gt;……&lt;/game&gt; 之间的内容（标签名可以改，不用写尖括号；有好几段就全读），标签外面的代码页、选项、小剧场不会被当成剧情。没有这个标签的消息（例如你自己发的）照常读全文，但去掉 ``` 代码块。两个模型模式共用这一项。</small>
+                    <small class="ctp-hint">打开后，每楼只读 &lt;game&gt;……&lt;/game&gt; 之间的内容（标签名可以改，不用写尖括号；有好几段就全读），标签外面的代码页、选项、小剧场不会被当成剧情。没有这个标签的消息（例如你自己发的）照常读全文，但去掉 ``` 代码块。所有模型模式共用这一项。</small>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="parser.hideCharName"> 隐藏角色卡的名字</label>
-                    <small class="ctp-hint">适合游戏 / 旁白 / 模拟器类的卡（卡名不是一个角色）：打开后，发给解析 AI 的剧情里 AI 的消息不再标卡名，改标「正文」；「自动」选主角时不把卡名当候选，也不把卡名当成可能同框的角色。普通角色卡不要打开（解析 AI 需要知道谁在说话）。「画谁」选 {{char}} 时仍然用卡名。两个模型模式共用。</small>
+                    <small class="ctp-hint">适合游戏 / 旁白 / 模拟器类的卡（卡名不是一个角色）：打开后，发给解析 AI 的剧情里 AI 的消息不再标卡名，改标「正文」；「自动」选主角时不把卡名当候选，也不把卡名当成可能同框的角色。普通角色卡不要打开（解析 AI 需要知道谁在说话）。「画谁」选 {{char}} 时仍然用卡名。所有模型模式共用。</small>
                     <div class="ctp-row">
                         <label>参考之前几次配图输出 <input type="number" class="text_pole" min="0" max="20" step="1" data-ctp="parser.historyFloors" data-type="int"></label>
                     </div>
@@ -321,7 +322,7 @@
                         <label>模板 <span class="ctp-link" data-reset="promptTemplate">恢复默认</span>
                             <textarea class="text_pole" rows="9" data-ctp="promptTemplate"></textarea>
                         </label>
-                        <small class="ctp-hint">{{trigger}} = 本模式触发词 + 角色的 LoRA 触发词。Anima 模式每行之间用逗号连接（标签），Krea 2 模式每行是一句话。变量：{{trigger}} {{prefix}} {{suffix}} {{appearance}}（固定）＋ {{outfit}} {{action}} {{expression}} {{demeanor}} {{scene}} {{camera}} {{lighting}} {{others}}（AI）。某一行的变量全为空时整行省略。画面里有其他人物时，「A solo image…」这一行会自动去掉；模板里没写 {{others}} 时自动加在镜头那一行前面。</small>
+                        <small class="ctp-hint">{{trigger}} = 本模式触发词 + 角色的 LoRA 触发词。Anima 模式每行之间用逗号连接（标签），Krea 2、MOSS-Image 模式每行是一句话。变量：{{trigger}} {{prefix}} {{suffix}} {{appearance}}（固定）＋ {{outfit}} {{action}} {{expression}} {{demeanor}} {{scene}} {{camera}} {{lighting}} {{others}}（AI）。某一行的变量全为空时整行省略。画面里有其他人物时，「A solo image…」这一行会自动去掉；模板里没写 {{others}} 时自动加在镜头那一行前面。</small>
                     </details>
                 </div>
             </div>
@@ -355,6 +356,10 @@
                     <div class="ctp-mode-only" data-mode="anima">
                     <small class="ctp-hint">内置 Anima 工作流和 ComfyUI 官方模板「Anima Base v1: Text to Image」一样：Qwen3 0.6B 文本编码器、真正的反向提示词、30 步、CFG 4、euler / simple，约 1 MP；另外多了角色 LoRA 和风格 LoRA 两个槽位（留空自动旁路）。需要 ComfyUI 0.16 以上。官方模板没有提示词扩写，这个模式也没有。</small>
                     </div>
+                    <div class="ctp-mode-only" data-mode="moss">
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="comfy.slg"> 跳层引导 SLG（第 22 层，官方模板默认关闭）</label>
+                    <small class="ctp-hint">内置 MOSS-Image 工作流和 ComfyUI 官方模板「MOSS-Image: Text to Image」一样：ComfyUI 自带的节点（文本编码器类型 moss_image）、Qwen3.5 9B 文本编码器、FLUX.2 small VAE、真正的反向提示词、25 步、CFG 2.5、er_sde / simple；另外多了角色 LoRA 和风格 LoRA 两个槽位（仅模型，留空自动旁路）。需要支持 MOSS-Image 的新版 ComfyUI（先更新）。模型文件在 Hugging Face 的 Comfy-Org/MOSS-Image：扩散模型 moss_image_sft_int8_convrot（或 bf16）放 models/diffusion_models，qwen3.5_9b_w4a8_gptq 放 models/text_encoders，flux2-vae_small 放 models/vae。官方模板里的提示词扩写（prompt upsampler）这里不用：提示词已经由解析 AI 写好了。跳层引导 = 官方模板里的 SLG 开关：OpenMOSS 官方推荐打开，细节更好，但可能让动漫画风颜色过重。</small>
+                    </div>
                 </div>
             </div>
 
@@ -368,9 +373,11 @@
                     <div class="ctp-row ctp-wrap-row">
                         <div class="menu_button" id="ctp_reset_official">恢复为官方 Krea 2 Turbo 模板的设置</div>
                         <div class="menu_button ctp-mode-only" data-mode="anima" id="ctp_anima_turbo">改用官方 Turbo LoRA（8 步）</div>
+                        <div class="menu_button ctp-mode-only" data-mode="moss" id="ctp_moss_quality">改用 OpenMOSS 官方推荐（50 步）</div>
                     </div>
                     <small class="ctp-hint ctp-mode-only" data-mode="krea2">把工作流、模型、风格 LoRA、分辨率、采样恢复成 ComfyUI 官方模板的默认值，方便和官方模板出的图对比；提示词扩写保持关闭。</small>
                     <small class="ctp-hint ctp-mode-only" data-mode="anima">「恢复为官方 Anima 模板的设置」= 官方模板的默认值：anima-base-v1.0、qwen_3_06b_base、qwen_image_vae、不用风格 LoRA、1024×1024、30 步、CFG 4、euler / simple、官方反向提示词。「Turbo LoRA」= 官方模板打开 turbo_mode 时的设置：风格 LoRA 换成 anima-turbo-lora-v0.2（强度 1）、8 步、CFG 1，快很多；要先把这个 LoRA 放进 models/loras。</small>
+                    <small class="ctp-hint ctp-mode-only" data-mode="moss">「恢复为官方 MOSS-Image 模板的设置」= 官方模板的默认值：moss_image_sft_int8_convrot、qwen3.5_9b_w4a8_gptq、flux2-vae_small、不用风格 LoRA、1024×1024、25 步、CFG 2.5、er_sde / simple、关闭跳层引导、官方推荐的反向提示词。「OpenMOSS 官方推荐」= 50 步、CFG 3、euler / sgm_uniform、打开跳层引导，更接近 OpenMOSS 自己的效果，每张图慢一倍。显存不够可以换更小的分辨率。</small>
                     <h4>模型</h4>
                     <div class="ctp-row">
                         <div class="menu_button" id="ctp_comfy_models">从 ComfyUI 读取列表</div>
@@ -403,7 +410,7 @@
                     </div>
                     <small class="ctp-hint">可以叠加任意多个，按顺序接在角色 LoRA、风格 LoRA 后面。「用于」选某个角色预设 = 只在画这个角色时加，选「所有图」= 每张都加；取消勾选 = 暂时不用。自定义工作流也会自动接上。</small>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="comfy.loraClip"> LoRA 同时作用于文本编码器（和 ComfyUI 的「加载 LoRA」节点一样，强度相同）</label>
-                    <small class="ctp-hint">ComfyUI 里常用的「加载 LoRA」(LoraLoader) 会同时改模型和文本编码器；关掉这一项 = 「LoRA 加载器（仅模型）」。在 ComfyUI 里用哪种节点，这里就选哪种，否则同样的设置出的图会不一样。Anima 模式默认打开；Krea 2 的内置工作流只支持仅模型。</small>
+                    <small class="ctp-hint">ComfyUI 里常用的「加载 LoRA」(LoraLoader) 会同时改模型和文本编码器；关掉这一项 = 「LoRA 加载器（仅模型）」。在 ComfyUI 里用哪种节点，这里就选哪种，否则同样的设置出的图会不一样。Anima 模式默认打开；Krea 2 和 MOSS-Image 的内置工作流只支持仅模型（MOSS-Image 的 LoRA 训练时文本编码器是冻结的）。</small>
 
                     <h4>分辨率</h4>
                     <label>分辨率方式
@@ -527,13 +534,13 @@
                         <div class="menu_button redWarningBG" id="ctp_reset_all">全部恢复默认值</div>
                     </div>
                     <small class="ctp-hint">「全部恢复默认值」把当前模型模式的所有设置恢复成刚安装时的样子（另一个模式可以选择一起恢复），可以选择保留角色预设、渲染配置和 API / ComfyUI 的连接信息；聊天里的图片不受影响。</small>
-                    <small class="ctp-hint">斜杠命令：/ctimg [target=名字] [at=楼层] [prompt=提示词] · /ctimg-target 名字|user|char|auto · /ctimg-preset 预设名 · /ctimg-mode fixed|ai · /ctimg-model krea2|anima · /ctimg-debug on|off</small>
+                    <small class="ctp-hint">斜杠命令：/ctimg [target=名字] [at=楼层] [prompt=提示词] · /ctimg-target 名字|user|char|auto · /ctimg-preset 预设名 · /ctimg-mode fixed|ai · /ctimg-model krea2|anima|moss · /ctimg-debug on|off</small>
                 </div>
             </div>
 
 
             <!-- ============ API 设置（最下面） ============ -->
-            <div class="ctp-api-caption">API 设置 <small>两个模式、所有人设共用</small></div>
+            <div class="ctp-api-caption">API 设置 <small>所有模式、所有人设共用</small></div>
             <!-- ============ 解析模型（API） ============ -->
             <div class="inline-drawer ctp-sub" data-sub="parser">
                 <div class="inline-drawer-toggle inline-drawer-header">

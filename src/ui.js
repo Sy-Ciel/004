@@ -6,8 +6,12 @@ import {
     MODEL_ANIMA,
     MODEL_KREA2,
     MODEL_MODES,
+    MODEL_MOSS,
+    MOSS_NEGATIVE,
+    MOSS_QUALITY,
     OFFICIAL_ANIMA,
     OFFICIAL_KREA2_TURBO,
+    OFFICIAL_MOSS,
     TARGET_AUTO,
     TARGET_CHAR,
     TARGET_USER,
@@ -17,7 +21,7 @@ import {
     resolutionPresets,
 } from './constants.js';
 import { lastFloorId, showChatDebug, showDryRun, showParserPreview } from './debug.js';
-import { SHARED_COMFY_KEYS, SHARED_PARSER_KEYS, currentMode, modeLabel, adoptProfile, hasProfile, otherSlotKey, personaMode, releaseProfile, swapModeSettings, swapProfile } from './modes.js';
+import { DISPLAY_KEYS, SHARED_COMFY_KEYS, SHARED_PARSER_KEYS, currentMode, modeLabel, adoptProfile, hasProfile, otherSlotKey, personaMode, releaseProfile, swapModeSettings, swapProfile } from './modes.js';
 import { resetPanelForMode, resetPanelGeometry } from './panel.js';
 import { bindPickers, getPath, readInput, registerPickerOwner, renderPicker, renderPickers, setPath, writeInput } from './form.js';
 import { initParserPresetUi, refreshParserPresetUi } from './ui-parser-presets.js';
@@ -53,6 +57,14 @@ const MODE_TEXT = {
         negativePlaceholder: ANIMA_NEGATIVE,
         negativeHint: 'Anima 用真正的反向提示词（CFG 4）；默认是官方模板的那一段。用 Turbo LoRA（CFG 1）时反向提示词基本不起作用。',
         triggerPlaceholder: '例：LoRA 触发词、@画师名（留空 = 不加）',
+    },
+    [MODEL_MOSS]: {
+        megapixels: 'MOSS-Image 推荐约 1、1.5 或 2 MP（最大约 4 MP）',
+        maxMegapixels: 2.2,
+        official: '恢复为官方 MOSS-Image 模板的设置',
+        negativePlaceholder: MOSS_NEGATIVE,
+        negativeHint: 'MOSS-Image 用真正的反向提示词（CFG 2.5）；默认是官方模板推荐的那一段。它以 nsfw 开头，会让模型避开成人内容，要画这类画面就把 nsfw 删掉。',
+        triggerPlaceholder: '例：LoRA 触发词（留空 = 不加）',
     },
 };
 
@@ -809,6 +821,7 @@ function validateWorkflow(text = getSettings().comfy.workflow) {
             prompt: 'test', negative_prompt: '', width: 1024, height: 1024, seed: 1, steps: 8, cfg: 1, scale: 1,
             sampler: 'euler', scheduler: 'simple', denoise: 1, unet: 'a', model: 'a', clip: 'b', vae: 'c',
             lora: '', lora_strength: 0, lora_clip_strength: 0, char_lora: '', char_lora_strength: 0, char_lora_clip_strength: 0, filename_prefix: 'x', batch_size: 1,
+            slg_layers: '',
         });
         const placeholders = [...new Set(text.match(/%\w+%/g) || [])];
         toastr.success(`${placeholders.length ? `占位符：${placeholders.join(' ')}` : '无占位符，将使用自动注入'}${notes.length ? `\n${notes.join('\n')}` : ''}`, '工作流可用', { timeOut: 8000 });
@@ -826,20 +839,41 @@ function refreshComfyUi() {
     updateWorkflowVisibility();
 }
 
+/** What "恢复为官方模板的设置" asks and sets in each mode. */
+const OFFICIAL = {
+    [MODEL_KREA2]: {
+        question: '恢复为 ComfyUI 官方 Krea 2 Turbo 模板的设置？<br>内置工作流、官方模型文件、不用风格 LoRA、1024×1024、8 步、CFG 1、euler / simple、随机种子，关闭 ComfyUI 端提示词扩写（官方模板默认开着扩写，需要时自己勾选）。',
+        comfy: OFFICIAL_KREA2_TURBO,
+        done: '已恢复为官方 Krea 2 Turbo 模板的设置',
+    },
+    [MODEL_ANIMA]: {
+        question: '恢复为 ComfyUI 官方 Anima Base v1 模板的设置？<br>内置工作流、官方模型文件（anima-base-v1.0、qwen_3_06b_base、qwen_image_vae）、不用风格 LoRA、1024×1024、30 步、CFG 4、euler / simple、随机种子，反向提示词换成官方模板的那一段。',
+        comfy: OFFICIAL_ANIMA,
+        negative: ANIMA_NEGATIVE,
+        done: '已恢复为官方 Anima 模板的设置',
+    },
+    [MODEL_MOSS]: {
+        question: '恢复为 ComfyUI 官方 MOSS-Image 模板的设置？<br>内置工作流、官方模型文件（moss_image_sft_int8_convrot、qwen3.5_9b_w4a8_gptq、flux2-vae_small）、不用风格 LoRA、1024×1024、25 步、CFG 2.5、er_sde / simple、关闭跳层引导、随机种子，反向提示词换成官方模板推荐的那一段（以 nsfw 开头）。',
+        comfy: OFFICIAL_MOSS,
+        negative: MOSS_NEGATIVE,
+        done: '已恢复为官方 MOSS-Image 模板的设置',
+    },
+};
+
 async function resetToOfficial() {
     const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
-    const anima = currentMode() === MODEL_ANIMA;
-    const text = anima
-        ? '恢复为 ComfyUI 官方 Anima Base v1 模板的设置？<br>内置工作流、官方模型文件（anima-base-v1.0、qwen_3_06b_base、qwen_image_vae）、不用风格 LoRA、1024×1024、30 步、CFG 4、euler / simple、随机种子，反向提示词换成官方模板的那一段。<br>ComfyUI 地址、连接方式、渲染配置、角色预设（角色 LoRA、触发词）不变。'
-        : '恢复为 ComfyUI 官方 Krea 2 Turbo 模板的设置？<br>内置工作流、官方模型文件、不用风格 LoRA、1024×1024、8 步、CFG 1、euler / simple、随机种子，关闭 ComfyUI 端提示词扩写（官方模板默认开着扩写，需要时自己勾选）。<br>ComfyUI 地址、连接方式、渲染配置、角色预设（角色 LoRA、触发词）不变。';
-    const confirmed = await callGenericPopup(text, POPUP_TYPE.CONFIRM);
+    const mode = currentMode();
+    const official = OFFICIAL[mode];
+    const confirmed = await callGenericPopup(`${official.question}<br>ComfyUI 地址、连接方式、渲染配置、角色预设（角色 LoRA、触发词）不变。`, POPUP_TYPE.CONFIRM);
     if (confirmed !== POPUP_RESULT.AFFIRMATIVE) return;
+    // The popup can stay open across a mode switch: these values are for the mode it was opened in.
+    if (currentMode() !== mode) return;
     const settings = getSettings();
-    Object.assign(settings.comfy, structuredClone(anima ? OFFICIAL_ANIMA : OFFICIAL_KREA2_TURBO));
-    if (anima) settings.negativePrompt = ANIMA_NEGATIVE;
+    Object.assign(settings.comfy, structuredClone(official.comfy));
+    if (official.negative) settings.negativePrompt = official.negative;
     saveSettings();
     refreshComfyUi();
-    toastr.success(anima ? '已恢复为官方 Anima 模板的设置' : '已恢复为官方 Krea 2 Turbo 模板的设置');
+    toastr.success(official.done);
 }
 
 /** The official Anima template's turbo switch: its turbo LoRA as the style LoRA, 8 steps, CFG 1. */
@@ -853,6 +887,19 @@ async function useAnimaTurbo() {
     saveSettings();
     refreshComfyUi();
     toastr.success('已改用 Anima Turbo LoRA：8 步、CFG 1');
+}
+
+/** Closer to OpenMOSS's own results: 50 steps, CFG 3, Euler / sgm_uniform and skip layer guidance on layer 22. */
+async function useMossQuality() {
+    const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
+    const confirmed = await callGenericPopup(
+        '改用 OpenMOSS 官方推荐的采样？<br>50 步、CFG 3、euler / sgm_uniform，打开跳层引导（第 22 层）。ComfyUI 模板为了速度用的是 25 步、CFG 2.5；这一套更接近 OpenMOSS 官方效果，但每张图要多花一倍时间。跳层引导可能让动漫画风颜色过重，不喜欢可以单独关掉。想换回来点「恢复为官方 MOSS-Image 模板的设置」。',
+        POPUP_TYPE.CONFIRM);
+    if (confirmed !== POPUP_RESULT.AFFIRMATIVE || currentMode() !== MODEL_MOSS) return;
+    Object.assign(getSettings().comfy, structuredClone(MOSS_QUALITY));
+    saveSettings();
+    refreshComfyUi();
+    toastr.success('已改用 OpenMOSS 官方推荐：50 步、CFG 3、跳层引导');
 }
 
 async function loadBuiltinIntoEditor() {
@@ -890,19 +937,19 @@ function keptPresets(own, mode) {
 
 /**
  * Puts the active mode's settings back to their defaults, optionally keeping the user's presets and the shared
- * connection details; the other mode's settings stay unless that is reset too.
+ * connection details; the other modes' settings stay unless they are reset too.
  */
 async function resetAllSettings() {
     const mode = currentMode();
-    const other = MODEL_MODES.find(item => item !== mode);
+    const others = MODEL_MODES.filter(item => item !== mode);
     const root = document.createElement('div');
     root.innerHTML = `
         <h3>全部恢复默认值</h3>
         <p>把这个扩展在 <b>${modeLabel(mode)}</b> 模式下的所有设置恢复成刚安装时的样子。聊天里已经生成的图片和配图记录不受影响。</p>
         <label class="checkbox_label"><input type="checkbox" data-keep="presets" checked> 保留角色预设、人设绑定、渲染配置和自己建的配图风格</label>
-        <label class="checkbox_label"><input type="checkbox" data-keep="parser" checked> 保留「解析模型」的 API 设置：地址、Key、模型、连接配置、温度、最大输出、超时、重试（两个模式共用）</label>
-        <label class="checkbox_label"><input type="checkbox" data-keep="comfy" checked> 保留 ComfyUI 地址、连接方式和已读取的模型列表（两个模式共用）</label>
-        <label class="checkbox_label"><input type="checkbox" data-keep="reset-other"> ${modeLabel(other)} 模式的设置也恢复默认（同样按第一项保留角色预设）</label>
+        <label class="checkbox_label"><input type="checkbox" data-keep="parser" checked> 保留「解析模型」的 API 设置：地址、Key、模型、连接配置、温度、最大输出、超时、重试（所有模式共用）</label>
+        <label class="checkbox_label"><input type="checkbox" data-keep="comfy" checked> 保留 ComfyUI 地址、连接方式和已读取的模型列表（所有模式共用）</label>
+        <label class="checkbox_label"><input type="checkbox" data-keep="reset-other"> ${others.map(item => modeLabel(item)).join('、')} 模式的设置也恢复默认（同样按第一项保留角色预设；「图片显示」只有勾了这一项才恢复，它是所有模式共用的）</label>
         <small class="ctp-hint">前三项都不勾 = 完全恢复成刚安装的样子，角色预设和 API Key 也会清掉；建议先在「角色预设」里导出备份。</small>`;
     const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
     const result = await callGenericPopup(root, POPUP_TYPE.CONFIRM, '', { okButton: '恢复默认值', cancelButton: '取消' });
@@ -918,23 +965,27 @@ async function resetAllSettings() {
     const fresh = structuredClone(modeDefaults(mode));
     fresh.modelMode = mode;
     if (keep('presets')) Object.assign(fresh, keptPresets(settings, mode));
-    // The API settings are shared by both modes: kept as a whole, so resetting one mode does not change the other.
+    // The API settings are shared by all modes: kept as a whole, so resetting one mode does not change the others.
     if (keep('parser')) for (const key of SHARED_PARSER_KEYS) fresh.parser[key] = structuredClone(settings.parser[key]);
     if (keep('comfy')) for (const key of SHARED_COMFY_KEYS) fresh.comfy[key] = structuredClone(settings.comfy[key]);
     const store = settings.modeStore;
-    // "Enabled" and the automatic switch are shared too; they go back to default only when both modes are reset.
+    // "Enabled", the automatic switch and the display settings are shared too; they go back to default only when
+    // all modes are reset.
     if (!keep('reset-other')) {
         fresh.enabled = settings.enabled;
         fresh.autoModelByRating = settings.autoModelByRating;
         fresh.placeInStory = settings.placeInStory;
         fresh.panelAlsoInMessage = settings.panelAlsoInMessage;
         fresh.absentFallback = settings.absentFallback;
+        for (const key of DISPLAY_KEYS) fresh[key] = structuredClone(settings[key]);
     }
     if (keep('reset-other')) {
-        const key = otherSlotKey(other);
-        const saved = store[key];
-        delete store[key];
-        if (keep('presets') && saved && typeof saved === 'object') store[key] = keptPresets(saved, other);
+        for (const other of others) {
+            const key = otherSlotKey(other);
+            const saved = store[key];
+            delete store[key];
+            if (keep('presets') && saved && typeof saved === 'object') store[key] = keptPresets(saved, other);
+        }
     }
     fresh.modeStore = store;
     // Profiles stay as they are: this resets the current persona's profile only.
@@ -947,7 +998,7 @@ async function resetAllSettings() {
     saveSettings();
 
     refreshAllSettingsUi();
-    toastr.success(keep('reset-other') ? '两个模式都已恢复默认值' : `${modeLabel(mode)} 模式已恢复默认值`);
+    toastr.success(keep('reset-other') ? '所有模式都已恢复默认值' : `${modeLabel(mode)} 模式已恢复默认值`);
 }
 
 /* ---------------- image model mode ---------------- */
@@ -1195,6 +1246,7 @@ export async function initSettingsUi() {
     $('#ctp_workflow_load_builtin').on('click', loadBuiltinIntoEditor);
     $('#ctp_reset_official').on('click', resetToOfficial);
     $('#ctp_anima_turbo').on('click', useAnimaTurbo);
+    $('#ctp_moss_quality').on('click', useMossQuality);
     $('#ctp_reset_all').on('click', resetAllSettings);
     $('#ctp_debug_chat').on('click', showChatDebug);
     $('#ctp_debug_preview, #ctp_debug_preview_top').on('click', showParserPreview);

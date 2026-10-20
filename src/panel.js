@@ -409,8 +409,9 @@ export function resetPanelGeometry() {
 }
 
 /**
- * Before the image model mode switches: the panel's size and position are per mode, so a pending save of the
- * old mode's size must not land in the new mode's settings, and the new mode's saved geometry is applied fresh.
+ * Before the image model mode or the profile switches: a pending save of the panel's size must not land in the
+ * settings being swapped in (a mode switch keeps the geometry, a persona switch brings that persona's), and the
+ * geometry in place afterwards is applied fresh.
  */
 export function resetPanelForMode() {
     clearTimeout(saveTimer);

@@ -1,25 +1,32 @@
 /**
- * Image model modes (Krea 2 / Anima). Each mode has its own complete set of settings: character presets, render
- * profiles, parser presets, prompt assembly, workflow, models, sampling, display, rules, status bar and so on.
+ * Image model modes (Krea 2 / Anima / MOSS-Image). Each mode has its own complete set of settings: character
+ * presets, render profiles, parser presets, prompt assembly, workflow, models, sampling, rules, status bar and so on.
  *
  * The active mode's settings are the flat settings object every module reads through getSettings(); the other
- * mode's wait in settings.modeStore[mode] until it is switched to. Shared by both: the switch itself, "enabled"
- * and the API settings (the parser model's connection and the ComfyUI server's address).
+ * modes' wait in settings.modeStore[mode] until they are switched to. Shared by all: the switch itself, "enabled"
+ * and the API settings (the parser model's connection and the ComfyUI server's address). The display settings
+ * belong to the profile: kept per profile, but the same in all of its modes (DISPLAY_KEYS).
  */
 import { MODEL_ANIMA, MODEL_LABELS, MODEL_MODES, modeDefaults, normalizeMode } from './constants.js';
 import { fillDefaults, getSettings, isPlainObject } from './utils.js';
 
-/** Top-level keys both modes share. */
+/** Top-level keys all modes (and all profiles) share. */
 const SHARED_KEYS = ['settingsVersion', 'enabled', 'modelMode', 'modeStore', 'perPersonaProfiles', 'profilePersona', 'personaModes', 'autoModelByRating', 'reviewParserInput', 'placeInStory', 'panelAlsoInMessage', 'absentFallback'];
 
 /**
- * Keys of parser / comfy both modes share: the API settings, and which part of a message is the story (that
+ * Keys of parser / comfy all modes share: the API settings, and which part of a message is the story (that
  * depends on the chat, not the image model). The rest of those objects (how much the parser reads, the workflow,
  * models, sampling …) is per mode, like every key not listed here.
  */
 export const SHARED_PARSER_KEYS = ['source', 'customUrl', 'customKey', 'customModel', 'profileId', 'temperature', 'maxTokens', 'extraBody', 'models', 'timeoutSec', 'retries', 'thinking', 'thinkingEffort', 'thinkingFormat', 'storyTagOnly', 'storyTag', 'hideCharName', 'multiScene', 'maxScenes'];
 export const SHARED_COMFY_KEYS = ['url', 'browserUrl', 'mode', 'lists'];
 const SHARED_NESTED = { parser: SHARED_PARSER_KEYS, comfy: SHARED_COMFY_KEYS };
+
+/**
+ * 图片显示 (position, side layout, size, versions kept, the side panel's place): stored with each profile, but a
+ * mode switch within a profile keeps them, so the pictures stay where they are whichever model draws them.
+ */
+export const DISPLAY_KEYS = ['imagePosition', 'imagePositionNarrow', 'sideWidth', 'sideTextWrap', 'imageMaxWidth', 'maxVersions', 'panel'];
 
 export function currentMode() {
     return normalizeMode(getSettings().modelMode);
@@ -100,8 +107,8 @@ function applyModeSettings(settings, own) {
 
 /**
  * Where a profile is kept in modeStore. Each user persona has its own profile (when "每个用户人设使用独立档案" is
- * on), and each profile has a Krea 2 and an Anima side: key "mode@persona". Without per-persona profiles the
- * key is just the mode (also what versions before profiles stored).
+ * on), and each profile has a side per mode (Krea 2, Anima, MOSS-Image): key "mode@persona". Without per-persona
+ * profiles the key is just the mode (also what versions before profiles stored).
  */
 export function slotKey(mode, persona) {
     return persona ? `${normalizeMode(mode)}@${persona}` : normalizeMode(mode);
@@ -110,7 +117,8 @@ export function slotKey(mode, persona) {
 /**
  * Makes (mode, persona) the active profile: the current one goes into modeStore, the target comes out of it.
  * A profile used for the first time (a new persona, or a mode a persona never used) starts from that mode's
- * defaults. Each persona's mode is remembered, so switching to it switches the mode too.
+ * defaults, except for the display settings: a mode switch within the same profile keeps them (DISPLAY_KEYS).
+ * Each persona's mode is remembered, so switching to it switches the mode too.
  * Synchronous and done on the settings object itself. Returns false when nothing changes.
  */
 export function swapProfile(mode, persona) {
@@ -125,10 +133,15 @@ export function swapProfile(mode, persona) {
     if (from === to) return false;
     const store = settings.modeStore;
     const saved = isPlainObject(store[to]) ? store[to] : {};
+    // Same profile, another model: the pictures stay where they are.
+    const display = fromPersona === toPersona
+        ? Object.fromEntries(DISPLAY_KEYS.filter(key => settings[key] !== undefined).map(key => [key, structuredClone(settings[key])]))
+        : {};
     store[from] = extractModeSettings(settings);
     delete store[to];
     clearModeSettings(settings);
     applyModeSettings(settings, saved);
+    Object.assign(settings, display);
     settings.modelMode = toMode;
     settings.profilePersona = toPersona;
     fillDefaults(settings, modeDefaults(toMode));
@@ -152,7 +165,7 @@ export function personaMode(persona) {
     return stored.length === 1 ? stored[0] : normalizeMode(modeDefaults(MODEL_MODES[0]).modelMode);
 }
 
-/** Whether a persona has a profile yet (in either mode). */
+/** Whether a persona has a profile yet (in any mode). */
 export function hasProfile(persona) {
     const settings = getSettings();
     return settings.profilePersona === persona || MODEL_MODES.some(mode => isPlainObject(settings.modeStore[slotKey(mode, persona)]));
@@ -160,7 +173,7 @@ export function hasProfile(persona) {
 
 /**
  * Profiles turned on (or settings from before profiles): the current settings become `persona`'s profile,
- * including the other mode's copy kept under the plain mode key.
+ * including the other modes' copies kept under the plain mode keys.
  */
 export function adoptProfile(persona) {
     const settings = getSettings();
@@ -173,7 +186,7 @@ export function adoptProfile(persona) {
     settings.personaModes[persona] = normalizeMode(settings.modelMode);
 }
 
-/** Profiles turned off: the current persona's settings become everyone's, its other-mode copy included. */
+/** Profiles turned off: the current persona's settings become everyone's, its other-mode copies included. */
 export function releaseProfile() {
     const settings = getSettings();
     const persona = settings.profilePersona;
@@ -185,7 +198,7 @@ export function releaseProfile() {
     settings.profilePersona = '';
 }
 
-/** Key of the other mode's copy within the current profile (for reset-all). */
+/** Key of another mode's copy within the current profile (for reset-all). */
 export function otherSlotKey(mode) {
     return slotKey(mode, getSettings().profilePersona);
 }

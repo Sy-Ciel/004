@@ -1,4 +1,4 @@
-import { EMPTY_LISTS, KREA2_REFINE_INSTRUCTIONS, MODEL_ANIMA, MODEL_KREA2, normalizeMode } from './constants.js';
+import { EMPTY_LISTS, KREA2_REFINE_INSTRUCTIONS, MODEL_ANIMA, MODEL_KREA2, MODEL_MOSS, normalizeMode } from './constants.js';
 import { currentMode } from './modes.js';
 import { ctx, errorMessage, getSettings, sleep, truncate, withTimeout } from './utils.js';
 
@@ -6,6 +6,7 @@ import { ctx, errorMessage, getSettings, sleep, truncate, withTimeout } from './
 const BUILTIN_WORKFLOWS = {
     [MODEL_KREA2]: { name: '内置 Krea 2 Turbo 文生图 + LoRA', url: new URL('../workflows/krea2_turbo_t2i_lora_api.json', import.meta.url) },
     [MODEL_ANIMA]: { name: '内置 Anima Base 文生图 + LoRA', url: new URL('../workflows/anima_base_t2i_lora_api.json', import.meta.url) },
+    [MODEL_MOSS]: { name: '内置 MOSS-Image 文生图 + LoRA', url: new URL('../workflows/moss_image_t2i_lora_api.json', import.meta.url) },
 };
 const builtinWorkflowCache = new Map();
 
@@ -36,7 +37,7 @@ export async function getWorkflowTemplate(comfy = getSettings().comfy, profile =
     }
     const text = await loadBuiltinWorkflow(mode);
     const name = builtinWorkflowName(mode);
-    // The refine step is Krea 2's (its Qwen3-VL text encoder writes the new prompt); Anima's template has none.
+    // The refine step is Krea 2's (its Qwen3-VL text encoder writes the new prompt); the other built-ins have none.
     if (!comfy.refinePrompt || normalizeMode(mode) !== MODEL_KREA2) return { name, text, refine: false };
     const workflow = addPromptRefine(JSON.parse(text));
     return { name: `${name} + 提示词扩写`, text: JSON.stringify(workflow), refine: true };

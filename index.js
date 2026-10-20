@@ -442,16 +442,16 @@ function registerSlashCommands() {
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'ctimg-model',
-        helpString: '切换模型模式：krea2 或 anima（两个模式的设置分开保存，API 设置共用）。不带参数时返回当前模式。',
+        helpString: '切换模型模式：krea2、anima 或 moss（每个模式的设置分开保存，API 设置和图片显示共用）。不带参数时返回当前模式。',
         unnamedArgumentList: [
-            SlashCommandArgument.fromProps({ description: 'krea2 / anima', typeList: [ARGUMENT_TYPE.STRING], isRequired: false }),
+            SlashCommandArgument.fromProps({ description: 'krea2 / anima / moss', typeList: [ARGUMENT_TYPE.STRING], isRequired: false }),
         ],
         callback: async (_args, value) => {
             const wanted = String(value || '').trim().toLowerCase().replace(/[\s_-]/g, '');
             if (!wanted) return currentMode();
-            const mode = MODEL_MODES.find(item => item === wanted || MODEL_LABELS[item].toLowerCase().replace(/\s/g, '') === wanted);
+            const mode = MODEL_MODES.find(item => item === wanted || MODEL_LABELS[item].toLowerCase().replace(/[\s_-]/g, '') === wanted);
             if (!mode) {
-                toastr.warning('只能是 krea2 或 anima');
+                toastr.warning('只能是 krea2、anima 或 moss');
                 return currentMode();
             }
             if (!switchModelMode(mode)) toastr.info(`已经是 ${modeLabel(mode)} 模式`);

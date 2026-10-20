@@ -4,19 +4,21 @@
  * A preset's system prompt contains {{output_rules}}; it is replaced by the output rules of the prompt mode
  * (buildOutputRules), so every preset works in both modes.
  *
- * Each image model mode has its own copy of the built-ins (same ids, so 'story' always exists): Krea 2 reads
- * natural English, Anima (an anime model) reads Danbooru-style tags, so the language rules differ.
+ * Each image model mode has its own copy of the built-ins (same ids, so 'story' always exists): Krea 2 and
+ * MOSS-Image read natural English, Anima (an anime model) reads Danbooru-style tags, so the language rules differ.
  */
 
 /** Wording that depends on the image model. */
 const MODEL_TEXT = {
     krea2: {
+        name: 'Krea 2',
         model: '文生图模型（Krea 2，擅长理解英文自然语言描述）',
         language: '所有字段值使用英文，写成具体、可视化的短语或短句',
         camera: '如 medium shot、full body shot、close-up，以及机位角度',
         others: '英文，自然语言',
     },
     anima: {
+        name: 'Anima',
         model: '动漫文生图模型（Anima，用 Danbooru 风格的英文标签和英文描述训练）',
         language: '所有字段值使用英文 Danbooru 风格标签（小写，用空格代替下划线，例如 long hair、school uniform、looking at viewer；多个标签用英文逗号隔开，标签说不清的细节可以补一个很短的英文短语）',
         camera: '如 upper body、cowboy shot、full body、close-up，以及 from above、from side 等机位',
@@ -24,9 +26,18 @@ const MODEL_TEXT = {
     },
     /** Anima with the "英文自然语言" switch: the same model, written to in plain English sentences. */
     'anima-natural': {
+        name: 'Anima',
         model: '动漫文生图模型（Anima，能理解英文自然语言描述，也认识 Danbooru 标签）',
         language: '所有字段值使用英文自然语言，写成具体、可视化的短语或短句（不要写成逗号分隔的标签串）',
         camera: '如 medium shot、full body shot、close-up，以及从上往下、侧面等机位',
+        others: '英文，自然语言',
+    },
+    /** MOSS-Image: a large text encoder (Qwen3.5 9B) that reads long English descriptions; anime or photo. */
+    moss: {
+        name: 'MOSS-Image',
+        model: '文生图模型（MOSS-Image，动漫和写实都能画，擅长理解英文自然语言描述）',
+        language: '所有字段值使用英文，写成具体、可视化的短语或短句',
+        camera: '如 medium shot、full body shot、close-up，以及机位角度',
         others: '英文，自然语言',
     },
 };
@@ -110,7 +121,7 @@ function promptRule(allowOthers, model) {
     const order = allowOthers
         ? '开头说明画面里有几个人、谁是主角；先完整写主角的外貌、服装、动作姿势、表情神态，再写 others 里每个人的样子和位置，最后写镜头构图、场景环境、光线色彩'
         : '开头说明画面中只有一个人，然后依次写角色外貌、服装、动作姿势、表情神态、镜头构图、场景环境、光线色彩';
-    return `除了上面的字段，还要写 prompt：一段完整、流畅的英文画面描述（自然语言，适合 Krea 2）。${order}；【固定内容】里的字段必须原样体现。不要写人名，不要要求画面里出现文字。`;
+    return `除了上面的字段，还要写 prompt：一段完整、流畅的英文画面描述（自然语言，适合 ${modelText(model).name}）。${order}；【固定内容】里的字段必须原样体现。不要写人名，不要要求画面里出现文字。`;
 }
 
 /**
@@ -232,7 +243,7 @@ function outputFormat(mode, allowOthers, negative = false, aspect = null, scenes
  * - mode "fixed": the preset's appearance is added to the prompt by the extension.
  * - mode "ai": the appearance is handed to the model, which must work it into `prompt`.
  * - allowOthers: other people in the scene may be drawn too (field `others`).
- * - model: the image model mode ('krea2' natural language, 'anima' Danbooru tags).
+ * - model: the prompt style ('krea2' / 'moss' natural language, 'anima' Danbooru tags, 'anima-natural').
  * - negative: the parser also writes a negative prompt for this picture (field `negative`).
  * - aspect: { ratios, fallback } when the parser picks the aspect ratio (field `aspect`).
  * - scenes: with 多张图, pictures per floor at most (field `earlier_scenes`); 0 = one picture.
@@ -260,7 +271,8 @@ export const OUTPUT_RULES_AI = buildOutputRules('ai');
 /**
  * What the story prompt says per image model: how to write, length limits (upper bounds, so the prompt stays
  * short and the action and outfit carry the weight) and setting examples. Anima counts tags; its natural-language
- * switch adds NATURAL_STYLE_RULE after the preset, so the word counts are given too.
+ * switch adds NATURAL_STYLE_RULE after the preset, so the word counts are given too. MOSS-Image is written to
+ * like Krea 2.
  */
 const STORY_TEXT = {
     krea2: {
@@ -421,10 +433,10 @@ function makeBuiltins(model) {
     ];
 }
 
-const BUILTINS = { krea2: makeBuiltins('krea2'), anima: makeBuiltins('anima') };
+const BUILTINS = { krea2: makeBuiltins('krea2'), anima: makeBuiltins('anima'), moss: makeBuiltins('moss') };
 
 /**
- * The built-in presets of an image model mode ('krea2' or 'anima'). Shared objects: clone before changing them.
+ * The built-in presets of an image model mode ('krea2', 'anima' or 'moss'). Shared objects: clone before changing them.
  * @returns {ParserPreset[]}
  */
 export function builtinParserPresets(model = 'krea2') {
@@ -434,3 +446,4 @@ export function builtinParserPresets(model = 'krea2') {
 /** Krea 2's built-ins (also what settings from before the Anima mode were made with). */
 export const BUILTIN_PARSER_PRESETS = BUILTINS.krea2;
 export const ANIMA_PARSER_PRESETS = BUILTINS.anima;
+export const MOSS_PARSER_PRESETS = BUILTINS.moss;

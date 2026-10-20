@@ -1,0 +1,112 @@
+{
+    "1": {
+        "class_type": "UNETLoader",
+        "inputs": {
+            "unet_name": "%unet%",
+            "weight_dtype": "default"
+        },
+        "_meta": { "title": "MOSS-Image 扩散模型" }
+    },
+    "2": {
+        "class_type": "CLIPLoader",
+        "inputs": {
+            "clip_name": "%clip%",
+            "type": "moss_image",
+            "device": "default"
+        },
+        "_meta": { "title": "Qwen3.5 9B 文本编码器" }
+    },
+    "3": {
+        "class_type": "VAELoader",
+        "inputs": {
+            "vae_name": "%vae%"
+        },
+        "_meta": { "title": "FLUX.2 VAE (small)" }
+    },
+    "4": {
+        "class_type": "LoraLoaderModelOnly",
+        "inputs": {
+            "model": ["1", 0],
+            "lora_name": "%char_lora%",
+            "strength_model": "%char_lora_strength%"
+        },
+        "_meta": { "title": "角色 LoRA（来自角色预设，留空自动旁路）" }
+    },
+    "5": {
+        "class_type": "LoraLoaderModelOnly",
+        "inputs": {
+            "model": ["4", 0],
+            "lora_name": "%lora%",
+            "strength_model": "%lora_strength%"
+        },
+        "_meta": { "title": "全局/风格 LoRA（留空自动旁路）" }
+    },
+    "12": {
+        "class_type": "SkipLayerGuidanceDiTSimple",
+        "inputs": {
+            "model": ["5", 0],
+            "double_layers": "",
+            "single_layers": "%slg_layers%",
+            "start_percent": 0,
+            "end_percent": 0.5
+        },
+        "_meta": { "title": "跳层引导 SLG（层号为空 = 关闭，和官方模板默认一样）" }
+    },
+    "6": {
+        "class_type": "CLIPTextEncode",
+        "inputs": {
+            "clip": ["2", 0],
+            "text": "%prompt%"
+        },
+        "_meta": { "title": "正向提示词" }
+    },
+    "7": {
+        "class_type": "CLIPTextEncode",
+        "inputs": {
+            "clip": ["2", 0],
+            "text": "%negative_prompt%"
+        },
+        "_meta": { "title": "负向提示词" }
+    },
+    "8": {
+        "class_type": "EmptyFlux2LatentImage",
+        "inputs": {
+            "width": "%width%",
+            "height": "%height%",
+            "batch_size": 1
+        },
+        "_meta": { "title": "自定义分辨率（推荐 1–2 MP）" }
+    },
+    "9": {
+        "class_type": "KSampler",
+        "inputs": {
+            "model": ["12", 0],
+            "positive": ["6", 0],
+            "negative": ["7", 0],
+            "latent_image": ["8", 0],
+            "seed": "%seed%",
+            "steps": "%steps%",
+            "cfg": "%cfg%",
+            "sampler_name": "%sampler%",
+            "scheduler": "%scheduler%",
+            "denoise": 1
+        },
+        "_meta": { "title": "KSampler" }
+    },
+    "10": {
+        "class_type": "VAEDecode",
+        "inputs": {
+            "samples": ["9", 0],
+            "vae": ["3", 0]
+        },
+        "_meta": { "title": "VAE 解码" }
+    },
+    "11": {
+        "class_type": "SaveImage",
+        "inputs": {
+            "images": ["10", 0],
+            "filename_prefix": "%filename_prefix%"
+        },
+        "_meta": { "title": "保存图片" }
+    }
+}

@@ -1,12 +1,12 @@
 {
-    "display_name": "ComfyUI 角色配图 (Krea 2 / Anima)",
+    "display_name": "ComfyUI 角色配图 (Krea 2 / Anima / MOSS-Image)",
     "loading_order": 100,
     "requires": [],
     "optional": [],
     "js": "index.js",
     "css": "style.css",
     "author": "sy-ciel",
-    "version": "1.37.0",
+    "version": "1.38.0",
     "homePage": "https://github.com/sy-ciel/004",
     "auto_update": true
 }

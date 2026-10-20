@@ -7,7 +7,7 @@ export const TARGET_USER = '__user__';
 export const TARGET_CHAR = '__char__';
 export const TARGET_AUTO = '__auto__';
 
-import { ANIMA_PARSER_PRESETS, BUILTIN_PARSER_PRESETS } from './parserPresetDefaults.js';
+import { ANIMA_PARSER_PRESETS, BUILTIN_PARSER_PRESETS, MOSS_PARSER_PRESETS } from './parserPresetDefaults.js';
 
 /**
  * Image model modes. Each keeps its own settings (see modes.js); only the API settings are shared.
@@ -15,8 +15,9 @@ import { ANIMA_PARSER_PRESETS, BUILTIN_PARSER_PRESETS } from './parserPresetDefa
  */
 export const MODEL_KREA2 = 'krea2';
 export const MODEL_ANIMA = 'anima';
-export const MODEL_MODES = [MODEL_KREA2, MODEL_ANIMA];
-export const MODEL_LABELS = { [MODEL_KREA2]: 'Krea 2', [MODEL_ANIMA]: 'Anima' };
+export const MODEL_MOSS = 'moss';
+export const MODEL_MODES = [MODEL_KREA2, MODEL_ANIMA, MODEL_MOSS];
+export const MODEL_LABELS = { [MODEL_KREA2]: 'Krea 2', [MODEL_ANIMA]: 'Anima', [MODEL_MOSS]: 'MOSS-Image' };
 
 /** A known mode, else Krea 2 (missing on old settings and old floors). */
 export function normalizeMode(mode) {
@@ -140,8 +141,24 @@ export const RESOLUTION_PRESETS_ANIMA = [
     { label: '横 1360×768（16:9）', w: 1360, h: 768 },
 ];
 
+/** MOSS-Image: the recommended 1, 1.5 and 2 MP (multiples of 16; it extrapolates from 0.25 to 4 MP). */
+export const RESOLUTION_PRESETS_MOSS = [
+    { label: '竖 832×1248（2:3，1 MP）', w: 832, h: 1248 },
+    { label: '竖 1024×1536（2:3，1.5 MP）', w: 1024, h: 1536 },
+    { label: '竖 1152×1728（2:3，2 MP）', w: 1152, h: 1728 },
+    { label: '竖 880×1184（3:4）', w: 880, h: 1184 },
+    { label: '竖 768×1360（9:16）', w: 768, h: 1360 },
+    { label: '方 1024×1024（1 MP）', w: 1024, h: 1024 },
+    { label: '方 1248×1248（1.5 MP）', w: 1248, h: 1248 },
+    { label: '方 1440×1440（2 MP）', w: 1440, h: 1440 },
+    { label: '横 1248×832（3:2，1 MP）', w: 1248, h: 832 },
+    { label: '横 1536×1024（3:2，1.5 MP）', w: 1536, h: 1024 },
+    { label: '横 1360×768（16:9）', w: 1360, h: 768 },
+];
+
 export function resolutionPresets(mode) {
-    return normalizeMode(mode) === MODEL_ANIMA ? RESOLUTION_PRESETS_ANIMA : RESOLUTION_PRESETS;
+    const key = normalizeMode(mode);
+    return key === MODEL_ANIMA ? RESOLUTION_PRESETS_ANIMA : key === MODEL_MOSS ? RESOLUTION_PRESETS_MOSS : RESOLUTION_PRESETS;
 }
 
 export function makeId() {
@@ -275,6 +292,48 @@ export const ANIMA_TURBO = {
     scheduler: 'simple',
 };
 
+/**
+ * The negative prompt the official ComfyUI MOSS-Image template recommends (MOSS-Image uses a real negative at
+ * CFG 2.5). It starts with "nsfw": adult pictures need it taken out.
+ */
+export const MOSS_NEGATIVE = 'nsfw, worst quality, bad anatomy, watermark, jpeg artifact';
+
+/**
+ * Defaults of ComfyUI's official MOSS-Image text-to-image template (templates/image_moss_image_t2i.json), for
+ * "恢复为官方 MOSS-Image 模板的设置": the int8 SFT model, 25 steps, CFG 2.5, er_sde / simple, skip layer guidance
+ * off (the template's SLG switch), prompt upsampler off.
+ */
+export const OFFICIAL_MOSS = {
+    workflowSource: 'builtin',
+    unet: 'moss_image_sft_int8_convrot.safetensors',
+    clip: 'qwen3.5_9b_w4a8_gptq.safetensors',
+    vae: 'flux2-vae_small.safetensors',
+    lora: '',
+    loraStrength: 1,
+    steps: 25,
+    cfg: 2.5,
+    sampler: 'er_sde',
+    scheduler: 'simple',
+    sizeMode: 'fixed',
+    width: 1024,
+    height: 1024,
+    seed: -1,
+    refinePrompt: false,
+    slg: false,
+};
+
+/**
+ * Closer to OpenMOSS's own settings (the template's note: "for results closer to the official ones, try 50 steps
+ * and CFG 3"): Euler / sgm_uniform like their ComfyUI workflow, and skip layer guidance on layer 22. Twice as slow.
+ */
+export const MOSS_QUALITY = {
+    steps: 50,
+    cfg: 3,
+    sampler: 'euler',
+    scheduler: 'sgm_uniform',
+    slg: true,
+};
+
 /** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */
 export const SETTINGS_VERSION = 6;
 
@@ -284,20 +343,20 @@ export const LORA_NONE = '__none__';
 export const EMPTY_LISTS = { unet: [], clip: [], vae: [], lora: [], sampler: [], scheduler: [], upscale: [] };
 
 /**
- * Krea 2's defaults; Anima's are these with ANIMA_DEFAULTS on top (see modeDefaults). Everything except the
- * shared keys listed in modes.js is stored per mode.
+ * Krea 2's defaults; Anima's and MOSS-Image's are these with ANIMA_DEFAULTS / MOSS_DEFAULTS on top (see
+ * modeDefaults). Everything except the shared keys listed in modes.js is stored per mode.
  */
 export const DEFAULT_SETTINGS = {
     settingsVersion: SETTINGS_VERSION,
     enabled: true,
-    /** Active image model mode; the other mode's settings wait in modeStore (see modes.js). */
+    /** Active image model mode; the other modes' settings wait in modeStore (see modes.js). */
     modelMode: MODEL_KREA2,
     modeStore: {},
     /** Each user persona gets its own profile of all settings except the API ones (see modes.js). */
     perPersonaProfiles: true,
     /** Persona whose profile is in the flat settings ('' = not assigned yet / profiles off). */
     profilePersona: '',
-    /** The model mode each persona used last: { [persona]: 'krea2' | 'anima' }. */
+    /** The model mode each persona used last: { [persona]: 'krea2' | 'anima' | 'moss' }. */
     personaModes: {},
     /** The main AI marks each reply NSFW / SFW and the floor is drawn with Anima / Krea 2 accordingly (see rating.js). */
     autoModelByRating: false,
@@ -323,6 +382,7 @@ export const DEFAULT_SETTINGS = {
     regenOnContinue: false,
     debug: false,
     hintsEnabled: true,
+    /** 图片显示: stored per profile but the same in all its modes (carried over on a mode switch, see modes.js). */
     imagePosition: 'below',
     imagePositionNarrow: 'below',
     sideWidth: 40,
@@ -430,6 +490,8 @@ export const DEFAULT_SETTINGS = {
         upscale: false,
         upscaleModel: '',
         upscaleFactor: 2,
+        /** MOSS-Image only: skip layer guidance on layer 22 (the official template's SLG switch, off there). */
+        slg: false,
         /** More LoRAs: [{ name, strength, presetId }] — presetId '' = every picture, else only that character's. */
         extraLoras: [],
         // Let ComfyUI rewrite the prompt first, like the official template's "Refine Prompt?" (built-in workflow only).
@@ -474,9 +536,23 @@ function mergeDefaults(base, extra) {
     return merged;
 }
 
+/** Where MOSS-Image's defaults differ from Krea 2's (it reads English sentences too). */
+const MOSS_DEFAULTS = {
+    parserPresets: MOSS_PARSER_PRESETS,
+    negativePrompt: MOSS_NEGATIVE,
+    comfy: {
+        ...OFFICIAL_MOSS,
+        // Portrait 2:3 at 1 MP, like the other modes' portrait default.
+        width: 832,
+        height: 1248,
+        filenamePrefix: 'ST_moss',
+    },
+};
+
 const MODE_DEFAULTS = {
     [MODEL_KREA2]: DEFAULT_SETTINGS,
     [MODEL_ANIMA]: mergeDefaults(DEFAULT_SETTINGS, ANIMA_DEFAULTS),
+    [MODEL_MOSS]: mergeDefaults(DEFAULT_SETTINGS, MOSS_DEFAULTS),
 };
 
 /** Default settings of a mode. Shared object: clone before changing it. */

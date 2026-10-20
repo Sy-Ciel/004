@@ -367,7 +367,8 @@ function restoreFloorState(data, previous) {
 /** The values a workflow template is filled with for one picture: the plan's model, LoRAs and sampling. */
 function workflowValues(plan, modelMode, { prompt, negative, width, height, seed }) {
     const { comfy } = plan;
-    // A cleared field falls back to the mode's default (Krea 2 Turbo: 8 steps, CFG 1; Anima: 30 steps, CFG 4).
+    // A cleared field falls back to the mode's default (Krea 2 Turbo: 8 steps, CFG 1; Anima: 30 steps, CFG 4;
+    // MOSS-Image: 25 steps, CFG 2.5).
     const defaults = modeDefaults(modelMode).comfy;
     return {
         prompt,
@@ -394,6 +395,8 @@ function workflowValues(plan, modelMode, { prompt, negative, width, height, seed
         char_lora_clip_strength: plan.loraClip ? plan.charLoraStrength : 0,
         filename_prefix: comfy.filenamePrefix || defaults.filenamePrefix,
         batch_size: 1,
+        // MOSS-Image's skip layer guidance: the layer it skips, '' = off (the node then passes the model on).
+        slg_layers: comfy.slg ? '22' : '',
     };
 }
 
@@ -429,6 +432,7 @@ function drawingParams(plan, template, values, modelMode) {
         extraLoras: plan.extraLoras.map(lora => `${lora.name} @ ${lora.strength}`).join('、'),
         loraClip: plan.loraClip,
         upscale: plan.upscale ? `${plan.upscale.model} → ×${plan.upscale.factor}（${Math.round(values.width * plan.upscale.factor)}×${Math.round(values.height * plan.upscale.factor)}）` : '',
+        slg: values.slg_layers && String(template.text).includes('%slg_layers%') ? `跳过第 ${values.slg_layers} 层` : '',
     };
 }
 
