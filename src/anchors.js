@@ -188,6 +188,14 @@ function textMap(root) {
 }
 
 /**
+ * The shown text of a message as compared (letters and digits, without the pictures put in it): a placement made
+ * for one text is not kept for another, e.g. when the text was the edit box while the message was being edited.
+ */
+export function shownText(root) {
+    return textMap(root).text;
+}
+
+/**
  * Where pictures go in the shown story, one spot per anchor: in the story's stretch of the text (its paragraphs,
  * found one after another), at the paragraph the anchor names (after its end for 'after', at its start for
  * 'before'); else at the anchor's own words inside the stretch; else at its share of the story (`at`, from the

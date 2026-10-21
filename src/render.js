@@ -1,6 +1,6 @@
 import { renderHints } from './hints.js';
 import { layoutMode } from './layout.js';
-import { insertAfterLine, insertBeforeLine, placeAnchors } from './anchors.js';
+import { insertAfterLine, insertBeforeLine, placeAnchors, shownText } from './anchors.js';
 import { currentIndex, pictureHtml, statusHtml, toolbarHtml, versionPictures } from './markup.js';
 import { getPanelMesId, schedulePanelRefresh } from './panel.js';
 import { storyParagraphs } from './parser.js';
@@ -74,12 +74,21 @@ function watchText(element) {
         timer = setTimeout(() => {
             if (!block.isConnected) return;
             const text = block.querySelector('.mes_text');
-            const state = text?.ctpPlacement;
-            const intact = state && text.querySelectorAll('.ctp-inserted').length === state.inserted && (!state.wrapInText || text.querySelector('.ctp-wrap'));
             const mesId = Number(block.closest('.mes')?.getAttribute('mesid'));
-            if (!intact && Number.isInteger(mesId)) renderMessage(mesId);
+            if (text && !placementIntact(text) && Number.isInteger(mesId)) renderMessage(mesId);
         }, 200);
     }).observe(block, { childList: true, subtree: true });
+}
+
+/**
+ * Whether the pictures are still where they were put, for the same shown text: none of them taken out, and the text
+ * not drawn again in the meantime (editing the message swaps it for the edit box and back).
+ */
+function placementIntact(text, wrap = text.querySelector('.ctp-wrap')) {
+    const state = text.ctpPlacement;
+    return !!state && text.querySelectorAll('.ctp-inserted').length === state.inserted
+        && (!state.wrapInText || (!!wrap && text.contains(wrap)))
+        && shownText(text) === state.shown;
 }
 
 function clearInserted(element) {
@@ -114,12 +123,13 @@ function placePictures(element, wrap, pictures, kind, inStory, bounds = {}) {
     if (!text) return { kept: pictures, wrapInText: false };
     const signature = JSON.stringify([kind, inStory, bounds, pictures.map(picture => [picture.src, picture.start, picture.place, picture.startAt, picture.placeAt])]);
     const state = text.ctpPlacement;
-    if (state?.signature === signature && text.querySelectorAll('.ctp-inserted').length === state.inserted && (!state.wrapInText || text.contains(wrap))) {
+    if (state?.signature === signature && placementIntact(text, wrap)) {
         return { kept: pictures.filter(picture => state.kept.includes(picture.scene)), wrapInText: state.wrapInText };
     }
     clearInserted(element);
+    const shown = shownText(text);
     const remember = (kept, wrapInText) => {
-        text.ctpPlacement = { signature, kept: kept.map(picture => picture.scene), wrapInText, inserted: pictures.length - kept.length };
+        text.ctpPlacement = { signature, kept: kept.map(picture => picture.scene), wrapInText, inserted: pictures.length - kept.length, shown };
         return { kept, wrapInText };
     };
     const count = pictures.length;
@@ -215,7 +225,7 @@ export function renderMessage(mesId) {
         // Pictures go into the story only (what is inside <game>…</game>), found by its paragraphs.
         const bounds = { first: image.storyStart, last: image.storyEnd, paragraphs: several || settings.placeInStory ? storyParagraphs(message) : [] };
         ({ kept: pictures, wrapInText } = placePictures(element, wrap[0], all, kind, !!settings.placeInStory, bounds));
-        if (wrapInText || pictures.length < all.length) watchText(element);
+        if (several || settings.placeInStory) watchText(element);
     } else {
         clearInserted(element);
     }

@@ -1,4 +1,4 @@
-import { ANIMA_NATURAL_TEMPLATE, ANIMA_NOBODY_LINE, ANIMA_OTHERS_LINE, ANIMA_PROMPT_TEMPLATE, ANIMA_PROMPT_TEMPLATE_V1, ANIMA_SOLO_LINE, NOBODY_LINE, OTHERS_LINE, PARSED_FIELDS, SOLO_LINE } from './constants.js';
+import { ANIMA_NATURAL_TEMPLATE, ANIMA_NOBODY_LINE, BORDER_NEGATIVE, ANIMA_OTHERS_LINE, ANIMA_PROMPT_TEMPLATE, ANIMA_PROMPT_TEMPLATE_V1, ANIMA_SOLO_LINE, NOBODY_LINE, OTHERS_LINE, PARSED_FIELDS, SOLO_LINE } from './constants.js';
 import { promptStyle } from './modes.js';
 import { fillTemplate, getSettings, resolveMacros } from './utils.js';
 
@@ -358,19 +358,24 @@ function tagSet(text) {
 }
 
 /**
- * The negative prompt: the global one, the character preset's extra one and, when the parser is asked for one
- * (parserNegative), the parser's tags for this picture. A parser tag that is already there, or that is in the
- * positive prompt (it would cancel what the picture is meant to show), is left out.
+ * The negative prompt: the global one, the character preset's extra one, the tags against white / black bars
+ * (防止白边, noBorder) and, when the parser is asked for one (parserNegative), the parser's tags for this picture.
+ * An added tag that is already there, or that is in the positive prompt (it would cancel what the picture is meant
+ * to show), is left out.
  * @param {object|null} preset Character preset
  * @param {object|null} [parsed] Parser output (its `negative`)
  * @param {string} [prompt] The positive prompt
  */
 export function buildNegativePrompt(preset, parsed = null, prompt = '') {
     const settings = getSettings();
-    const base = [settings.negativePrompt, preset?.negative]
+    let base = [settings.negativePrompt, preset?.negative]
         .map(text => resolveMacros(text || ''))
         .filter(Boolean)
         .join(', ');
+    if (settings.noBorder) {
+        const taken = new Set([...tagSet(base), ...tagSet(prompt)]);
+        base = [base, ...BORDER_NEGATIVE.split(', ').filter(tag => !taken.has(tag))].filter(Boolean).join(', ');
+    }
     const fromParser = settings.parserNegative ? String(parsed?.negative || '') : '';
     if (!fromParser.trim()) return base;
     const taken = new Set([...tagSet(base), ...tagSet(prompt)]);

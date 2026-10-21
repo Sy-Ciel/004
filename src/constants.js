@@ -291,6 +291,13 @@ export const OFFICIAL_KREA2_TURBO = {
     refinePrompt: false,
 };
 
+/**
+ * 防止白边: Danbooru's tags for a picture drawn narrower than its canvas, with bars at its sides or above and below
+ * (anime models trained on such images sometimes draw them, e.g. a 9:16 picture in a 2:3 canvas). In the negative
+ * prompt they keep the picture to the full canvas.
+ */
+export const BORDER_NEGATIVE = 'letterboxed, pillarboxed, border, white border, black border';
+
 /** The official Anima templates' negative prompt (Anima uses a real negative, unlike Krea 2 Turbo at CFG 1). */
 export const ANIMA_NEGATIVE = 'worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, sepia';
 
@@ -493,6 +500,8 @@ export const DEFAULT_SETTINGS = {
     negativePrompt: '',
     /** The parser also writes a negative prompt for each picture, added after negativePrompt (on in Anima). */
     parserNegative: false,
+    /** 防止白边: BORDER_NEGATIVE is added to the negative prompt (on in Anima). */
+    noBorder: false,
 
     comfy: {
         url: 'http://127.0.0.1:8188',
@@ -545,6 +554,7 @@ const ANIMA_DEFAULTS = {
     prefix: 'masterpiece, best quality, score_7',
     negativePrompt: ANIMA_NEGATIVE,
     parserNegative: true,
+    noBorder: true,
     comfy: {
         ...OFFICIAL_ANIMA,
         // Portrait 2:3 at 1 MP, like Krea 2's portrait default.

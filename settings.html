@@ -313,6 +313,8 @@
                     <label>后缀 {{suffix}} <input type="text" class="text_pole" data-ctp="suffix" placeholder="例：high detail, natural skin texture"></label>
                     <label>反向提示词 <input type="text" class="text_pole" data-ctp="negativePrompt" id="ctp_negative"></label>
                     <small class="ctp-hint" id="ctp_negative_hint"></small>
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="noBorder"> 防止白边 / 黑边（反向提示词自动加上 <code>letterboxed, pillarboxed, border, white border, black border</code>）</label>
+                    <small class="ctp-hint">动漫模型偶尔会把画面画窄，两边或上下留出白边 / 黑边（像把一张 9:16 的图放在 2:3 的画布中间）。这几个 Danbooru 标签就是描述这种图的，放进反向提示词，画面就会铺满整张图。Anima 模式默认打开；要用 CFG 大于 1 才起作用（Turbo LoRA 的 CFG 1 不行）；正向提示词里写了同样的标签时不加。</small>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="parserNegative"> 让解析模型按画面补充反向提示词（加在上面的反向提示词后面）</label>
                     <small class="ctp-hint">解析模型在同一次请求里多写一个 negative 字段：这张图不该出现、容易画错的东西（只有一个人时的多人标签、没穿戴的衣物配饰、还没发生的动作等）。和上面重复的、和正向提示词里一模一样的标签会自动去掉。Anima 模式默认打开<span class="ctp-mode-only" data-mode="krea2">；Krea 2 的内置工作流（CFG 1）不使用反向提示词，只对会用到反向提示词的自定义工作流有用</span>。</small>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="escapeParens"> 把提示词里的括号转义成 <code>\(</code> <code>\)</code>（Anima 推荐）</label>
