@@ -21,6 +21,7 @@ import {
     resolutionPresets,
 } from './constants.js';
 import { lastFloorId, showChatDebug, showDryRun, showParserPreview } from './debug.js';
+import { injectMessageButtons } from './messageButtons.js';
 import { DISPLAY_KEYS, SHARED_COMFY_KEYS, SHARED_PARSER_KEYS, currentMode, modeLabel, adoptProfile, hasProfile, otherSlotKey, personaMode, releaseProfile, swapModeSettings, swapProfile } from './modes.js';
 import { resetPanelForMode, resetPanelGeometry } from './panel.js';
 import { bindPickers, getPath, readInput, registerPickerOwner, renderPicker, renderPickers, setPath, writeInput } from './form.js';
@@ -129,6 +130,7 @@ function onSettingChanged(path) {
         // A remembered panel position belongs to the old side.
         resetPanelGeometry();
     }
+    if (path === 'quickRegenButton') injectMessageButtons();
     if (path === 'parser.source') updateSourceVisibility();
     if (path.startsWith('parser.')) updateThinkingHint();
     if (path === 'perPersonaProfiles') {
@@ -977,6 +979,7 @@ async function resetAllSettings() {
         fresh.placeInStory = settings.placeInStory;
         fresh.panelAlsoInMessage = settings.panelAlsoInMessage;
         fresh.absentFallback = settings.absentFallback;
+        fresh.quickRegenButton = settings.quickRegenButton;
         for (const key of DISPLAY_KEYS) fresh[key] = structuredClone(settings[key]);
     }
     if (keep('reset-other')) {

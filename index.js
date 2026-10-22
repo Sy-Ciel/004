@@ -2,6 +2,7 @@ import { EXTRA_KEY, LOG_PREFIX, MODEL_LABELS, MODEL_MODES, TARGET_AUTO, TARGET_C
 import { lastFloorId, reviewParserInput, showFloorDebug } from './src/debug.js';
 import { openEditDialog } from './src/editDialog.js';
 import { captureHints, hintsEnabled, openHintDialog, pendingHints, removeHint, stripHints, stripOutgoingChat } from './src/hints.js';
+import { injectMessageButtons } from './src/messageButtons.js';
 import { resetPanelForChat, showInPanel } from './src/panel.js';
 import { cancelAllJobs, cancelJob, enqueue, getJob, setImageAddedHandler, setModeSwitcher, setParserReviewer, setRenderer } from './src/pipeline.js';
 import { currentIndex } from './src/markup.js';
@@ -211,17 +212,6 @@ function onAction(event) {
             ctx().saveChat();
             break;
     }
-}
-
-const MESSAGE_BUTTON = '<div title="ComfyUI 角色配图" class="mes_button ctp_mes_gen fa-solid fa-image"></div>';
-
-/** Adds the per-message button to the message template (future messages) and to already rendered messages. */
-function injectMessageButtons() {
-    const template = $('#message_template .mes_buttons .extraMesButtons');
-    if (template.length && !template.find('.ctp_mes_gen').length) template.prepend(MESSAGE_BUTTON);
-    $('#chat .mes .extraMesButtons').each(function () {
-        if (!$(this).find('.ctp_mes_gen').length) $(this).prepend(MESSAGE_BUTTON);
-    });
 }
 
 function onMessageButton() {

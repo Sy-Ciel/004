@@ -409,6 +409,8 @@ export const DEFAULT_SETTINGS = {
     panelAlsoInMessage: false,
     /** 画谁不在画面里: the parser draws who is in the scene (or the scenery) instead of skipping the floor. */
     absentFallback: true,
+    /** The 🖼 「重新生成配图」 button right in each reply's button bar, not only in its 「…」 menu (see messageButtons.js). */
+    quickRegenButton: true,
     /** Words every prompt of this mode starts with (e.g. a style LoRA's trigger); the parser is told about them. */
     triggerWords: '',
     /** Anima only: prompts in English sentences instead of Danbooru tags (see modes.js promptStyle). */

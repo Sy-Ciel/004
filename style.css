@@ -752,3 +752,10 @@
     margin: 10px 0;
     text-indent: 0;
 }
+
+/* The quick 🖼 「重新生成配图」 button of messageButtons.js: replies only; their 「…」 menu copy is not needed then. */
+.mes[is_user="true"] .ctp_mes_quick,
+.mes[is_system="true"] .ctp_mes_quick,
+.mes:not([is_user="true"]):not([is_system="true"]) .mes_buttons:has(> .ctp_mes_quick) .extraMesButtons .ctp_mes_gen {
+    display: none;
+}

@@ -132,6 +132,8 @@
                         <label>图片最大宽度(px) <input type="number" class="text_pole" min="120" step="10" data-ctp="imageMaxWidth" data-type="int"></label>
                         <label>每楼最多保留版本 <input type="number" class="text_pole" min="1" step="1" data-ctp="maxVersions" data-type="int"></label>
                     </div>
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="quickRegenButton"> 在每条回复的按钮栏显示「重新生成配图」按钮 <i class="fa-solid fa-image"></i></label>
+                    <small class="ctp-hint">按钮在回复的 ✏️ 旁边（鼠标移到消息上时出现），点一下就重新解析这一楼并出图（还没有图的楼层就是生成），和 🔄「全部重新解析」一样，结果作为新版本保留旧图。关掉后这个按钮只在消息的「…」菜单里。</small>
                     <small class="ctp-hint">这一节的设置所有模型模式共用：比如图片显示在左侧，切换到 Krea 2、Anima 还是 MOSS-Image 都还在左侧（开了「每个用户人设使用独立档案」时，每个人设各有一份）。图片和提示词只存在消息的扩展数据里，不写进正文，正文 AI 看不到。</small>
                 </div>
             </div>
