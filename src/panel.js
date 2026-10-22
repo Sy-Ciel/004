@@ -360,7 +360,12 @@ export function refreshPanel() {
         shownPage = 0;
     }
     if (pictures.length > 1 && panelSettings().follow && !pageSticky) {
-        shownPage = pageAtReadingPosition(shownMesId, pictures, { first: shownImage.storyStart, last: shownImage.storyEnd, paragraphs: storyParagraphs(ctx().chat[shownMesId]) });
+        shownPage = pageAtReadingPosition(shownMesId, pictures, {
+            first: shownImage.storyStart ?? data.storyStart,
+            last: shownImage.storyEnd ?? data.storyEnd,
+            ending: shownImage.storyEnding ?? data.storyEnding,
+            paragraphs: storyParagraphs(ctx().chat[shownMesId]),
+        });
     }
     shownPage = Math.min(Math.max(0, shownPage), pictures.length - 1);
     const html = panelHtml(shownMesId, data, showJob);

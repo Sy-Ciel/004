@@ -223,7 +223,13 @@ export function renderMessage(mesId) {
         const all = versionPictures(image);
         several = all.length > 1;
         // Pictures go into the story only (what is inside <game>…</game>), found by its paragraphs.
-        const bounds = { first: image.storyStart, last: image.storyEnd, paragraphs: several || settings.placeInStory ? storyParagraphs(message) : [] };
+        // A version from before every one kept its story's ends has the floor's (the same story, read last).
+        const bounds = {
+            first: image.storyStart ?? data.storyStart,
+            last: image.storyEnd ?? data.storyEnd,
+            ending: image.storyEnding ?? data.storyEnding,
+            paragraphs: several || settings.placeInStory ? storyParagraphs(message) : [],
+        };
         ({ kept: pictures, wrapInText } = placePictures(element, wrap[0], all, kind, !!settings.placeInStory, bounds));
         if (several || settings.placeInStory) watchText(element);
     } else {

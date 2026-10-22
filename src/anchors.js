@@ -202,8 +202,9 @@ export function shownText(root) {
  * paragraph the parser named) or at `even` (pictures spread evenly). Never outside the story.
  * side 'after': the picture follows that point's line; 'before': it comes before that point's line.
  * @param {{ quote?: string, at?: number|null, even: number, side: 'after'|'before' }[]} anchors
- * @param {{ paragraphs?: string[], first?: string, last?: string }} [bounds] The story's paragraphs (storyParagraphs);
- *   without them, its first and last words (what the version keeps)
+ * @param {{ paragraphs?: string[], ending?: string, first?: string, last?: string }} [bounds] The story's paragraphs
+ *   (storyParagraphs) and its last words when the pictures were made (storyEnding); without paragraphs, its first and
+ *   last words (what the version keeps)
  * @returns {{ node: Text, offset: number, found: boolean }[] | null} null when the story is not in the shown text
  */
 export function placeAnchors(root, anchors, bounds = {}) {
@@ -211,7 +212,7 @@ export function placeAnchors(root, anchors, bounds = {}) {
     if (!positions.length) return null;
     const paragraphs = (bounds.paragraphs ?? []).filter(paragraph => comparable(paragraph));
     // A story of only very short lines cannot be searched for: then by its first and last words, as before.
-    if (paragraphs.some(paragraph => comparable(paragraph.slice(0, 40)).length >= 4)) return placeInStory(text, positions, anchors, paragraphs);
+    if (paragraphs.some(paragraph => comparable(paragraph.slice(0, 40)).length >= 4)) return placeInStory(text, positions, anchors, paragraphs, bounds.ending);
     const quotes = anchors.map(anchor => anchor.quote || '');
     let found = quotes.every(Boolean) ? locateQuotes(text, quotes) : null;
     if (!found) found = quotes.map(quote => (quote ? findQuote(text, quote) : -1));
@@ -233,14 +234,20 @@ export function placeAnchors(root, anchors, bounds = {}) {
     });
 }
 
-/** placeAnchors with the story's paragraphs: only the stretch of the text they are found in is used. */
-function placeInStory(text, positions, anchors, paragraphs) {
+/**
+ * placeAnchors with the story's paragraphs: only the stretch of the text they are found in is used. `ending`: the
+ * story's last words when the pictures were made; the stretch ends with that paragraph, so text added to the end of
+ * the story later (a note a preset appends after the user's next message) does not pull pictures down.
+ */
+function placeInStory(text, positions, anchors, paragraphs, ending = '') {
     const starts = locateParagraphs(text, paragraphs);
     const found = starts.flatMap((at, index) => (at >= 0 ? [index] : []));
     // The story is not in the shown text (drawn in a frame, say): the pictures stay in the image block.
     if (!found.length) return null;
     const first = starts[found[0]];
-    const lastIndex = found.at(-1);
+    const end = comparable(ending);
+    const original = end.length >= 4 ? found.filter(index => comparable(paragraphs[index]).endsWith(end)).at(-1) : undefined;
+    const lastIndex = original ?? found.at(-1);
     const last = paragraphEnd(text, paragraphs[lastIndex], starts[lastIndex], positions.length - 1);
     // The end of a paragraph: before the next one found, else at the end of the story.
     const endOf = index => {

@@ -42,13 +42,31 @@ export function hasStoryTag(text, parser = getSettings().parser) {
 
 const CODE_BLOCK = /```[\s\S]*?(?:```|$)/g;
 
+/** The tags of 「不算正文的标签」 (default advice), without brackets. */
+function ignoredTags(parser) {
+    return String(parser.ignoreTags ?? '').split(/[,，\s]+/).map(tag => tag.replace(/[^\w:-]/g, '')).filter(Boolean);
+}
+
+/**
+ * A message without the blocks of 「不算正文的标签」: e.g. <advice>…</advice>, where a preset copies the user's next
+ * message into the end of the reply. That is the user's input for the next floor, not this floor's story: the parser
+ * must not draw it, and pictures do not go after it.
+ */
+function withoutIgnored(text, parser) {
+    let source = String(text ?? '');
+    for (const tag of ignoredTags(parser)) {
+        source = source.replace(new RegExp(`<${tag}(?:\\s[^>]*)?>[\\s\\S]*?(?:</${tag}\\s*>|$)`, 'gi'), '');
+    }
+    return source;
+}
+
 /**
  * The story of a message: what is inside <game>…</game> (every such block), so code pages, option panels and the
  * like around it are not taken for the story. A message without the tag (the user's own, or a reply where the AI
- * left it out) is the whole of it minus ``` code blocks.
+ * left it out) is the whole of it minus ``` code blocks. Blocks of 「不算正文的标签」 are never part of it.
  */
 function storyPart(text, parser) {
-    const source = String(text ?? '');
+    const source = withoutIgnored(text, parser);
     const parts = [...source.matchAll(storyTagPattern(parser))].map(match => match[1].trim()).filter(Boolean);
     if (parts.length) return parts.join('\n\n');
     return source.replace(CODE_BLOCK, '').trim();
@@ -56,14 +74,17 @@ function storyPart(text, parser) {
 
 /** What storyPart leaves out: the text around the story tag, or the code blocks of a message without it. */
 function outsideStory(text, parser) {
-    const source = String(text ?? '');
+    const source = withoutIgnored(text, parser);
     if (hasStoryTag(source, parser)) return source.replace(storyTagPattern(parser), '').trim();
     return (source.match(CODE_BLOCK) ?? []).join('\n').trim();
 }
 
-/** The part of a message the parser reads: with 「只读取标签里的正文」 only the story (storyPart), else all of it. */
+/**
+ * The part of a message the parser reads: with 「只读取标签里的正文」 only the story (storyPart), else all of it; never
+ * the blocks of 「不算正文的标签」.
+ */
 export function storyText(text, parser = getSettings().parser) {
-    return parser.storyTagOnly ? storyPart(text, parser) : String(text ?? '');
+    return parser.storyTagOnly ? storyPart(text, parser) : withoutIgnored(text, parser);
 }
 
 /** Label of the AI's messages while 「隐藏角色卡的名字」 is on. */

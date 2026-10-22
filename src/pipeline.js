@@ -91,10 +91,16 @@ function paragraphAnchor(value, paragraphs, side) {
     return { text: paragraphs[clamped].slice(0, 40), at: before / total };
 }
 
-/** The story's first and last words, so pictures without a spot of their own stay inside it (see placeAnchors). */
+/**
+ * The story's first and last words, so pictures without a spot of their own stay inside it (see placeAnchors).
+ * storyEnding: its last words when the pictures were made, always of the whole story (storyEnd of versions from
+ * v1.36 to v1.39 may be where the parser's view was cut off); the story ends there even when text is added to it
+ * later.
+ */
 function storyBounds(paragraphs) {
     if (!paragraphs.length) return {};
-    return { storyStart: paragraphs[0].slice(0, 40), storyEnd: paragraphs.at(-1).slice(-24) };
+    const ending = paragraphs.at(-1).slice(-24);
+    return { storyStart: paragraphs[0].slice(0, 40), storyEnd: ending, storyEnding: ending };
 }
 
 /** The preset a subject's looks come from: its character preset, else what the parser wrote about them. */
@@ -352,7 +358,7 @@ function applyRating(message, swipeId) {
  * A floor's picture state: what 🔄 and ✏️ reuse and what continuity reads. All of it belongs to one image model
  * mode, data.modelMode (a Krea 2 sentence prompt or preset id means nothing to Anima, and the other way round).
  */
-const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'subject', 'parsed', 'prompt', 'negative', 'scenes', 'endStart', 'endStartAt', 'place', 'placeAt', 'storyStart', 'storyEnd', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
+const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'subject', 'parsed', 'prompt', 'negative', 'scenes', 'endStart', 'endStartAt', 'place', 'placeAt', 'storyStart', 'storyEnd', 'storyEnding', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
 
 /** Whether a floor has picture state of its own (a parse or a prompt), as opposed to nothing or only an error. */
 function hasFloorState(data) {
@@ -916,8 +922,8 @@ async function runJob(message, job, options) {
             // 图片插在正文中间: the paragraph this picture goes after.
             place: data.place || undefined,
             placeAt: data.placeAt,
-            // Where the story is in the text, for pictures placed by share (only when they go into the text).
-            ...(scenes.length || data.place ? { storyStart: data.storyStart, storyEnd: data.storyEnd } : {}),
+            // Where the story began and ended when it was drawn: pictures go into that stretch of the text.
+            ...(data.storyStart ? { storyStart: data.storyStart, storyEnd: data.storyEnd, storyEnding: data.storyEnding } : {}),
             scenes: scenes.length ? scenes : undefined,
             mode: modelMode,
             time: Date.now(),

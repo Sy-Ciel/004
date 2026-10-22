@@ -448,6 +448,8 @@ export const DEFAULT_SETTINGS = {
         /** Read only what is inside <storyTag>…</storyTag> of each message (not code pages / option panels); see storyText. */
         storyTagOnly: false,
         storyTag: 'game',
+        /** 不算正文的标签: blocks never read as the story, e.g. <advice> where a preset copies the user's message in. */
+        ignoreTags: 'advice',
         /** The character card's name is not shown to the parser (AI messages are labelled 正文); see speakerLabel. */
         hideCharName: false,
         /** 多张图: a floor whose text moves on to another time or place gets a picture for each earlier part too. */

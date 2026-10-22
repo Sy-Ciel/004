@@ -213,7 +213,7 @@ function animaRules(model, mode) {
 }
 
 /** Only with 图片插在正文中间: the sentence the (end of the floor) picture is put after, copied from the text. */
-const PLACE_RULE = '图在正文里的位置：再写 place：这张图插在【当前楼层】第几段后面。【当前楼层】每一段前面有编号 [1]、[2]……，写那一段的编号数字（例如 3），通常就是画面时刻所在的那一段。图会插在那一段后面。';
+const PLACE_RULE = '图在正文里的位置：再写 place：这张图插在【当前楼层】第几段后面。【当前楼层】每一段前面有编号 [1]、[2]……，写那一段的编号数字（例如 3），通常就是画面时刻所在的那一段，一定要写一个编号，不能写 0 或留空。图会插在那一段后面。';
 
 /**
  * For a custom system prompt without {{output_rules}} that keeps its own output format: only the rules of the
