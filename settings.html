@@ -72,15 +72,16 @@
             <!-- ============ 自动配图规则 ============ -->
             <div class="inline-drawer ctp-sub" data-sub="rules">
                 <div class="inline-drawer-toggle inline-drawer-header">
-                    <span><b>自动配图规则</b> <small>每隔几楼 · 短回复 · 开场白 · 画图指令</small></span>
+                    <span><b>自动配图规则</b> <small>每隔几楼 · 截断 / 被拦截的回复 · 开场白 · 画图指令</small></span>
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
                     <div class="ctp-row">
                         <label>每隔几楼生成一次 <input type="number" class="text_pole" min="1" step="1" data-ctp="everyN" data-type="int"></label>
-                        <label>正文少于几 token 不配图 <input type="number" class="text_pole" min="0" step="10" data-ctp="minReplyTokens" data-type="int"></label>
                     </div>
-                    <small class="ctp-hint">token 数 0 = 不限制，按酒馆当前分词器计算。这两项只影响自动配图：手动生成照常，带 <code>[[ ]]</code> 画图指令的楼层也照常配图；短回复点「继续」写长后会重新判断。</small>
+                    <small class="ctp-hint">只影响自动配图：手动生成照常，带 <code>[[ ]]</code> 画图指令的楼层也照常配图。</small>
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="skipBadReplies"> 正文被截断、被安全检查拦截、提示词被过滤时不自动配图</label>
+                    <small class="ctp-hint">酒馆不记录回复是怎么结束的，所以看回复本身：&lt;game&gt;（「解析内容」里设的正文标签）、<code>```</code> 代码块或状态栏开了头没写完，或者写满了「最大回复长度」、停在句子中间，算被截断；回复里是接口 / 反代的拦截提示（PROHIBITED_CONTENT、content_filter、Content Exists Risk、blockReason 等），或者没有正文、只有一小段「抱歉，我无法……」「内容违规 / 被过滤」之类的话，算被拦截。这样的楼层不自动配图，会弹提示；点「继续」把回复写完后会重新判断。手动生成照常。</small>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="includeFirstMessage"> 开场白也自动配图</label>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="regenOnContinue"> 「继续」后重新生成（否则已有图片的楼层不再生成）</label>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="hintsEnabled"> 启用画图指令 <code>[[ ]]</code> / <code>【【 】】</code></label>

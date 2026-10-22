@@ -417,8 +417,8 @@ export const DEFAULT_SETTINGS = {
     escapeParens: false,
     autoGenerate: true,
     everyN: 1,
-    // Automatic pictures skip AI replies shorter than this many tokens (0 = no limit).
-    minReplyTokens: 0,
+    /** 正文截断、安全检查、提示词过滤: no automatic picture for a reply that was cut off or blocked (see replyCheck.js). */
+    skipBadReplies: true,
     includeFirstMessage: false,
     regenOnContinue: false,
     debug: false,
