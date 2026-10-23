@@ -32,7 +32,7 @@
                 <label>触发词（本模式每张图都带上）
                     <input type="text" class="text_pole" data-ctp="triggerWords" id="ctp_trigger_words">
                 </label>
-                <small class="ctp-hint">逗号分隔，放在提示词最前面（Anima 模式按官方顺序放在画师的位置：画质、安全分级、人数、角色之后，其他标签之前）。「AI 写完整提示词」时会要求解析 AI 每次写上，漏写的自动补上；和角色预设里的「LoRA 触发词」可以同时用。</small>
+                <small class="ctp-hint">逗号分隔，放在提示词最前面（Anima 模式按官方顺序放在画师的位置：画质、安全分级、人数、角色之后，其他标签之前；MOSS-Image 模式里 <code>&lt;|artist|&gt;fkey&lt;|/artist|&gt;</code> 这种标记单独占提示词的第一行，紧接着换行，和 LoRA 训练时一样）。「AI 写完整提示词」时会要求解析 AI 每次写上，漏写的自动补上；和角色预设里的「LoRA 触发词」可以同时用。</small>
             </div>
 
             <!-- ============ 常用（始终显示） ============ -->
@@ -184,7 +184,7 @@
             <!-- ============ 配图风格（解析预设） ============ -->
             <div class="inline-drawer ctp-sub" data-sub="style">
                 <div class="inline-drawer-toggle inline-drawer-header">
-                    <span><b>配图风格</b> <small>剧情 / 立绘 / 小说插画 · 提示词生成方式</small></span>
+                    <span><b>配图风格</b> <small>剧情 / 立绘 / 小说插画 / 漫画（MOSS-Image）· 提示词生成方式</small></span>
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
@@ -203,19 +203,37 @@
                     </label>
                     <small class="ctp-hint">固定外貌 + AI 补充：角色预设的外貌原样放进提示词，AI 只写服装、动作、表情等。AI 写完整提示词：把外貌交给解析 AI，由它写出整段提示词。两种方式都会自动加上最上面的「触发词」、角色的 LoRA 触发词和画风前缀 / 后缀。</small>
                     <div id="ctp_pp_editor">
+                        <div id="ctp_pp_comic">
+                            <div class="ctp-row ctp-wrap-row">
+                                <label>每页最多 <select class="text_pole" data-pp="panels" data-type="int">
+                                    <option value="1">1</option>
+                                    <option value="2">2</option>
+                                    <option value="3">3</option>
+                                    <option value="4">4</option>
+                                    <option value="5">5</option>
+                                    <option value="6">6</option>
+                                </select> 格</label>
+                                <label class="checkbox_label"><input type="checkbox" data-pp="dialogue"> 画对白（正文里的对白写进对话框）</label>
+                            </div>
+                            <small class="ctp-hint">漫画模式由解析 AI 按剧情画整页分镜：分几格（不超过上面的格数，1 = 整页一个画面）、每一格的镜头和人物、对话框里的字（用正文里的原话，MOSS-Image 能直接画出中文），再由扩展换算成 MOSS-Image 的 JSON 版面（每一格、每个人、每个对话框的位置）。人物外貌总是由 AI 写进每一格，上面的「提示词生成方式」对漫画不起作用；一楼画一页，「多张图」也不起作用。漫画的输出比较长，「解析模型」的最大输出低于 4096 时，漫画请求自动用 4096。关掉「画对白」= 整页不画任何文字。</small>
+                        </div>
+                        <div class="ctp-pp-picture">
                         <label class="checkbox_label"><input type="checkbox" data-pp="allowOthers"> 允许画面里出现其他人物</label>
                         <small class="ctp-hint">打开后，和主角同在这一幕的其他人也可以画进来（最多 3 人），他们的外貌、穿着、位置由解析 AI 按剧情描写，有角色预设的照预设的外貌写。主角的角色 LoRA 会作用于整张图，其他人可能长得像主角。</small>
+                        </div>
                         <label>名称 <input type="text" class="text_pole" data-pp="name"></label>
+                        <div class="ctp-pp-picture">
                         <label>固定内容（每行「字段: 内容」，每张图都一样）
                             <textarea class="text_pole ctp-mono" rows="4" data-pp="fixedFields" placeholder="action: standing upright and facing the viewer&#10;scene: plain light grey studio background"></textarea>
                         </label>
                         <small class="ctp-hint">字段：outfit 服装 / action 动作 / expression 表情 / demeanor 神态 / scene 场景 / camera 镜头 / lighting 光线。</small>
+                        </div>
                         <label>风格前缀（加在「画风 / 质量前缀」后面）<input type="text" class="text_pole" data-pp="prefix"></label>
                         <div class="ctp-row">
                             <label>宽 <input type="number" class="text_pole" step="16" min="0" data-pp="width" data-type="int"></label>
                             <label>高 <input type="number" class="text_pole" step="16" min="0" data-pp="height" data-type="int"></label>
                         </div>
-                        <small class="ctp-hint">分辨率填 0 = 用「出图参数」里的分辨率。立绘适合竖图（如 832×1216），小说插画适合横图（如 1216×832）。</small>
+                        <small class="ctp-hint">分辨率填 0 = 用「出图参数」里的分辨率。立绘适合竖图（如 832×1216），小说插画适合横图（如 1216×832），漫画默认 848×1200（约 1 MP，FKEY 漫画 LoRA 训练时最多的尺寸）。</small>
                         <h4>解析提示词</h4>
                         <label>System 提示词 <span class="ctp-muted" data-pp-state="system"></span> <span class="ctp-link" data-pp-reset="system">恢复默认</span>
                             <textarea class="text_pole" rows="14" data-pp="system"></textarea>
@@ -223,7 +241,7 @@
                         <label>User 模板 <span class="ctp-muted" data-pp-state="user"></span> <span class="ctp-link" data-pp-reset="user">恢复默认</span>
                             <textarea class="text_pole" rows="10" data-pp="user"></textarea>
                         </label>
-                        <small class="ctp-hint">内置的三个配图风格旁边会显示「已修改」或「内置默认」：「恢复默认」只把那一段换回当前版本的内置内容，其他内容不变（右上角 ↺ 是整个预设一起恢复）。扩展更新了内置提示词时，没改过的会自动换成新版，改过的保留你的版本，想用新版就点「恢复默认」。System 里的 {{output_rules}} 会按生成方式换成时间线、外貌、人物规则和 JSON 输出格式。User 模板可用变量：{{target}} {{appearance}} {{candidates}} {{world_info}} {{fixed_fields}} {{last_state}} {{prev_outputs}} {{history}} {{latest}} {{floor}} {{user_hints}}，以及酒馆宏；没写的块会自动插入。</small>
+                        <small class="ctp-hint">内置的配图风格旁边会显示「已修改」或「内置默认」：「恢复默认」只把那一段换回当前版本的内置内容，其他内容不变（右上角 ↺ 是整个预设一起恢复）。扩展更新了内置提示词时，没改过的会自动换成新版，改过的保留你的版本，想用新版就点「恢复默认」。System 里的 {{output_rules}} 会按生成方式换成时间线、外貌、人物规则和 JSON 输出格式。User 模板可用变量：{{target}} {{appearance}} {{candidates}} {{world_info}} {{fixed_fields}} {{last_state}} {{prev_outputs}} {{history}} {{latest}} {{floor}} {{user_hints}}，以及酒馆宏；没写的块会自动插入。</small>
                     </div>
                 </div>
             </div>
@@ -316,7 +334,7 @@
                 <div class="inline-drawer-content">
                     <label>画风 / 质量前缀 {{prefix}} <input type="text" class="text_pole" data-ctp="prefix" placeholder="例：A cinematic photograph, shot on 35mm film."></label>
                     <label>后缀 {{suffix}} <input type="text" class="text_pole" data-ctp="suffix" placeholder="例：high detail, natural skin texture"></label>
-                    <label>反向提示词 <input type="text" class="text_pole" data-ctp="negativePrompt" id="ctp_negative"></label>
+                    <label>反向提示词 <textarea class="text_pole" rows="2" data-ctp="negativePrompt" id="ctp_negative"></textarea></label>
                     <small class="ctp-hint" id="ctp_negative_hint"></small>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="noBorder"> 防止白边 / 黑边（反向提示词自动加上 <code>letterboxed, pillarboxed, border, white border, black border</code>）</label>
                     <small class="ctp-hint">动漫模型偶尔会把画面画窄，两边或上下留出白边 / 黑边（像把一张 9:16 的图放在 2:3 的画布中间）。这几个 Danbooru 标签就是描述这种图的，放进反向提示词，画面就会铺满整张图。Anima 模式默认打开；要用 CFG 大于 1 才起作用（Turbo LoRA 的 CFG 1 不行）；正向提示词里写了同样的标签时不加。</small>
@@ -381,10 +399,11 @@
                         <div class="menu_button" id="ctp_reset_official">恢复为官方 Krea 2 Turbo 模板的设置</div>
                         <div class="menu_button ctp-mode-only" data-mode="anima" id="ctp_anima_turbo">改用官方 Turbo LoRA（8 步）</div>
                         <div class="menu_button ctp-mode-only" data-mode="moss" id="ctp_moss_quality">改用 OpenMOSS 官方推荐（50 步）</div>
+                        <div class="menu_button ctp-mode-only" data-mode="moss" id="ctp_moss_fkey">改用 FKEY 漫画画风 LoRA</div>
                     </div>
                     <small class="ctp-hint ctp-mode-only" data-mode="krea2">把工作流、模型、风格 LoRA、分辨率、采样恢复成 ComfyUI 官方模板的默认值，方便和官方模板出的图对比；提示词扩写保持关闭。</small>
                     <small class="ctp-hint ctp-mode-only" data-mode="anima">「恢复为官方 Anima 模板的设置」= 官方模板的默认值：anima-base-v1.0、qwen_3_06b_base、qwen_image_vae、不用风格 LoRA、1024×1024、30 步、CFG 4、euler / simple、官方反向提示词。「Turbo LoRA」= 官方模板打开 turbo_mode 时的设置：风格 LoRA 换成 anima-turbo-lora-v0.2（强度 1）、8 步、CFG 1，快很多；要先把这个 LoRA 放进 models/loras。</small>
-                    <small class="ctp-hint ctp-mode-only" data-mode="moss">「恢复为官方 MOSS-Image 模板的设置」= 官方模板的默认值：moss_image_sft_int8_convrot、qwen3.5_9b_w4a8_gptq、flux2-vae_small、不用风格 LoRA、1024×1024、25 步、CFG 2.5、er_sde / simple、关闭跳层引导、官方推荐的反向提示词。「OpenMOSS 官方推荐」= 50 步、CFG 3、euler / sgm_uniform、打开跳层引导，更接近 OpenMOSS 自己的效果，每张图慢一倍。显存不够可以换更小的分辨率。</small>
+                    <small class="ctp-hint ctp-mode-only" data-mode="moss">「恢复为官方 MOSS-Image 模板的设置」= 官方模板的默认值：moss_image_sft_int8_convrot、qwen3.5_9b_w4a8_gptq、flux2-vae_small、不用风格 LoRA、1024×1024、25 步、CFG 2.5、er_sde / simple、关闭跳层引导、官方推荐的反向提示词。「OpenMOSS 官方推荐」= 50 步、CFG 3、euler / sgm_uniform、打开跳层引导，更接近 OpenMOSS 自己的效果，每张图慢一倍。显存不够可以换更小的分辨率。「FKEY 漫画画风 LoRA」= 社区的 MOSS-Image 画风 LoRA（暖色、柔和日光、低饱和的水粉漫画画风）按它的说明设置：风格 LoRA 换成 fkey-lora-r4-muon-step6840-comfy.safetensors（强度 0.6，0.4–0.8 之间调，超过 0.9 会过头）、25 步、CFG 3、euler / sgm_uniform、关闭跳层引导，触发词加上 <code>&lt;|artist|&gt;fkey&lt;|/artist|&gt;</code>（自动放在提示词第一行），画风前缀和反向提示词换成它推荐的写法。要先把这个 LoRA 下载到 ComfyUI 的 models/loras。配合「配图风格」里的「漫画模式」就是多格彩色漫画，单独用就是这种画风的插画。</small>
                     <h4>模型</h4>
                     <div class="ctp-row">
                         <div class="menu_button" id="ctp_comfy_models">从 ComfyUI 读取列表</div>

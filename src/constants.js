@@ -375,6 +375,32 @@ export const MOSS_QUALITY = {
     slg: true,
 };
 
+/**
+ * FKEY, a community style LoRA for MOSS-Image (warm, muted, gouache-like comic painting), for "改用 FKEY 漫画画风
+ * LoRA": the settings its card recommends (strength 0.6, Euler / sgm_uniform, 16–28 steps with 25 for complex
+ * lighting, CFG 3–3.5), skip layer guidance off (it makes the colours heavier).
+ */
+export const FKEY_LORA = 'fkey-lora-r4-muon-step6840-comfy.safetensors';
+export const FKEY_SETTINGS = {
+    lora: FKEY_LORA,
+    loraStrength: 0.6,
+    steps: 25,
+    cfg: 3,
+    sampler: 'euler',
+    scheduler: 'sgm_uniform',
+    slg: false,
+};
+
+/** Its trigger, a MOSS-Image structural tag: trained as the prompt's first line, written tight (see finishPrompt). */
+export const FKEY_TRIGGER = '<|artist|>fkey<|/artist|>';
+
+/** The style phrase of its card's examples: "contrasted against" is what brings out the painterly layer. */
+export const FKEY_PREFIX = 'High-taste, fully colored 2D digital painting with selective focus: finely rendered, luminous facial features, glistening highlights and delicate hair strands contrasted against expressive, breathable painterly gouache brushwork on the clothing and background. Muted, sophisticated warm color palette with soft bright daylight, smooth creamy skin tones, zero rough sketch lines.';
+
+/** Its card's negative prompt in MOSS-Image's sections (without the age and body section, written for one character). */
+export const FKEY_NEGATIVE = `<|texture_and_style_neg|>photorealistic, real human, 3d render, cgi, photograph, monochrome, greyscale, black and white, screentones, draft, messy lines, manga draft, lineart only, sketch, rough sketch, messy construction lines, uncolored patches, unpolished, camera flash, microscopic pores, film grain, green skin, zombie skin, blotchy skin patches, harsh unblended skin blocks, over-sharpened hard edges, vector art, plastic skin, oversaturated neon colors, gaudy gold embroidery, wet long hair covering eyes, thick black outlines<|/texture_and_style_neg|>
+<|universal_anatomy_neg|>blurry, out of focus, lowres, censored, mosaic censoring, bar censor, ugly face, distorted face, overly squished grotesque cheek, worst quality, bad anatomy, fused bodies, fused legs, extra limbs, extra arms, extra legs, extra hands, three hands, extra fingers, mutated hands, fused fingers, six fingers, floating hand, watermark, signature<|/universal_anatomy_neg|>`;
+
 /** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */
 export const SETTINGS_VERSION = 7;
 

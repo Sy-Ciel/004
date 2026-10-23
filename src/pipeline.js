@@ -1,6 +1,7 @@
 import { EXTRA_KEY, modeDefaults } from './constants.js';
 import { addExtraLoras, addUpscale, getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
 import { comparable, findQuote } from './anchors.js';
+import { fitLayout, isComicPreset } from './comic.js';
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
 import { buildParserPrompt, parserLabel, requestParse, storyParagraphs } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution, sceneLimit } from './parserPresets.js';
@@ -123,17 +124,42 @@ function scenePrompt(scene, who, mainSubject, mainParsed, parserPrompt) {
     return promptFromParse(subjectPreset(who), { ...base, ...filled }, parserPrompt, [], { nobody: !!who.nobody });
 }
 
-/** Builds the final prompt for a parse result; shared by real runs and the dry run. */
+/**
+ * The size a picture parsed with this parser preset is drawn at, without edit-dialog choices (as renderPlan
+ * works it out: the parser preset's own size, else the global one, or the resolution selector's ratio).
+ */
+function plannedSize(parserPreset, aspect) {
+    const presetSize = presetResolution(parserPreset);
+    const base = baseSize(getSettings().comfy, aspect);
+    const defaults = modeDefaults(currentMode()).comfy;
+    return {
+        width: roundTo16(presetSize?.width || base.width, defaults.width),
+        height: roundTo16(presetSize?.height || base.height, defaults.height),
+    };
+}
+
+/**
+ * Builds the final prompt for a parse result; shared by real runs and the dry run. canvas: the size a comic page's
+ * layout was written for (漫画模式), else null.
+ */
 function promptFromParse(characterPreset, parsed, parserPrompt, notes, { nobody = false } = {}) {
     const { parsed: final, forced } = applyFixedFields(parsed, parserPrompt.preset);
     if (forced.length) notes.push(`固定内容覆盖了：${forced.join(', ')}`);
-    if (parserPrompt.mode === 'ai' && !final.prompt) {
+    const comic = isComicPreset(parserPrompt.preset);
+    const canvas = comic && final.page ? plannedSize(parserPrompt.preset, final.aspect) : null;
+    if (canvas) {
+        const texts = final.page.panels.reduce((sum, panel) => sum + panel.texts.length, 0);
+        notes.push(`漫画：${final.page.panels.length} 格${texts ? `、${texts} 个文字框` : ''}，版面按 ${canvas.width}×${canvas.height} 换算成 MOSS-Image 的 JSON 版面`);
+    } else if (comic) {
+        notes.push('解析模型没有写漫画分镜（page 字段），改用普通插画的写法');
+    } else if (parserPrompt.mode === 'ai' && !final.prompt) {
         notes.push('解析模型没有返回 prompt 字段，已改用「固定外貌 + AI 补充」的模板拼接');
     }
     if (parserPrompt.preset?.allowOthers && final.others) notes.push('画面里有其他人物（others）');
     return {
         parsed: final,
-        prompt: buildImagePrompt(characterPreset, final, { parserPreset: parserPrompt.preset, mode: parserPrompt.mode, nobody }),
+        canvas,
+        prompt: buildImagePrompt(characterPreset, final, { parserPreset: parserPrompt.preset, mode: parserPrompt.mode, nobody, canvas }),
     };
 }
 
@@ -224,6 +250,8 @@ function imageFolder() {
  * @param {string} [options.target] Target override
  * @param {string} [options.prompt] Prompt for edit mode
  * @param {string} [options.negative] Negative prompt for edit mode (default: the floor's)
+ * @param {{ width: number, height: number }} [options.canvas] Edit mode: the size the prompt was drawn at (a JSON
+ *   layout's boxes are fitted to the size it is drawn at now)
  * @param {boolean} [options.force] Tell the parser not to skip
  * @param {number} [options.scene] 多张图: with reroll / edit, redraw only this picture of the version (-1 = the end)
  * @param {number} [options.version] The version that picture belongs to (default: the shown one)
@@ -358,7 +386,7 @@ function applyRating(message, swipeId) {
  * A floor's picture state: what 🔄 and ✏️ reuse and what continuity reads. All of it belongs to one image model
  * mode, data.modelMode (a Krea 2 sentence prompt or preset id means nothing to Anima, and the other way round).
  */
-const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'subject', 'parsed', 'prompt', 'negative', 'scenes', 'endStart', 'endStartAt', 'place', 'placeAt', 'storyStart', 'storyEnd', 'storyEnding', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
+const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'subject', 'parsed', 'prompt', 'canvas', 'negative', 'scenes', 'endStart', 'endStartAt', 'place', 'placeAt', 'storyStart', 'storyEnd', 'storyEnding', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
 
 /** Whether a floor has picture state of its own (a parse or a prompt), as opposed to nothing or only an error. */
 function hasFloorState(data) {
@@ -507,6 +535,7 @@ async function askParser(message, job, data, parserPrompt, target, modelMode) {
     const started = performance.now();
     assertMode(modelMode);
     const { parsed } = await requestParse(parserPrompt.system, parserPrompt.user, signal, {
+        minTokens: parserPrompt.minTokens,
         onReply: reply => {
             data.parserRaw = truncate(reply.content, 6000);
             data.parserReasoning = truncate(reply.reasoning, 4000);
@@ -732,9 +761,13 @@ async function runJob(message, job, options) {
             converted = true;
             data.parsed = built.parsed;
             data.prompt = built.prompt;
+            // 漫画模式: the canvas the layout's pixel boxes are for (fitted to the size it is drawn at, see below).
+            if (built.canvas) data.canvas = built.canvas;
+            else delete data.canvas;
             data.negative = buildNegativePrompt(target.preset, built.parsed, built.prompt);
-            // 多张图: the earlier parts of the floor (another time or place), drawn before the end in the floor.
-            const limit = sceneLimit(settings.parser);
+            // 多张图: the earlier parts of the floor (another time or place), drawn before the end in the floor. A
+            // comic page tells the whole floor in its panels.
+            const limit = isComicPreset(parserPrompt.preset) ? 0 : sceneLimit(settings.parser);
             const scenes = limit > 1 ? (parsed.earlierScenes ?? []).slice(0, limit - 1) : [];
             // Where pictures go: the paragraphs the parser named, as their words and share of the whole story.
             const paragraphs = storyParagraphs(message);
@@ -815,8 +848,12 @@ async function runJob(message, job, options) {
             // negative is built again so the parser's tags for this floor cannot work against the typed prompt.
             if (typeof options.negative === 'string') data.negative = options.negative;
             else if (!otherMode) data.negative = buildNegativePrompt(floorPreset(data), data.parsed, data.prompt);
-            // Sent exactly as typed, so it can be compared with the same text in ComfyUI.
+            // Sent exactly as typed, so it can be compared with the same text in ComfyUI (only a JSON layout's boxes
+            // are fitted when the size changes, see below).
             data.prompt = String(options.prompt ?? '');
+            const canvas = options.canvas;
+            if (canvas?.width > 0 && canvas?.height > 0) data.canvas = { width: Number(canvas.width), height: Number(canvas.height) };
+            else delete data.canvas;
             data.promptEdited = true;
             data.editOverrides = overrides ?? undefined;
             // The edited prompt is the end of the floor only: the earlier parts are not drawn again.
@@ -849,6 +886,13 @@ async function runJob(message, job, options) {
         const seed = ownSeed ?? (mode !== 'reroll' && fixedSeed >= 0 ? fixedSeed : randomSeed());
         if (plan.sizeFromPreset) data.debug.notes.push(`分辨率来自解析预设：${width}×${height}`);
         if (plan.aspectFromParser) data.debug.notes.push(`宽高比 ${plan.aspect} 由解析模型选择：${width}×${height}`);
+        // A JSON layout (漫画模式) is in pixels of the canvas it was written for: drawn at another size, it is scaled.
+        if (data.canvas) {
+            const fitted = fitLayout(data.prompt, data.canvas, { width, height });
+            if (fitted !== data.prompt) data.debug.notes.push(`JSON 版面的坐标从 ${data.canvas.width}×${data.canvas.height} 换算到了 ${width}×${height}`);
+            data.prompt = fitted;
+            data.canvas = { width, height };
+        }
         const values = workflowValues(plan, modelMode, { prompt: data.prompt, negative: data.negative, width, height, seed });
 
         const template = await getWorkflowTemplate(comfy, profile, modelMode);
@@ -959,14 +1003,14 @@ export async function dryRun(mesId, targetOverride) {
     const modelMode = currentMode();
     let target = resolveTarget(message, targetOverride);
     const parserPrompt = await buildParserPrompt(mesId, target);
-    const { reply, parsed: raw } = await requestParse(parserPrompt.system, parserPrompt.user);
+    const { reply, parsed: raw } = await requestParse(parserPrompt.system, parserPrompt.user, undefined, { minTokens: parserPrompt.minTokens });
     if (currentMode() !== modelMode) throw new Error('试运行期间切换了模型模式，结果已丢弃');
     const notes = [...parserPrompt.notes];
     const chosen = target;
     const { subject, sceneSubject } = raw.skip ? { subject: target, sceneSubject: () => target } : subjectsOf(chosen, raw, parserPrompt, message, notes);
     target = subject;
     const built = raw.skip ? { parsed: raw, prompt: '' } : promptFromParse(subjectPreset(target), raw, parserPrompt, notes, { nobody: !!target.nobody });
-    const limit = sceneLimit(getSettings().parser);
+    const limit = isComicPreset(parserPrompt.preset) ? 0 : sceneLimit(getSettings().parser);
     const scenes = raw.skip || limit < 2 ? [] : (raw.earlierScenes ?? []).slice(0, limit - 1).map((scene, index) => ({
         label: scene.label || `第 ${index + 1} 段`,
         prompt: scenePrompt(scene, sceneSubject(scene), target, built.parsed, parserPrompt).prompt,

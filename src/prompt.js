@@ -1,4 +1,5 @@
-import { ANIMA_NATURAL_TEMPLATE, ANIMA_NOBODY_LINE, BORDER_NEGATIVE, ANIMA_OTHERS_LINE, ANIMA_PROMPT_TEMPLATE, ANIMA_PROMPT_TEMPLATE_V1, ANIMA_SOLO_LINE, NOBODY_LINE, OTHERS_LINE, PARSED_FIELDS, SOLO_LINE } from './constants.js';
+import { comicLayout, isComicPreset, layoutText, readLayoutPrompt } from './comic.js';
+import { ANIMA_NATURAL_TEMPLATE, ANIMA_NOBODY_LINE, BORDER_NEGATIVE, ANIMA_OTHERS_LINE, ANIMA_PROMPT_TEMPLATE, ANIMA_PROMPT_TEMPLATE_V1, ANIMA_SOLO_LINE, MODEL_MOSS, NOBODY_LINE, OTHERS_LINE, PARSED_FIELDS, SOLO_LINE } from './constants.js';
 import { promptStyle } from './modes.js';
 import { fillTemplate, getSettings, resolveMacros } from './utils.js';
 
@@ -67,6 +68,19 @@ function templateFor(template, hasOthers, tags, nobody = false) {
 /** The mode's trigger words (comma / new line separated, macros resolved). */
 export function triggerWordList(text = getSettings().triggerWords) {
     return resolveMacros(String(text ?? '')).split(/[,，\n]/).map(word => word.trim()).filter(Boolean);
+}
+
+/**
+ * A MOSS-Image structural tag such as <|artist|>fkey<|/artist|>: a style LoRA's trigger that was trained as the
+ * prompt's first line, written tight (no spaces inside, no full stop), followed by a line break.
+ */
+export function isTriggerTag(word) {
+    return /^<\|[^|<>\s]+\|>[\s\S]*<\|\/[^|<>\s]+\|>$/.test(String(word ?? '').trim());
+}
+
+/** Trigger words that go into the text: in MOSS-Image without its structural tags (those get lines of their own). */
+function textTriggerWords(words = triggerWordList()) {
+    return promptStyle() === MODEL_MOSS ? words.filter(word => !isTriggerTag(word)) : words;
 }
 
 function escapeRegExp(text) {
@@ -253,16 +267,74 @@ export function officialTagOrder(text, { rating = '', count = null, character = 
     return [...lead, ...(count?.length ? count : counts), ...own, ...rest].join(', ');
 }
 
+/** A text without one word, and without the separators that are left over where it was. */
+function withoutWord(text, word) {
+    const pattern = new RegExp(`[ \\t]*${escapeRegExp(word)}[ \\t]*`, 'g');
+    const lines = text.split('\n');
+    return lines
+        .map(line => (line.includes(word)
+            ? line.replace(pattern, ' ').replace(/([,.;:])(?:\s*[,.;:])+/g, '$1').replace(/^[\s,.;:]+|[\s,;:]+$/g, '').replace(/ {2,}/g, ' ')
+            : line))
+        // A line that was only the word goes; blank lines that were there stay.
+        .filter((line, index) => line.trim() || !lines[index].trim())
+        .join('\n');
+}
+
 /**
- * Last step for every generated prompt: the mode's trigger words, Anima's tag order, then escaping if the mode
- * wants it.
+ * MOSS-Image's structural trigger tags, each on a line of its own at the very top of the prompt (taken out of the
+ * text wherever else it had them). A JSON layout prompt (漫画模式) keeps its layout as it is: the plain trigger
+ * words missing from it go at the start of its summary.
+ */
+function withTriggerTags(prompt, words) {
+    const tags = words.filter(isTriggerTag);
+    const plain = words.filter(word => !isTriggerTag(word));
+    const layout = readLayoutPrompt(prompt);
+    if (layout) {
+        const head = tags.reduce((text, tag) => withoutWord(text, tag), layout.head).trim();
+        const missing = plain.filter(word => !containsWord(prompt, word));
+        const summary = layout.layout.summary;
+        if (missing.length) summary.caption = [missing.join(', '), String(summary.caption ?? '')].filter(Boolean).join(' ');
+        const body = missing.length ? layoutText(layout.layout) : String(prompt).slice(layout.head.length).trim();
+        return [...tags, head, body].filter(Boolean).join('\n');
+    }
+    const text = withTriggerWords(tags.reduce(withoutWord, String(prompt ?? '').trim()), plain);
+    return [...tags, text].filter(Boolean).join('\n');
+}
+
+/**
+ * Last step for every generated prompt: the mode's trigger words (MOSS-Image's structural tags as the first lines),
+ * Anima's tag order, then escaping if the mode wants it (not in a JSON layout, which would stop being one).
  * @param {{ rating?: string, count?: string[]|null, character?: string[] }} [order] see officialTagOrder
  */
 export function finishPrompt(prompt, order = {}) {
     const settings = getSettings();
-    let text = withTriggerWords(prompt, triggerWordList(settings.triggerWords));
+    const words = triggerWordList(settings.triggerWords);
+    if (promptStyle() === MODEL_MOSS) {
+        const text = withTriggerTags(prompt, words);
+        return settings.escapeParens && !readLayoutPrompt(text) ? escapeParens(text) : text;
+    }
+    let text = withTriggerWords(prompt, words);
     if (promptStyle() === 'anima') text = officialTagOrder(text, order);
     return settings.escapeParens ? escapeParens(text) : text;
+}
+
+/**
+ * 漫画模式: the page the parser laid out, as MOSS-Image's JSON layout for the canvas it is drawn on. Its summary
+ * starts with the plain trigger words (the mode's and the character LoRA's) and the style prefixes, then the page's
+ * description (a one-panel page's panel too), and ends with the suffix; structural tags go on the first line.
+ */
+function buildComicPrompt(preset, page, { parserPreset, canvas }) {
+    const settings = getSettings();
+    const words = [...textTriggerWords(), resolveMacros(preset?.trigger || '')].filter(Boolean).join(', ');
+    const prefix = [settings.prefix, parserPreset?.prefix].map(text => resolveMacros(text || '')).filter(Boolean).join(' ');
+    const parts = [
+        [words, prefix].filter(Boolean).join(' '),
+        page.caption,
+        page.panels.length === 1 ? page.panels[0].caption : '',
+        resolveMacros(settings.suffix || ''),
+    ].map(text => cleanLine(String(text || ''))).filter(Boolean);
+    const caption = joinParts(parts, false);
+    return finishPrompt(layoutText(comicLayout(page, { width: canvas.width, height: canvas.height, caption })));
 }
 
 /**
@@ -270,14 +342,17 @@ export function finishPrompt(prompt, order = {}) {
  * - "fixed" mode: the character preset's appearance plus the parsed fields, through the assembly template.
  *   A template line whose placeholders are all empty is dropped, so missing fields leave no dangling labels.
  * - "ai" mode: the parser's own `prompt`, with the LoRA trigger and style prefixes around it.
+ * - 漫画模式 (a comic parser preset with the parser's `page`): MOSS-Image's JSON layout of the page for `canvas`.
  * Either way the mode's trigger words are added (see finishPrompt). Anima joins the parts as tags, in the order its
  * model card recommends (officialTagOrder), with the parser's safety rating and everyone's count tags.
  * Other people (`others`) are only used when the parser preset allows them.
  * @param {object|null} preset Character preset
  * @param {object} parsed Parser output
- * @param {{ parserPreset?: object, mode?: 'fixed'|'ai', nobody?: boolean }} [options] nobody: only the scenery (画谁不在画面里)
+ * @param {{ parserPreset?: object, mode?: 'fixed'|'ai', nobody?: boolean, canvas?: { width: number, height: number } }} [options]
+ *   nobody: only the scenery (画谁不在画面里); canvas: the size a comic page is drawn at
  */
-export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = 'fixed', nobody = false } = {}) {
+export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = 'fixed', nobody = false, canvas = null } = {}) {
+    if (isComicPreset(parserPreset) && parsed?.page && canvas) return buildComicPrompt(preset, parsed.page, { parserPreset, canvas });
     const settings = getSettings();
     // Anima writes tags, unless its "英文自然语言" switch is on: then sentences, like Krea 2.
     const style = promptStyle();
@@ -306,8 +381,8 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
     }
 
     const vars = {
-        // The mode's trigger words first, then the character LoRA's.
-        trigger: [...triggerWordList(settings.triggerWords), character].filter(Boolean).join(', '),
+        // The mode's trigger words first, then the character LoRA's (MOSS-Image's structural tags: see finishPrompt).
+        trigger: [...textTriggerWords(triggerWordList(settings.triggerWords)), character].filter(Boolean).join(', '),
         prefix,
         suffix: resolveMacros(settings.suffix || ''),
         appearance: resolveMacros(preset?.appearance || ''),

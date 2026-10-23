@@ -20,8 +20,8 @@ export function promptMode() {
     return getSettings().promptMode === 'ai' ? 'ai' : 'fixed';
 }
 
-export function outputRules(mode, allowOthers = false, negative = false, aspect = null, scenes = 0, place = false, absent = null) {
-    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers, promptStyle(), negative, aspect, scenes, place, absent);
+export function outputRules(mode, allowOthers = false, negative = false, aspect = null, scenes = 0, place = false, absent = null, comic = null) {
+    return buildOutputRules(mode === 'ai' ? 'ai' : 'fixed', allowOthers, promptStyle(), negative, aspect, scenes, place, absent, comic);
 }
 
 /** Just the extra fields' rules (negative, aspect, earlier scenes, place, absent target), for custom system prompts that keep their own format. */

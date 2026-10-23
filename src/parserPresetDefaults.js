@@ -215,6 +215,56 @@ function animaRules(model, mode) {
 /** Only with 图片插在正文中间: the sentence the (end of the floor) picture is put after, copied from the text. */
 const PLACE_RULE = '图在正文里的位置：再写 place：这张图插在【当前楼层】第几段后面。【当前楼层】每一段前面有编号 [1]、[2]……，写那一段的编号数字（例如 3），通常就是画面时刻所在的那一段，一定要写一个编号，不能写 0 或留空。图会插在那一段后面。';
 
+const COMIC_PLACE_RULE = '图在正文里的位置：再写 place：这一页漫画插在【当前楼层】第几段后面。【当前楼层】每一段前面有编号 [1]、[2]……，写那一段的编号数字（例如 3），通常是最后一格画的那一段，一定要写一个编号，不能写 0 或留空。';
+
+const APPEARANCE_COMIC = '外貌：【角色设定】是目标角色的固定外貌：画到 ta 的每一格，characters 里 ta 那一项都要完整、准确地写上（翻译成英文），不能遗漏或改动；【可能同框的其他角色】里给了外貌的人也照着写。';
+
+/** 画谁不在画面里 in 漫画模式: someone else (or nobody) leads the page instead. */
+function comicAbsentRules(auto) {
+    const who = auto ? '候选角色都不在当前楼层的画面里' : '【目标角色】不在当前楼层的画面里（例如已经离开，或者这一段只写了别的人物）';
+    return `画谁不在画面里（这一条优先于上面「目标角色不在场就输出 skip」的要求）：
+- ${who}时，不要输出 skip，改让这一楼画面里的主要人物当主角："absent": true，target 写这个人的名字（【可能同框的其他角色】或候选角色里有的照原样写，没有就写正文里对 ta 的称呼），looks 写 ta 的外貌（英文短语）
+- 画面里一个人都没有（只有风景、建筑、物品）时："absent": true，target 写 ""，格子里只画场景和物品
+- ${auto ? '选中了候选角色' : '目标角色在画面里'}时 absent 写 false，照常画
+- 只有当前楼层完全没有可以画面化的内容（例如系统提示、纯说明文字）才输出 skip`;
+}
+
+/**
+ * 漫画模式 (MOSS-Image): the floor as one comic page, laid out by the parser in `page`: panels in reading order,
+ * the people in each and the story's lines in speech bubbles, every box as percentages of the page. The extension
+ * turns it into MOSS-Image's JSON layout (comic.js).
+ * @param {{ panels: number, dialogue: boolean }} comic panels: per page at most; dialogue: speech bubbles or no text
+ */
+function comicRules(comic) {
+    const panels = comic.panels > 1 ? `1–${comic.panels} 格` : '1 格（整页一个画面）';
+    const texts = comic.dialogue
+        ? `- texts：这一格里的文字，最多 3 个，每个一项：text 是要画出来的字；caption 用英文说明它是什么框、什么样、在哪（例如 "Clean horizontal Chinese dialogue text in a white speech bubble next to the girl's head."）；box 是它在整页上的位置，放在说话的人旁边，不要盖住脸。对白用正文里人物说的原话（原文的语言，不要翻译），太长就删减，一个对话框最多 20 个字；需要旁白就写进方形的旁白框，也要短；可以有拟声词。文字横排，要换行时在 text 里写 \\n。没有文字的格子写 []`
+        : '- texts：这一页不画任何文字（没有对话框、旁白、拟声词），每一格都写 []，caption 里也不要要求画文字';
+    return `漫画分镜（这一楼画成一页${comic.dialogue ? '带对白的' : ''}彩色漫画，写在 page 里）：
+- 格数：按剧情分 ${panels}。只有一个瞬间就少分几格；有几个连续的动作、几轮对话，就按时间顺序多分几格。每一格画一个瞬间，最后一格是【当前楼层】结束时的那一刻；pending 里还没做的事不能画
+- now_doing、now_wearing 写最后一格那一刻；前面的格子按各自那一刻画（这一楼里换了衣服，换之前的格子还穿原来的）
+- 排版：从上到下、从左到右阅读。格子铺满整页，格子之间只留很窄的间隙；可以有横跨整行的大格，也可以一行并排两三格。镜头要有变化：远景交代地点，中景、近景表现动作和对话，特写表现情绪
+- page.caption：整页的英文描述，最多 80 个词：几格、怎么排，这一页讲的事、出场的人、地点、时间、情绪、色调和光线${comic.dialogue ? '，以及文字的样子（例如 crisp Chinese dialogue text in clean white speech bubbles）' : ''}
+- panels：每一格一项，按阅读顺序：box 是这一格在整页上的位置；caption 是这一格的英文描述，最多 40 个词：景别和机位、谁在做什么、背景、光线
+- characters：这一格里看得见的每个人一项（最多 3 个）：box 是这个人在整页上的位置（在这一格里面）；caption 是英文，最多 60 个词：外貌、此刻的穿着、动作姿势、表情。同一个人每次出现都要写外貌和穿着，而且前后一致；没有人的格子写 []
+${texts}
+- outfit：目标角色在最后一格的穿着（英文），和格子里写的一致
+- 位置：box 一律写 [上, 左, 下, 右]，是整页高度和宽度的百分比（0–100，左上角 0, 0，右下角 100, 100）。例如上半页一整格是 [0, 0, 50, 100]，右下四分之一是 [50, 50, 100, 100]。程序会换算成 MOSS-Image 的像素坐标
+- 英文描述里不要写人名（用 the girl、the young man 这类称呼），也不要写画风词（画风由画风前缀和 LoRA 负责）`;
+}
+
+function comicFormat(comic, negative, aspect, place, absent) {
+    const texts = comic.dialogue ? '[{"box": [2, 62, 12, 97], "text": "", "caption": ""}]' : '[]';
+    const fields = [
+        '"skip": false', '"target": "目标角色名"', ...(absent ? ['"absent": false', '"looks": ""'] : []), '"now_doing": ""', '"now_wearing": ""', '"pending": ""', '"outfit": ""',
+        `"page": {"caption": "", "panels": [{"box": [0, 0, 50, 100], "caption": "", "characters": [{"box": [8, 20, 50, 75], "caption": ""}], "texts": ${texts}}]}`,
+    ];
+    if (negative) fields.push('"negative": ""');
+    if (aspect) fields.push(`"aspect": "${aspect.fallback}"`);
+    if (place) fields.push('"place": 0');
+    return `输出格式：\n{${fields.join(', ')}}`;
+}
+
 /**
  * For a custom system prompt without {{output_rules}} that keeps its own output format: only the rules of the
  * extra fields asked for (negative, aspect, earlier scenes), plus the fields to add to that format.
@@ -265,9 +315,23 @@ function outputFormat(mode, allowOthers, negative = false, aspect = null, scenes
  * - scenes: with 多张图, pictures per floor at most (field `earlier_scenes`); 0 = one picture.
  * - place: with 图片插在正文中间, the sentence each picture goes after (field `place`).
  * - absent: with 画谁不在画面里, { auto } — who to draw when the target is not in the scene (fields absent, looks).
+ * - comic: 漫画模式 (MOSS-Image), { panels, dialogue } — the floor as one comic page (field `page`) instead of the
+ *   picture fields; no earlier scenes.
  * Anima (tags or sentences) also gets its official tag order and writes each picture's safety tag (field `rating`).
  */
-export function buildOutputRules(mode, allowOthers = false, model = 'krea2', negative = false, aspect = null, scenes = 0, place = false, absent = null) {
+export function buildOutputRules(mode, allowOthers = false, model = 'krea2', negative = false, aspect = null, scenes = 0, place = false, absent = null, comic = null) {
+    if (comic) {
+        return [
+            TIMELINE_RULES,
+            APPEARANCE_COMIC,
+            absent ? comicAbsentRules(absent.auto) : '',
+            comicRules(comic),
+            negative ? negativeRules(model) : '',
+            aspect ? aspectRules(aspect) : '',
+            place ? COMIC_PLACE_RULE : '',
+            comicFormat(comic, negative, aspect, place, absent),
+        ].filter(Boolean).join('\n\n');
+    }
     const anima = String(model).startsWith('anima');
     return [
         TIMELINE_RULES,
@@ -478,6 +542,26 @@ function novelSystem(model) {
 {{output_rules}}`;
 }
 
+/** 漫画模式 (MOSS-Image): the floor as one comic page; the page's rules come with {{output_rules}} (comicRules). */
+function comicSystem() {
+    return `你是一名专业的漫画分镜师，也是 AI 绘图提示词工程师，为文生图模型 MOSS-Image 设计漫画页。MOSS-Image 能按 JSON 版面画多格彩色漫画：每一格、每个人物、每个文字框都可以指定位置和英文描述，文字框里的字（中文也可以）会照原样画出来。
+
+任务：读懂剧情，把【当前楼层】这一段画成一页漫画，以【目标角色】为主角，按下面「漫画分镜」的要求写好每一格，输出一个 JSON 对象。
+
+要点：
+- 只画正文真正写到的事，按时间顺序分格；挑最重要的动作、表情和对白，平淡的过场可以省略
+- 目标角色是主角，大多数格子里都有 ta；和 ta 在同一幕里的人也可以画进格子
+- 同一个人在每一格里的长相、发型、穿着都要一致；格子之间、字段之间不能矛盾
+- 剧情没写明的部分，参考【上一次状态】和【之前的配图输出】保持连贯（尤其衣服：没有换装情节就不变）；之前的输出只用来保持连贯，不要照抄与当前剧情不符的内容
+- 【用户画图指令】是用户直接指定的画面内容，优先级最高：必须画进格子里，不能被剧情覆盖或忽略
+- 不要比喻；英文描述里不要写人名、不要写剧情的楼层编号（#12、第 12 楼这类）、不要写画风词（画风由画风前缀和 LoRA 负责）
+- 当前楼层里目标角色不在场，或者没有任何可以画面化的内容，输出 {"skip": true, "reason": "原因"}；有【用户画图指令】时不要输出 skip
+
+只输出 JSON 本身，不要解释，不要 markdown 代码块。
+
+{{output_rules}}`;
+}
+
 /**
  * @typedef {Object} ParserPreset
  * @property {string} id
@@ -489,6 +573,9 @@ function novelSystem(model) {
  * @property {number} width Resolution override (0 = global setting)
  * @property {number} height
  * @property {boolean} [allowOthers] Other people in the scene may be drawn too (field `others`)
+ * @property {boolean} [comic] 漫画模式 (MOSS-Image): the floor as one comic page (see comic.js)
+ * @property {number} [panels] Comic: panels per page at most (1–6)
+ * @property {boolean} [dialogue] Comic: the story's lines in speech bubbles (off: no text in the picture)
  */
 
 function makeBuiltins(model) {
@@ -497,6 +584,11 @@ function makeBuiltins(model) {
         { id: 'story', name: '剧情状态（默认）', system: storySystem(model), user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: '', width: 0, height: 0, allowOthers: true },
         { id: 'sprite', name: '立绘模式', system: spriteSystem(model), user: PARSER_USER_TEMPLATE, fixedFields: anima ? SPRITE_FIXED_ANIMA : SPRITE_FIXED, prefix: '', width: 0, height: 0, allowOthers: false },
         { id: 'novel', name: '小说插画模式', system: novelSystem(model), user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: anima ? 'illustration, cinematic composition' : 'A narrative story illustration with cinematic composition.', width: 0, height: 0, allowOthers: false },
+        // MOSS-Image draws JSON layouts (panels, speech bubbles with the words in them). 848×1200: about 1 MP, the
+        // FKEY comic LoRA's main training size.
+        ...(model === 'moss'
+            ? [{ id: 'comic', name: '漫画模式', system: comicSystem(), user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: '', width: 848, height: 1200, allowOthers: true, comic: true, panels: 4, dialogue: true }]
+            : []),
     ];
 }
 

@@ -3,6 +3,10 @@ import {
     ANIMA_NEGATIVE,
     ANIMA_TURBO,
     EXTRA_KEY,
+    FKEY_NEGATIVE,
+    FKEY_PREFIX,
+    FKEY_SETTINGS,
+    FKEY_TRIGGER,
     MODEL_ANIMA,
     MODEL_KREA2,
     MODEL_MODES,
@@ -65,7 +69,7 @@ const MODE_TEXT = {
         official: '恢复为官方 MOSS-Image 模板的设置',
         negativePlaceholder: MOSS_NEGATIVE,
         negativeHint: 'MOSS-Image 用真正的反向提示词（CFG 2.5）；默认是官方模板推荐的那一段。它以 nsfw 开头，会让模型避开成人内容，要画这类画面就把 nsfw 删掉。',
-        triggerPlaceholder: '例：LoRA 触发词（留空 = 不加）',
+        triggerPlaceholder: '例：<|artist|>fkey<|/artist|> 或 LoRA 触发词（留空 = 不加）',
     },
 };
 
@@ -855,7 +859,7 @@ const OFFICIAL = {
         done: '已恢复为官方 Anima 模板的设置',
     },
     [MODEL_MOSS]: {
-        question: '恢复为 ComfyUI 官方 MOSS-Image 模板的设置？<br>内置工作流、官方模型文件（moss_image_sft_int8_convrot、qwen3.5_9b_w4a8_gptq、flux2-vae_small）、不用风格 LoRA、1024×1024、25 步、CFG 2.5、er_sde / simple、关闭跳层引导、随机种子，反向提示词换成官方模板推荐的那一段（以 nsfw 开头）。',
+        question: '恢复为 ComfyUI 官方 MOSS-Image 模板的设置？<br>内置工作流、官方模型文件（moss_image_sft_int8_convrot、qwen3.5_9b_w4a8_gptq、flux2-vae_small）、不用风格 LoRA、1024×1024、25 步、CFG 2.5、er_sde / simple、关闭跳层引导、随机种子，反向提示词换成官方模板推荐的那一段（以 nsfw 开头）；用过 FKEY 漫画画风 LoRA 的话，它的触发词和画风前缀也去掉。',
         comfy: OFFICIAL_MOSS,
         negative: MOSS_NEGATIVE,
         done: '已恢复为官方 MOSS-Image 模板的设置',
@@ -873,6 +877,11 @@ async function resetToOfficial() {
     const settings = getSettings();
     Object.assign(settings.comfy, structuredClone(official.comfy));
     if (official.negative) settings.negativePrompt = official.negative;
+    // Without its LoRA, FKEY's trigger tag and style phrase would only be noise.
+    if (mode === MODEL_MOSS) {
+        if (String(settings.triggerWords ?? '').includes(FKEY_TRIGGER)) settings.triggerWords = withoutFkeyTrigger(settings.triggerWords);
+        if (String(settings.prefix ?? '').trim() === FKEY_PREFIX) settings.prefix = '';
+    }
     saveSettings();
     refreshComfyUi();
     toastr.success(official.done);
@@ -902,6 +911,31 @@ async function useMossQuality() {
     saveSettings();
     refreshComfyUi();
     toastr.success('已改用 OpenMOSS 官方推荐：50 步、CFG 3、跳层引导');
+}
+
+/** The trigger words without FKEY's tag (as the user wrote them otherwise). */
+function withoutFkeyTrigger(text) {
+    return String(text ?? '').split(/[,，\n]/).map(word => word.trim()).filter(word => word && word !== FKEY_TRIGGER).join(', ');
+}
+
+/**
+ * MOSS-Image's FKEY comic style LoRA, as its card recommends: the LoRA (0.6), Euler / sgm_uniform, 25 steps, CFG 3,
+ * its trigger tag (first line, see finishPrompt), its style phrase as the style prefix and its sectioned negative.
+ */
+async function useFkeyStyle() {
+    const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
+    const confirmed = await callGenericPopup(
+        `改用 FKEY 漫画画风 LoRA？<br>风格 LoRA 换成 ${escapeHtml(FKEY_SETTINGS.lora)}（强度 ${FKEY_SETTINGS.loraStrength}）、${FKEY_SETTINGS.steps} 步、CFG ${FKEY_SETTINGS.cfg}、euler / sgm_uniform、关闭跳层引导；触发词加上 <code>${escapeHtml(FKEY_TRIGGER)}</code>（自动单独放在提示词第一行）；「画风 / 质量前缀」换成它推荐的画风描述（关键是 contrasted against … gouache brushwork 这一句）；反向提示词换成它推荐的分段写法（不含 nsfw）。<br>要先把这个 LoRA 下载到 ComfyUI 的 models/loras。配合「配图风格」里的「漫画模式」画多格漫画。想换回来点「恢复为官方 MOSS-Image 模板的设置」。`,
+        POPUP_TYPE.CONFIRM);
+    if (confirmed !== POPUP_RESULT.AFFIRMATIVE || currentMode() !== MODEL_MOSS) return;
+    const settings = getSettings();
+    Object.assign(settings.comfy, structuredClone(FKEY_SETTINGS));
+    settings.triggerWords = [FKEY_TRIGGER, withoutFkeyTrigger(settings.triggerWords)].filter(Boolean).join(', ');
+    settings.prefix = FKEY_PREFIX;
+    settings.negativePrompt = FKEY_NEGATIVE;
+    saveSettings();
+    refreshComfyUi();
+    toastr.success(`已改用 FKEY 漫画画风 LoRA：强度 ${FKEY_SETTINGS.loraStrength}、${FKEY_SETTINGS.steps} 步、CFG ${FKEY_SETTINGS.cfg}`);
 }
 
 async function loadBuiltinIntoEditor() {
@@ -1250,6 +1284,7 @@ export async function initSettingsUi() {
     $('#ctp_reset_official').on('click', resetToOfficial);
     $('#ctp_anima_turbo').on('click', useAnimaTurbo);
     $('#ctp_moss_quality').on('click', useMossQuality);
+    $('#ctp_moss_fkey').on('click', useFkeyStyle);
     $('#ctp_reset_all').on('click', resetAllSettings);
     $('#ctp_debug_chat').on('click', showChatDebug);
     $('#ctp_debug_preview, #ctp_debug_preview_top').on('click', showParserPreview);

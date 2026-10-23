@@ -1,4 +1,5 @@
-import { PARSED_FIELDS, STATE_FIELDS } from './constants.js';
+import { comicPanels, isComicPreset, readComicPage } from './comic.js';
+import { MODEL_MOSS, PARSED_FIELDS, STATE_FIELDS } from './constants.js';
 import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
 import { currentMode, floorMode, imageMode, modeLabel, promptStyle } from './modes.js';
@@ -6,7 +7,7 @@ import { NATURAL_STYLE_RULE } from './parserPresetDefaults.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
 import { ASPECT_RATIOS, parseAspect, parserPicksAspect } from './resolution.js';
 import { describeThinking, profileThinking, thinkingBody, thinkingMaxTokens } from './thinking.js';
-import { triggerWordList } from './prompt.js';
+import { isTriggerTag, triggerWordList } from './prompt.js';
 import { findStatusBar, withoutStatusBar } from './statusBar.js';
 import { findUserPreset, presetForName, presetName, presetsMentioned } from './targets.js';
 import {
@@ -23,6 +24,9 @@ import {
     warn,
     withTimeout,
 } from './utils.js';
+
+/** The parser's output limit for a comic page at least (when 「最大输出」 is set lower). */
+const COMIC_MIN_TOKENS = 4096;
 
 /** The tag name of 「只读取标签里的正文」, without brackets (default game). */
 export function storyTagName(parser = getSettings().parser) {
@@ -218,7 +222,10 @@ function formatOutputs(records, includePrompt) {
         for (const field of [...STATE_FIELDS, ...PARSED_FIELDS]) {
             if (data.parsed[field]) lines.push(`${field}: ${data.parsed[field]}`);
         }
-        if (includePrompt) {
+        // 漫画模式: the page's description stands for its JSON layout (boxes and all).
+        const page = data.parsed.page;
+        if (page?.caption) lines.push(`漫画（${page.panels?.length ?? 0} 格）: ${truncate(page.caption, 600)}`);
+        if (includePrompt && !page) {
             // The selected version may be an older picture of the other mode (its prompt is for another model).
             const selected = data.images?.[currentIndex(data)];
             const image = selected && imageMode(selected) === currentMode() ? selected : null;
@@ -245,14 +252,14 @@ export function outfitBlock(preset, name = '') {
 ${lines.map(line => `- ${line}`).join('\n')}`;
 }
 
-function referenceBlock(target, mode) {
+function referenceBlock(target, mode, comic = false) {
     const settings = getSettings();
     const blocks = [];
     if (target.auto) {
         for (const name of target.candidates) {
             const preset = presetForName(name);
             if (preset?.appearance) {
-                const label = mode === 'ai' ? '角色设定（选中此人时必须完整写进 prompt）' : '固定外貌（仅供识别，不要输出）';
+                const label = comic ? '角色设定（选中此人时，画到 ta 的每一格都要完整写上）' : mode === 'ai' ? '角色设定（选中此人时必须完整写进 prompt）' : '固定外貌（仅供识别，不要输出）';
                 blocks.push(`【${name} 的${label}】\n${resolveMacros(preset.appearance)}`);
             }
             const outfits = outfitBlock(preset, name);
@@ -262,7 +269,7 @@ function referenceBlock(target, mode) {
     }
 
     if (target.preset?.appearance) {
-        const label = mode === 'ai' ? '角色设定（固定外貌，必须完整写进 prompt）' : '固定外貌（已由用户设定，仅供理解，不要输出）';
+        const label = comic ? '角色设定（固定外貌，画到 ta 的每一格都要完整写上）' : mode === 'ai' ? '角色设定（固定外貌，必须完整写进 prompt）' : '固定外貌（已由用户设定，仅供理解，不要输出）';
         blocks.push(`【${label}】\n${resolveMacros(target.preset.appearance)}`);
     }
     const outfits = outfitBlock(target.preset);
@@ -360,17 +367,23 @@ export async function worldInfoBlock(mesId) {
 /**
  * Tells the parser about the mode's trigger words. They are added to every prompt by the extension anyway (see
  * finishPrompt); when the AI writes the whole prompt it is asked to start with them, except in Anima, where they
- * take the artist's place of the official tag order.
+ * take the artist's place of the official tag order, MOSS-Image's structural tags (always the first line, added by
+ * the extension) and 漫画模式 (they go into the page's summary).
  */
-function triggerWordsRule(mode) {
+function triggerWordsRule(mode, comic = false) {
     const words = triggerWordList();
     if (!words.length) return '';
     const list = words.join(', ');
     if (String(promptStyle()).startsWith('anima')) {
         return `触发词：${list}。程序会把它们放在 Anima 官方顺序里画师的位置（人数和角色之后、其他标签之前），${mode === 'ai' ? 'prompt' : '字段'}里不用写。`;
     }
+    const tags = promptStyle() === MODEL_MOSS ? words.filter(isTriggerTag) : [];
+    const plain = words.filter(word => !tags.includes(word));
+    const tagNote = tags.length ? `${tags.join('、')} 由程序单独放在提示词的第一行，你不要写。` : '';
+    if (comic) return `触发词：${list}。程序会把它们加进提示词，page 里不用写。`;
+    if (!plain.length) return `触发词：${tagNote}`;
     return mode === 'ai'
-        ? `触发词：最终提示词必须带上这些触发词：${list}。把它们原样写在 prompt 的最前面（不翻译、不改写、不加括号或权重），每次都要写。`
+        ? `触发词：最终提示词必须带上这些触发词：${plain.join(', ')}。把它们原样写在 prompt 的最前面（不翻译、不改写、不加括号或权重），每次都要写。${tagNote}`
         : `触发词：最终提示词的开头会自动加上这些触发词：${list}。它们由程序添加，你的字段里不用再写。`;
 }
 
@@ -416,13 +429,15 @@ function focusBlock(focus) {
 export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     const settings = getSettings();
     const preset = activeParserPreset();
-    const mode = promptMode();
+    // 漫画模式: the parser lays out a whole comic page (the people's looks included) instead of picture fields.
+    const comic = isComicPreset(preset) ? { panels: comicPanels(preset), dialogue: preset.dialogue !== false } : null;
+    const mode = comic ? 'ai' : promptMode();
     const allowOthers = !!preset.allowOthers;
     // The parser writes the picture's negative prompt too (Anima: a real negative prompt at CFG 4).
     const negative = !!settings.parserNegative;
     // 多张图: earlier parts of the floor (another time or place) get pictures of their own. One part written
     // again keeps its place and size, so neither the parts nor the place and aspect are asked for then.
-    const scenes = focus ? 0 : sceneLimit(settings.parser);
+    const scenes = focus || comic ? 0 : sceneLimit(settings.parser);
     // 图片插在正文中间: the parser picks the sentence each picture goes after.
     const place = !focus && !!settings.placeInStory;
     // 画谁不在画面里: who to draw when the target is not in the scene, instead of skipping (not for sprites,
@@ -458,9 +473,9 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
 
     const vars = {
         target: target.auto ? '（由你从候选角色中选择）' : target.name,
-        appearance: [referenceBlock(target, mode), allowOthers || absent ? othersReference(mesId, target, !!absent) : ''].filter(Boolean).join('\n'),
+        appearance: [referenceBlock(target, mode, !!comic), allowOthers || absent ? othersReference(mesId, target, !!absent) : ''].filter(Boolean).join('\n'),
         fixed_fields: fixedFieldsBlock(preset),
-        output_rules: outputRules(mode, allowOthers, negative, aspect, scenes, place, absent),
+        output_rules: outputRules(mode, allowOthers, negative, aspect, scenes, place, absent, comic),
         candidates,
         last_state: target.auto ? '（自动模式下不提供）' : formatState(lastState, shownFloors),
         prev_outputs: prevOutputs,
@@ -495,7 +510,10 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     // Only extra fields are asked for: such a prompt keeps its own format and just gets those fields.
     else if ((negative || aspect || scenes || place || absent) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += `\n\n${extraFieldRules(negative, aspect, scenes, place, absent)}`;
 
-    const triggerRule = triggerWordsRule(mode);
+    const triggerRule = triggerWordsRule(mode, !!comic);
+    // A comic page (every panel, person and speech bubble described) is a long answer.
+    const minTokens = comic ? COMIC_MIN_TOKENS : 0;
+    const raised = minTokens > (Number(settings.parser.maxTokens) || 2048);
     // Anima in natural-language mode: the presets were written for tags, so this rule overrides them.
     const natural = promptStyle() === 'anima-natural';
     return {
@@ -504,8 +522,9 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
         preset,
         mode,
         absent: !!absent,
+        minTokens,
         notes: [
-            `${modeLabel()} 模式 · 解析预设：${preset.name} · ${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`,
+            `${modeLabel()} 模式 · 解析预设：${preset.name} · ${comic ? `漫画：AI 画整页分镜（最多 ${comic.panels} 格，${comic.dialogue ? '带对白' : '不画文字'}）` : `${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`}`,
             triggerRule ? `触发词：${triggerWordList().join(', ')}` : '',
             natural ? '英文自然语言写法' : '',
             settings.parser.hideCharName ? `隐藏了角色卡的名字（AI 的消息标成「${HIDDEN_CHAR_LABEL}」）` : '',
@@ -515,6 +534,8 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
             negative ? '解析模型补充反向提示词' : '',
             aspect ? '解析模型选择宽高比' : '',
             scenes ? `多张图：正文换了时间或地点时最多画 ${scenes} 张` : '',
+            comic && !focus && sceneLimit(settings.parser) ? '漫画模式一楼画一页（分格），不分成多张图' : '',
+            raised ? `漫画的输出比较长：这次的最大输出用 ${minTokens}（设置里是 ${Number(settings.parser.maxTokens) || 2048}）` : '',
             place ? '图片插在正文中间：由解析模型选位置' : '',
             absent ? '画谁不在画面里时，改画在场的人或场景' : '',
             focus ? `只重新解析「${focus.label}」这一张` : '',
@@ -571,8 +592,7 @@ function readCompletion(json) {
  */
 
 /** @returns {Promise<ParserReply>} */
-async function callCustom(system, user, signal) {
-    const { parser } = getSettings();
+async function callCustom(system, user, signal, parser = getSettings().parser) {
     const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
     const url = parser.customUrl.trim().replace(/\/+$/, '');
     if (!url) throw settingsError('未填写解析模型的 API 地址');
@@ -622,8 +642,7 @@ async function callCustom(system, user, signal) {
 }
 
 /** @returns {Promise<ParserReply>} */
-async function callProfile(system, user, signal) {
-    const { parser } = getSettings();
+async function callProfile(system, user, signal, parser = getSettings().parser) {
     const service = ctx().ConnectionManagerRequestService;
     if (!service) throw settingsError('当前酒馆版本没有 Connection Manager 接口，请改用「独立 API」');
     if (!parser.profileId) throw settingsError('未选择连接配置');
@@ -640,8 +659,7 @@ async function callProfile(system, user, signal) {
 }
 
 /** @returns {Promise<ParserReply>} */
-async function callMain(system, user, signal) {
-    const { parser } = getSettings();
+async function callMain(system, user, signal, parser = getSettings().parser) {
     const { generateRaw } = ctx();
     const maxTokens = Number(parser.maxTokens) || 2048;
     const request = generateRaw.length > 1
@@ -671,19 +689,22 @@ export function parserLabel() {
 
 /**
  * Calls the parser model.
+ * @param {{ minTokens?: number }} [options] minTokens: the output limit for this request when the setting is lower
+ *   (a comic page is a long answer)
  * @returns {Promise<ParserReply>}
  */
-export async function callParser(system, user, parentSignal) {
-    const { parser } = getSettings();
+export async function callParser(system, user, parentSignal, { minTokens = 0 } = {}) {
+    const settings = getSettings().parser;
+    const parser = minTokens > (Number(settings.maxTokens) || 2048) ? { ...settings, maxTokens: minTokens } : settings;
     const { signal, dispose } = withTimeout(parentSignal, Number(parser.timeoutSec) || 0);
     try {
         switch (parser.source) {
             case 'profile':
-                return await callProfile(system, user, signal);
+                return await callProfile(system, user, signal, parser);
             case 'main':
-                return await callMain(system, user, signal);
+                return await callMain(system, user, signal, parser);
             default:
-                return await callCustom(system, user, signal);
+                return await callCustom(system, user, signal, parser);
         }
     } catch (error) {
         if (signal.aborted && signal.reason instanceof Error) {
@@ -701,15 +722,16 @@ export async function callParser(system, user, parentSignal) {
  * Calls the parser and parses its reply, retrying what a retry can fix: provider errors (some APIs reject an
  * identical request now and then, e.g. "Invalid API parameter", 429, 502) and replies without usable JSON.
  * Cancelling, timeouts, wrong settings and replies cut off by the output limit fail at once.
- * @param {{ onReply?: (reply: ParserReply) => void, onRetry?: (attempt: number, max: number, error: Error) => void }} [hooks]
+ * @param {{ onReply?: (reply: ParserReply) => void, onRetry?: (attempt: number, max: number, error: Error) => void, minTokens?: number }} [hooks]
+ *   minTokens: see callParser
  * @returns {Promise<{ reply: ParserReply, parsed: ReturnType<typeof parseParserOutput>, retried: number }>}
  */
-export async function requestParse(system, user, signal, { onReply, onRetry } = {}) {
+export async function requestParse(system, user, signal, { onReply, onRetry, minTokens = 0 } = {}) {
     const retries = Math.max(0, Math.min(5, Math.trunc(Number(getSettings().parser.retries) || 0)));
     for (let attempt = 0; ; attempt++) {
         let reply = null;
         try {
-            reply = await callParser(system, user, signal);
+            reply = await callParser(system, user, signal, { minTokens });
             onReply?.(reply);
             return { reply, parsed: parseParserReply(reply), retried: attempt };
         } catch (error) {
@@ -865,7 +887,10 @@ export function parseParserOutput(raw) {
     // Only with 画谁不在画面里: the target is not in the scene; `target` is who is drawn instead ('' = nobody).
     result.absent = isTrue(object.absent);
     result.looks = normalizeValue(object.looks);
-    if (!result.skip && !result.prompt && PARSED_FIELDS.every(field => !result[field])) {
+    // Only in 漫画模式: the comic page the parser laid out (see comic.js).
+    const page = readComicPage(object.page ?? object.comic);
+    if (page) result.page = page;
+    if (!result.skip && !result.prompt && !result.page && PARSED_FIELDS.every(field => !result[field])) {
         throw new Error('解析结果里没有任何画面字段');
     }
     return result;

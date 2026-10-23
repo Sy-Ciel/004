@@ -1,3 +1,4 @@
+import { isComicPreset } from './comic.js';
 import { makeId } from './constants.js';
 import { readInput, writeInput } from './form.js';
 import { activeParserPreset, builtinParserPreset } from './parserPresets.js';
@@ -7,6 +8,7 @@ const DESCRIPTIONS = {
     story: '剧情状态：服装、动作、表情、场景、镜头都由 AI 按剧情推断。',
     sprite: '立绘：姿势、镜头、背景、光线固定（见下方「固定内容」），只随剧情换服装、表情、神态。适合竖图。',
     novel: '小说插画：挑当前楼层最有画面感的瞬间，电影感构图和有氛围的光线，环境更丰富。适合横图。想让同一幕的其他人也入镜，勾选下面的「允许画面里出现其他人物」。',
+    comic: '漫画（MOSS-Image）：把这一楼画成一页彩色漫画，按时间顺序分成几格，人物的对白写进对话框。想要水粉漫画画风，在「出图参数」点「改用 FKEY 漫画画风 LoRA」（要先下载这个 LoRA）。',
 };
 
 function optionLabel(preset) {
@@ -45,7 +47,11 @@ export function refreshParserPresetUi() {
     const builtin = !!builtinParserPreset(active.id);
     $('#ctp_pp_delete').toggle(!builtin);
     $('#ctp_pp_reset').toggle(builtin);
-    $('#ctp_pp_desc').text(DESCRIPTIONS[active.id] ?? '自定义预设：可以改下方所有内容。');
+    $('#ctp_pp_desc').text(DESCRIPTIONS[active.id] ?? (isComicPreset(active) ? '自定义漫画预设：可以改下方所有内容。' : '自定义预设：可以改下方所有内容。'));
+    // 漫画模式 has panels and dialogue instead of fixed fields and the other-people switch.
+    const comic = isComicPreset(active);
+    $('#ctp_pp_comic').toggle(comic);
+    $('#ctp_pp_editor .ctp-pp-picture').toggle(!comic);
     updateFieldStates();
 }
 
