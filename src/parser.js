@@ -1,11 +1,11 @@
-import { comicPanels, isComicPreset, readComicPage } from './comic.js';
+import { comicPanelCount, comicPanels, isComicPreset, readComicPage } from './comic.js';
 import { MODEL_MOSS, PARSED_FIELDS, STATE_FIELDS } from './constants.js';
 import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
 import { currentMode, floorMode, imageMode, modeLabel, promptStyle } from './modes.js';
 import { NATURAL_STYLE_RULE } from './parserPresetDefaults.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
-import { ASPECT_RATIOS, parseAspect, parserPicksAspect } from './resolution.js';
+import { ASPECT_RATIOS, baseSize, parseAspect, parserPicksAspect } from './resolution.js';
 import { describeThinking, profileThinking, thinkingBody, thinkingMaxTokens } from './thinking.js';
 import { isTriggerTag, triggerWordList } from './prompt.js';
 import { findStatusBar, withoutStatusBar } from './statusBar.js';
@@ -27,6 +27,9 @@ import {
 
 /** The parser's output limit for a comic page at least (when 「最大输出」 is set lower). */
 const COMIC_MIN_TOKENS = 4096;
+
+/** The last words of a comic request: the page in MOSS-Image's layout format, never a written-out prompt. */
+const COMIC_REMINDER = '【输出要求】这是漫画模式：只输出一个 JSON 对象，这一页漫画全部写在 layout 里（MOSS-Image 的 JSON 版面格式：summary + items，照 System 里的格式示例写），不要写自然语言提示词。';
 
 /** The tag name of 「只读取标签里的正文」, without brackets (default game). */
 export function storyTagName(parser = getSettings().parser) {
@@ -224,7 +227,8 @@ function formatOutputs(records, includePrompt) {
         }
         // 漫画模式: the page's description stands for its JSON layout (boxes and all).
         const page = data.parsed.page;
-        if (page?.caption) lines.push(`漫画（${page.panels?.length ?? 0} 格）: ${truncate(page.caption, 600)}`);
+        const panels = page ? comicPanelCount(page) : 0;
+        if (page?.caption) lines.push(`漫画${panels ? `（${panels} 格）` : ''}: ${truncate(page.caption, 600)}`);
         if (includePrompt && !page) {
             // The selected version may be an older picture of the other mode (its prompt is for another model).
             const selected = data.images?.[currentIndex(data)];
@@ -447,6 +451,9 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     const aspect = !focus && parserPicksAspect(settings.comfy) && !presetResolution(preset)
         ? { ratios: ASPECT_RATIOS, fallback: parseAspect(settings.comfy.aspectRatio) || '1:1' }
         : null;
+    // The comic page's canvas, for planning the panels (unknown while the parser picks the aspect ratio).
+    const size = comic && (presetResolution(preset) ?? (aspect ? null : baseSize(settings.comfy)));
+    if (size?.width > 0 && size?.height > 0) Object.assign(comic, { width: Math.round(size.width), height: Math.round(size.height) });
     const chat = chatUpTo(mesId);
     const laterFloors = ctx().chat.length - chat.length;
     const depth = Math.max(0, Number(settings.parser.contextDepth) || 0);
@@ -518,10 +525,11 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     const natural = promptStyle() === 'anima-natural';
     return {
         system: [fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', triggerRule].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
-        user: [fillTemplate(userTemplate, vars), focus ? focusBlock(focus) : ''].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
+        user: [fillTemplate(userTemplate, vars), focus ? focusBlock(focus) : '', comic ? COMIC_REMINDER : ''].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
         preset,
         mode,
         absent: !!absent,
+        comic: !!comic,
         minTokens,
         notes: [
             `${modeLabel()} 模式 · 解析预设：${preset.name} · ${comic ? `漫画：AI 画整页分镜（最多 ${comic.panels} 格，${comic.dialogue ? '带对白' : '不画文字'}）` : `${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`}`,
@@ -722,18 +730,18 @@ export async function callParser(system, user, parentSignal, { minTokens = 0 } =
  * Calls the parser and parses its reply, retrying what a retry can fix: provider errors (some APIs reject an
  * identical request now and then, e.g. "Invalid API parameter", 429, 502) and replies without usable JSON.
  * Cancelling, timeouts, wrong settings and replies cut off by the output limit fail at once.
- * @param {{ onReply?: (reply: ParserReply) => void, onRetry?: (attempt: number, max: number, error: Error) => void, minTokens?: number }} [hooks]
- *   minTokens: see callParser
+ * @param {{ onReply?: (reply: ParserReply) => void, onRetry?: (attempt: number, max: number, error: Error) => void, minTokens?: number, comic?: boolean }} [hooks]
+ *   minTokens: see callParser; comic: 漫画模式, a reply without a usable comic layout counts as failed (see parseParserOutput)
  * @returns {Promise<{ reply: ParserReply, parsed: ReturnType<typeof parseParserOutput>, retried: number }>}
  */
-export async function requestParse(system, user, signal, { onReply, onRetry, minTokens = 0 } = {}) {
+export async function requestParse(system, user, signal, { onReply, onRetry, minTokens = 0, comic = false } = {}) {
     const retries = Math.max(0, Math.min(5, Math.trunc(Number(getSettings().parser.retries) || 0)));
     for (let attempt = 0; ; attempt++) {
         let reply = null;
         try {
             reply = await callParser(system, user, signal, { minTokens });
             onReply?.(reply);
-            return { reply, parsed: parseParserReply(reply), retried: attempt };
+            return { reply, parsed: parseParserReply(reply, { comic }), retried: attempt };
         } catch (error) {
             const retryable = !signal?.aborted && !isAbortError(error) && !error?.noRetry && reply?.finish !== 'length';
             if (!retryable) throw error;
@@ -751,8 +759,9 @@ const THINKING_HINT = '如果是思考模型（GLM、DeepSeek-R1、Qwen3 等）�
 /**
  * Parses a parser reply. Falls back to the reasoning text when a thinking model put its answer there,
  * and explains empty / truncated replies instead of a generic JSON error.
+ * @param {{ comic?: boolean }} [options] see parseParserOutput
  */
-export function parseParserReply(reply) {
+export function parseParserReply(reply, options = {}) {
     const sources = [reply?.content, reply?.reasoning].filter(text => String(text ?? '').trim());
     const finish = reply?.finish ? `（finish_reason=${reply.finish}）` : '';
     if (!sources.length) {
@@ -761,7 +770,7 @@ export function parseParserReply(reply) {
     let lastError = null;
     for (const text of sources) {
         try {
-            return parseParserOutput(text);
+            return parseParserOutput(text, options);
         } catch (error) {
             lastError = error;
         }
@@ -781,6 +790,116 @@ function repairJson(text) {
         .replace(/[‘’]/g, '\'')
         .replace(/,\s*([}\]])/g, '$1')
         .replace(/\r?\n/g, ' ');
+}
+
+/**
+ * Mends what models get wrong inside JSON strings: raw line breaks and tabs, and double quotes they did not escape
+ * (他说"你好"). A quote inside a string ends it only when JSON structure follows.
+ */
+function fixStrings(text) {
+    let out = '';
+    let inString = false;
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (!inString) {
+            if (char === '"') inString = true;
+            out += char;
+        } else if (char === '\\') {
+            out += char + (text[i + 1] ?? '');
+            i++;
+        } else if (char === '"') {
+            const next = text.slice(i + 1).match(/^\s*(\S?)/)[1];
+            if (!next || ',:}]'.includes(next)) {
+                inString = false;
+                out += char;
+            } else {
+                out += '\\"';
+            }
+        } else if (char === '\n') {
+            out += '\\n';
+        } else if (char === '\t') {
+            out += '\\t';
+        } else if (char !== '\r') {
+            out += char;
+        }
+    }
+    return out;
+}
+
+/** Index of the bracket closing the one at `open` (strings skipped), or -1 when the text ends first. */
+function closingBracket(text, open) {
+    let depth = 0;
+    let inString = false;
+    for (let i = open; i < text.length; i++) {
+        const char = text[i];
+        if (inString) {
+            if (char === '\\') i++;
+            else if (char === '"') inString = false;
+        } else if (char === '"') {
+            inString = true;
+        } else if (char === '{' || char === '[') {
+            depth++;
+        } else if ((char === '}' || char === ']') && --depth === 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+function parseLoose(text) {
+    for (const candidate of [text, fixStrings(text)]) {
+        try {
+            return JSON.parse(candidate);
+        } catch {
+            // try next candidate
+        }
+    }
+    return null;
+}
+
+/**
+ * 漫画模式: what can be read of a comic layout in a reply that is not valid JSON (cut off at the output limit, or
+ * broken somewhere): its summary and every item that is complete on its own.
+ */
+function salvageLayout(text) {
+    const summaryAt = text.search(/"summary"\s*:\s*\{/);
+    const summaryOpen = summaryAt < 0 ? -1 : text.indexOf('{', summaryAt);
+    const summaryClose = summaryOpen < 0 ? -1 : closingBracket(text, summaryOpen);
+    const summary = summaryClose > 0 ? parseLoose(text.slice(summaryOpen, summaryClose + 1)) : null;
+    const items = [];
+    const itemsAt = text.search(/"items"\s*:\s*\[/);
+    let at = itemsAt < 0 ? text.length : text.indexOf('[', itemsAt) + 1;
+    while (at < text.length) {
+        const next = text.slice(at).search(/\S/);
+        if (next < 0) break;
+        at += next;
+        if (text[at] === ',') {
+            at++;
+            continue;
+        }
+        if (text[at] !== '{') break;
+        const close = closingBracket(text, at);
+        if (close < 0) break;
+        const item = parseLoose(text.slice(at, close + 1));
+        if (item && typeof item === 'object') items.push(item);
+        at = close + 1;
+    }
+    return items.length ? { summary: summary ?? {}, items } : null;
+}
+
+/**
+ * Where a reply keeps its comic layout: `layout` (asked for), `page` (v1.45), a layout written out as a string, or
+ * the reply itself when it is just a layout.
+ */
+function layoutOf(object) {
+    for (const value of [object.layout, object.page, object.comic, object.prompt]) {
+        if (value && typeof value === 'object') return value;
+        if (typeof value === 'string' && value.trim().startsWith('{')) {
+            const parsed = parseLoose(value.trim());
+            if (parsed && typeof parsed === 'object') return parsed;
+        }
+    }
+    return Array.isArray(object.items) || Array.isArray(object.panels) ? object : null;
 }
 
 function normalizeValue(value) {
@@ -819,9 +938,11 @@ function parseScenes(value) {
 
 /**
  * Extracts the JSON object from the parser's reply. Tolerates code fences, thinking blocks and minor syntax slips.
+ * @param {{ comic?: boolean }} [options] comic: 漫画模式 — the reply must hold a usable comic layout (else it counts
+ *   as failed, so it is asked again instead of drawn without one); what can be read of a broken one is kept
  * @returns {{ skip: boolean, reason?: string, target?: string } & Record<string, string>}
  */
-export function parseParserOutput(raw) {
+export function parseParserOutput(raw, { comic = false } = {}) {
     let text = String(raw ?? '')
         .replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '')
         .trim();
@@ -833,7 +954,8 @@ export function parseParserOutput(raw) {
     const end = text.lastIndexOf('}');
     if (start !== -1 && end > start) {
         const body = text.slice(start, end + 1);
-        for (const candidate of [body, repairJson(body)]) {
+        const mended = fixStrings(body);
+        for (const candidate of [body, repairJson(body), mended, mended.replace(/,\s*([}\]])/g, '$1')]) {
             try {
                 object = JSON.parse(candidate);
                 break;
@@ -843,6 +965,8 @@ export function parseParserOutput(raw) {
         }
     }
 
+    let layout = comic && object && typeof object === 'object' ? layoutOf(object) : null;
+    let partial = false;
     if (!object) {
         // Salvage fields from broken or truncated JSON, or from "key: value" lines. A quoted value only counts
         // when its closing quote is present, so a reply cut off mid-value does not leak half a phrase.
@@ -858,7 +982,11 @@ export function parseParserOutput(raw) {
         if (skip) object.skip = skip[1].toLowerCase() === 'true';
         const absent = text.match(/["']?absent["']?\s*[:：]\s*(true|false)/i);
         if (absent) object.absent = absent[1].toLowerCase() === 'true';
-        if (!Object.keys(object).length) {
+        if (comic) {
+            layout = salvageLayout(text);
+            partial = !!layout;
+        }
+        if (!Object.keys(object).length && !layout) {
             throw new Error('解析模型没有返回可识别的 JSON');
         }
     }
@@ -888,8 +1016,16 @@ export function parseParserOutput(raw) {
     result.absent = isTrue(object.absent);
     result.looks = normalizeValue(object.looks);
     // Only in 漫画模式: the comic page the parser laid out (see comic.js).
-    const page = readComicPage(object.page ?? object.comic);
-    if (page) result.page = page;
+    const page = readComicPage(layout);
+    if (page) {
+        result.page = page;
+        if (partial) result.partial = true;
+        // A layout given as the prompt is not a written-out prompt.
+        if (layout === object.prompt || String(object.prompt ?? '').trim().startsWith('{')) result.prompt = '';
+    }
+    if (comic && !result.skip && !result.page) {
+        throw new Error('解析模型没有按漫画格式输出：回复里没有 layout（MOSS-Image 的 JSON 版面：summary + items），或者 items 是空的');
+    }
     if (!result.skip && !result.prompt && !result.page && PARSED_FIELDS.every(field => !result[field])) {
         throw new Error('解析结果里没有任何画面字段');
     }

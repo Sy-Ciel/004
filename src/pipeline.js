@@ -1,7 +1,7 @@
 import { EXTRA_KEY, modeDefaults } from './constants.js';
 import { addExtraLoras, addUpscale, getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
 import { comparable, findQuote } from './anchors.js';
-import { fitLayout, isComicPreset } from './comic.js';
+import { comicPanelCount, fitLayout, isComicPreset } from './comic.js';
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
 import { buildParserPrompt, parserLabel, requestParse, storyParagraphs } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution, sceneLimit } from './parserPresets.js';
@@ -146,12 +146,14 @@ function promptFromParse(characterPreset, parsed, parserPrompt, notes, { nobody 
     const { parsed: final, forced } = applyFixedFields(parsed, parserPrompt.preset);
     if (forced.length) notes.push(`固定内容覆盖了：${forced.join(', ')}`);
     const comic = isComicPreset(parserPrompt.preset);
-    const canvas = comic && final.page ? plannedSize(parserPrompt.preset, final.aspect) : null;
+    // 漫画模式 always draws MOSS-Image's JSON layout, never a written-out prompt.
+    if (comic && !final.page) throw new Error('解析模型没有画出这一页漫画的版面（layout），没有出图');
+    const canvas = comic ? plannedSize(parserPrompt.preset, final.aspect) : null;
     if (canvas) {
-        const texts = final.page.panels.reduce((sum, panel) => sum + panel.texts.length, 0);
-        notes.push(`漫画：${final.page.panels.length} 格${texts ? `、${texts} 个文字框` : ''}，版面按 ${canvas.width}×${canvas.height} 换算成 MOSS-Image 的 JSON 版面`);
-    } else if (comic) {
-        notes.push('解析模型没有写漫画分镜（page 字段），改用普通插画的写法');
+        const panels = comicPanelCount(final.page);
+        const texts = final.page.items.filter(item => item.label === 'text').length;
+        notes.push(`漫画：${panels ? `${panels} 格、` : ''}${final.page.items.length} 项${texts ? `（${texts} 个文字框）` : ''}，坐标按 ${canvas.width}×${canvas.height} 换算成 MOSS-Image 的 JSON 版面`);
+        if (final.partial) notes.push('解析模型的输出不是完整的 JSON（可能被最大输出截断），漫画只用了能读出来的部分');
     } else if (parserPrompt.mode === 'ai' && !final.prompt) {
         notes.push('解析模型没有返回 prompt 字段，已改用「固定外貌 + AI 补充」的模板拼接');
     }
@@ -536,6 +538,7 @@ async function askParser(message, job, data, parserPrompt, target, modelMode) {
     assertMode(modelMode);
     const { parsed } = await requestParse(parserPrompt.system, parserPrompt.user, signal, {
         minTokens: parserPrompt.minTokens,
+        comic: parserPrompt.comic,
         onReply: reply => {
             data.parserRaw = truncate(reply.content, 6000);
             data.parserReasoning = truncate(reply.reasoning, 4000);
@@ -1003,7 +1006,7 @@ export async function dryRun(mesId, targetOverride) {
     const modelMode = currentMode();
     let target = resolveTarget(message, targetOverride);
     const parserPrompt = await buildParserPrompt(mesId, target);
-    const { reply, parsed: raw } = await requestParse(parserPrompt.system, parserPrompt.user, undefined, { minTokens: parserPrompt.minTokens });
+    const { reply, parsed: raw } = await requestParse(parserPrompt.system, parserPrompt.user, undefined, { minTokens: parserPrompt.minTokens, comic: parserPrompt.comic });
     if (currentMode() !== modelMode) throw new Error('试运行期间切换了模型模式，结果已丢弃');
     const notes = [...parserPrompt.notes];
     const chosen = target;

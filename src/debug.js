@@ -113,7 +113,7 @@ export async function showFloorDebug(mesId) {
         <h4>① 固定部分（角色预设）</h4>
         ${table([['外貌', data.fixed?.appearance || '（空）'], ['触发词', data.fixed?.trigger]])}
         ${data.parsed?.prompt ? block('AI 写的完整提示词（prompt 字段）', data.parsed.prompt) : ''}
-        ${data.parsed?.page ? block('AI 画的漫画分镜（page 字段；box 是整页的百分比 [上, 左, 下, 右]，提示词里换算成了像素）', data.parsed.page, { open: false }) : ''}
+        ${data.parsed?.page ? block('AI 写的漫画版面（layout，整理后；box 是整页的百分比 [上, 左, 下, 右]，提示词里换算成了像素）', data.parsed.page, { open: false }) : ''}
         ${data.parsed?.negative ? block('AI 写的 negative 字段（重复的、和正向提示词相同的标签已去掉，实际发送的见上方「反向提示词」）', data.parsed.negative) : ''}
         <h4>② AI 解析部分${data.error && data.parsed ? '（以下是最近一次成功的解析，本次失败的输出见下方「原始输出」）' : ''}</h4>
         ${stateTable(data.parsed)}
@@ -260,7 +260,7 @@ export async function showDryRun() {
             ${result.scenes.map(scene => block(`前面的一段「${scene.label}」的提示词（多张图）`, scene.prompt)).join('')}
             ${block(result.scenes.length ? '结束时这一张的最终正向提示词' : '最终正向提示词', result.prompt)}
             ${result.parsed.prompt ? block('AI 写的完整提示词（prompt 字段）', result.parsed.prompt, { open: false }) : ''}
-            ${result.parsed.page ? block('AI 画的漫画分镜（page 字段；box 是整页的百分比）', result.parsed.page, { open: false }) : ''}
+            ${result.parsed.page ? block('AI 写的漫画版面（layout，整理后；box 是整页的百分比）', result.parsed.page, { open: false }) : ''}
             ${block('反向提示词', result.negative)}
             ${result.parsed.negative ? block('AI 补充的反向提示词（negative 字段）', result.parsed.negative, { open: false }) : ''}
             ${stateTable(result.parsed)}

@@ -217,7 +217,7 @@ const PLACE_RULE = '图在正文里的位置：再写 place：这张图插在【
 
 const COMIC_PLACE_RULE = '图在正文里的位置：再写 place：这一页漫画插在【当前楼层】第几段后面。【当前楼层】每一段前面有编号 [1]、[2]……，写那一段的编号数字（例如 3），通常是最后一格画的那一段，一定要写一个编号，不能写 0 或留空。';
 
-const APPEARANCE_COMIC = '外貌：【角色设定】是目标角色的固定外貌：画到 ta 的每一格，characters 里 ta 那一项都要完整、准确地写上（翻译成英文），不能遗漏或改动；【可能同框的其他角色】里给了外貌的人也照着写。';
+const APPEARANCE_COMIC = '外貌：【角色设定】是目标角色的固定外貌：layout.items 里每个画 ta 的 character 项都要完整、准确地写上（翻译成英文），不能遗漏或改动；【可能同框的其他角色】里给了外貌的人也照着写。';
 
 /** 画谁不在画面里 in 漫画模式: someone else (or nobody) leads the page instead. */
 function comicAbsentRules(auto) {
@@ -230,39 +230,97 @@ function comicAbsentRules(auto) {
 }
 
 /**
- * 漫画模式 (MOSS-Image): the floor as one comic page, laid out by the parser in `page`: panels in reading order,
- * the people in each and the story's lines in speech bubbles, every box as percentages of the page. The extension
- * turns it into MOSS-Image's JSON layout (comic.js).
- * @param {{ panels: number, dialogue: boolean }} comic panels: per page at most; dialogue: speech bubbles or no text
+ * 漫画模式 (MOSS-Image): the floor as one comic page, written in MOSS-Image's own JSON layout format (`layout`: a
+ * summary and items, as in OpenMOSS's examples and the FKEY LoRA card), the boxes as percentages of the page; the
+ * extension turns them into MOSS-Image's pixels (comic.js).
+ * @param {{ panels: number, dialogue: boolean, width?: number, height?: number }} comic panels: per page at most;
+ *   dialogue: speech bubbles or no text; width × height: the canvas, when known
  */
 function comicRules(comic) {
-    const panels = comic.panels > 1 ? `1–${comic.panels} 格` : '1 格（整页一个画面）';
+    const single = comic.panels <= 1;
+    const panels = single ? '1 格（整页一个画面）' : `1–${comic.panels} 格`;
+    const shape = comic.width > comic.height ? '横版' : comic.width < comic.height ? '竖版' : '方形';
+    const canvas = comic.width && comic.height ? `整页画布是 ${comic.width}×${comic.height}（${shape}）。` : '';
     const texts = comic.dialogue
-        ? `- texts：这一格里的文字，最多 3 个，每个一项：text 是要画出来的字；caption 用英文说明它是什么框、什么样、在哪（例如 "Clean horizontal Chinese dialogue text in a white speech bubble next to the girl's head."）；box 是它在整页上的位置，放在说话的人旁边，不要盖住脸。对白用正文里人物说的原话（原文的语言，不要翻译），太长就删减，一个对话框最多 20 个字；需要旁白就写进方形的旁白框，也要短；可以有拟声词。文字横排，要换行时在 text 里写 \\n。没有文字的格子写 []`
-        : '- texts：这一页不画任何文字（没有对话框、旁白、拟声词），每一格都写 []，caption 里也不要要求画文字';
-    return `漫画分镜（这一楼画成一页${comic.dialogue ? '带对白的' : ''}彩色漫画，写在 page 里）：
+        ? `  - 文字："label": "text"，text 是要画出来的字，caption 用英文说明它是什么框、什么样、在哪（例如 "Clean horizontal Chinese dialogue text in a white speech bubble next to the girl's head."），bbox 放在说话的人旁边，不要盖住脸。对白用正文里人物说的原话（原文的语言，不要翻译），太长就删减，一个对话框最多 20 个字；需要旁白就写进方形的旁白框，也要短；可以有拟声词。文字横排，要换行时在 text 里写 \\n。每一格最多 3 个文字`
+        : '  - 这一页不画任何文字：不要写 "label": "text" 的项，caption 里也不要要求画对话框、旁白或拟声词';
+    return `漫画分镜（这一楼画成一页${comic.dialogue ? '带对白的' : ''}彩色漫画，用 MOSS-Image 的 JSON 版面格式写在 layout 里）：
 - 格数：按剧情分 ${panels}。只有一个瞬间就少分几格；有几个连续的动作、几轮对话，就按时间顺序多分几格。每一格画一个瞬间，最后一格是【当前楼层】结束时的那一刻；pending 里还没做的事不能画
 - now_doing、now_wearing 写最后一格那一刻；前面的格子按各自那一刻画（这一楼里换了衣服，换之前的格子还穿原来的）
-- 排版：从上到下、从左到右阅读。格子铺满整页，格子之间只留很窄的间隙；可以有横跨整行的大格，也可以一行并排两三格。镜头要有变化：远景交代地点，中景、近景表现动作和对话，特写表现情绪
-- page.caption：整页的英文描述，最多 80 个词：几格、怎么排，这一页讲的事、出场的人、地点、时间、情绪、色调和光线${comic.dialogue ? '，以及文字的样子（例如 crisp Chinese dialogue text in clean white speech bubbles）' : ''}
-- panels：每一格一项，按阅读顺序：box 是这一格在整页上的位置；caption 是这一格的英文描述，最多 40 个词：景别和机位、谁在做什么、背景、光线
-- characters：这一格里看得见的每个人一项（最多 3 个）：box 是这个人在整页上的位置（在这一格里面）；caption 是英文，最多 60 个词：外貌、此刻的穿着、动作姿势、表情。同一个人每次出现都要写外貌和穿着，而且前后一致；没有人的格子写 []
+- 排版：${canvas}从上到下、从左到右阅读。格子铺满整页，格子之间只留很窄的间隙；可以有横跨整行的大格，也可以一行并排两三格。镜头要有变化：远景交代地点，中景、近景表现动作和对话，特写表现情绪
+- layout.summary：meta 写 ["comic", "multi_panel", "digital_painting"]，canvas 写 "multi_panel"（只有 1 格时这两处的 multi_panel 都换成 single）；caption 是整页的英文描述，最多 80 个词：几格、怎么排，这一页讲的事、出场的人、地点、时间、情绪、色调和光线${comic.dialogue ? '，以及文字的样子（例如 crisp Chinese dialogue text in clean white speech bubbles）' : ''}
+- layout.items：按阅读顺序一格一格写：先写这一格本身，再写这一格里的人和文字。每一项都有 label、caption、bbox，文字还有 text：
+  - 格子："label": "object"，caption 先写这一格在哪（例如 "Top horizontal panel: "、"Bottom-left vertical panel: "），再写这一格的英文描述，最多 40 个词：景别和机位、谁在做什么、背景、光线。只有 1 格时不写格子这一项，这一格的描述写进 summary.caption
+  - 人物："label": "character"，这一格里看得见的每个人一项（每格最多 3 个），caption 是英文，最多 60 个词：外貌、此刻的穿着、动作姿势、表情。同一个人每次出现都要写外貌和穿着，而且前后一致
 ${texts}
-- outfit：目标角色在最后一格的穿着（英文），和格子里写的一致
-- 位置：box 一律写 [上, 左, 下, 右]，是整页高度和宽度的百分比（0–100，左上角 0, 0，右下角 100, 100）。例如上半页一整格是 [0, 0, 50, 100]，右下四分之一是 [50, 50, 100, 100]。程序会换算成 MOSS-Image 的像素坐标
-- 英文描述里不要写人名（用 the girl、the young man 这类称呼），也不要写画风词（画风由画风前缀和 LoRA 负责）`;
+- bbox：一律写 [上, 左, 下, 右]，是整页高度和宽度的百分比（0–100，左上角 0, 0，右下角 100, 100），例如上半页一整格是 [0, 0, 50, 100]，右下四分之一是 [50, 50, 100, 100]；人物和文字的 bbox 在它那一格里面。程序会换算成 MOSS-Image 的像素坐标（abs_centralized、yxyx），bbox_coord_space 和 bbox_format 不用写
+- outfit：目标角色在最后一格的穿着（英文），和 items 里写的一致
+- 英文描述里不要写人名（用 the girl、the young man 这类称呼），也不要写画风词（画风由画风前缀和 LoRA 负责）
+- 一定要写 layout，整页的画面全部写在 layout 里：不要写自然语言的 prompt，也不要写 action、scene、camera 这些字段`;
+}
+
+/** The people of 漫画模式's format example (made up, like the café they are in). */
+const EXAMPLE_GIRL = 'a slender young woman with long straight black hair and amber eyes, wearing a white short-sleeved blouse with a navy ribbon and a grey pleated skirt';
+
+/** 漫画模式's format example: a page of 1, 2 or 3 panels, with or without words. */
+function comicExample(panels, dialogue) {
+    const words = (text, caption, bbox) => (dialogue ? [{ label: 'text', caption, text, bbox }] : []);
+    const bubble = where => `Clean horizontal Chinese dialogue text in a white speech bubble ${where}.`;
+    const style = dialogue ? ', crisp Chinese dialogue text in clean white speech bubbles' : '';
+    if (panels <= 1) {
+        return {
+            summary: { meta: ['comic', 'single', 'digital_painting'], canvas: 'single', caption: `A fully colored single-panel comic illustration in a small café on a rainy afternoon: medium shot across the wooden counter as the girl holds out a steaming cup of tea toward the viewer with a gentle smile, rain streaking the window behind her, warm indoor light${style}.` },
+            items: [
+                { label: 'character', caption: `${EXAMPLE_GIRL[0].toUpperCase()}${EXAMPLE_GIRL.slice(1)}, leaning over the counter and holding out a cup of tea with both hands, smiling gently.`, bbox: [12, 14, 100, 88] },
+                ...words('先喝杯热茶吧\n外面雨很大', bubble('at the upper right'), [4, 58, 16, 96]),
+            ],
+        };
+    }
+    const top = panels >= 3 ? 44 : 49;
+    const items = [
+        { label: 'object', caption: 'Top horizontal panel: medium-wide shot of the café entrance, the girl holding the glass door open as a young man steps in from the rain, grey wet street behind him.', bbox: [0, 0, top, 100] },
+        { label: 'character', caption: `${EXAMPLE_GIRL[0].toUpperCase()}${EXAMPLE_GIRL.slice(1)}, holding the door open with a bright welcoming smile.`, bbox: [6, 52, top, 94] },
+        { label: 'character', caption: 'A tall young man with short brown hair in a soaked dark grey jacket, closing a black umbrella, looking relieved.', bbox: [8, 6, top, 46] },
+        ...words('欢迎光临！\n外面雨很大吧', bubble("above the girl's head"), [2, 56, 13, 96]),
+    ];
+    if (panels >= 3) {
+        items.push(
+            { label: 'object', caption: "Bottom-left vertical panel: close-up of the girl's worried face as she looks at his wet shoulders.", bbox: [46, 0, 100, 48] },
+            { label: 'character', caption: 'The same young woman with long straight black hair and amber eyes, in the white blouse with a navy ribbon, frowning slightly with concern.', bbox: [54, 4, 100, 46] },
+            ...words('你都淋湿了', bubble('at the top of the panel'), [48, 4, 57, 40]),
+            { label: 'object', caption: 'Bottom-right vertical panel: medium shot across the wooden counter, the girl handing over a steaming cup of tea.', bbox: [46, 52, 100, 100] },
+            { label: 'character', caption: 'The same young woman with long straight black hair and amber eyes, in the white blouse with a navy ribbon, holding out a cup of tea with both hands and a gentle smile.', bbox: [56, 56, 100, 98] },
+            ...words('先喝杯热茶吧', bubble('at the top of the panel'), [48, 58, 57, 96]),
+        );
+    } else {
+        items.push(
+            { label: 'object', caption: 'Bottom horizontal panel: medium shot across the wooden counter, the girl handing a steaming cup of tea to the young man.', bbox: [51, 0, 100, 100] },
+            { label: 'character', caption: 'The same young woman with long straight black hair and amber eyes, in the white blouse with a navy ribbon, holding out a cup of tea with both hands and a gentle smile.', bbox: [56, 34, 100, 94] },
+            ...words('先喝杯热茶吧', bubble('on the left'), [54, 4, 64, 38]),
+        );
+    }
+    const count = panels >= 3 ? 'three' : 'two';
+    return {
+        summary: { meta: ['comic', 'multi_panel', 'digital_painting'], canvas: 'multi_panel', caption: `A fully colored ${count}-panel vertical comic page set in a small café on a rainy afternoon: the girl welcomes a soaked young man at the door${panels >= 3 ? ', notices his wet shoulders' : ''} and hands him a cup of hot tea. Warm indoor light against the grey rain outside${style}.` },
+        items,
+    };
 }
 
 function comicFormat(comic, negative, aspect, place, absent) {
-    const texts = comic.dialogue ? '[{"box": [2, 62, 12, 97], "text": "", "caption": ""}]' : '[]';
+    const panels = Math.min(3, comic.panels);
+    const example = comicExample(panels, comic.dialogue);
     const fields = [
-        '"skip": false', '"target": "目标角色名"', ...(absent ? ['"absent": false', '"looks": ""'] : []), '"now_doing": ""', '"now_wearing": ""', '"pending": ""', '"outfit": ""',
-        `"page": {"caption": "", "panels": [{"box": [0, 0, 50, 100], "caption": "", "characters": [{"box": [8, 20, 50, 75], "caption": ""}], "texts": ${texts}}]}`,
+        '"skip": false', '"target": "目标角色名"', ...(absent ? ['"absent": false', '"looks": ""'] : []),
+        '"now_doing": "递给他一杯热茶"', '"now_wearing": "白色短袖衬衫、藏青色领结、灰色百褶裙"', '"pending": "无"',
+        '"outfit": "a white short-sleeved blouse with a navy ribbon and a grey pleated skirt"',
     ];
-    if (negative) fields.push('"negative": ""');
-    if (aspect) fields.push(`"aspect": "${aspect.fallback}"`);
-    if (place) fields.push('"place": 0');
-    return `输出格式：\n{${fields.join(', ')}}`;
+    const layout = `"layout": {"summary": ${JSON.stringify(example.summary)}, "items": [\n${example.items.map(item => JSON.stringify(item)).join(',\n')}\n]}`;
+    const tail = [];
+    if (negative) tail.push('"negative": ""');
+    if (aspect) tail.push(`"aspect": "${aspect.fallback}"`);
+    if (place) tail.push('"place": 2');
+    return `输出格式（下面是一个 ${panels} 格的示例，内容是虚构的：只照它的格式写，格数、内容、位置都按这一楼的剧情来，不要照抄）：
+{${fields.join(', ')}, ${layout}${tail.length ? `, ${tail.join(', ')}` : ''}}`;
 }
 
 /**

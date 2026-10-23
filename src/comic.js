@@ -1,15 +1,16 @@
 /**
- * 漫画模式 (MOSS-Image): a floor drawn as one comic page. The parser lays the page out (field `page`): panels in
- * reading order, the people in each panel and the story's lines in speech bubbles, every box as percentages of the
- * page. This turns it into MOSS-Image's JSON layout prompt, whose boxes are pixels around the canvas centre
- * ("abs_centralized", [y_min, x_min, y_max, x_max], see OpenMOSS's user guide), and fits such a prompt to another
- * canvas size. Pure functions, no imports.
+ * 漫画模式 (MOSS-Image): a floor drawn as one comic page. The parser writes the page in MOSS-Image's own JSON layout
+ * format (field `layout`: a summary and items — panels, people, words — each with a box), only with the boxes as
+ * percentages of the page. This checks it and turns it into the prompt, whose boxes are pixels around the canvas
+ * centre ("abs_centralized", [y_min, x_min, y_max, x_max], see OpenMOSS's user guide), and fits such a prompt to
+ * another canvas size. Pure functions, no imports.
  */
 
-/** Hard limits that keep the prompt well within what MOSS-Image reads (about 4K tokens). */
-const MAX_PANELS = 8;
-const MAX_CHARACTERS = 3;
-const MAX_TEXTS = 3;
+/** A hard limit that keeps the prompt well within what MOSS-Image reads (about 4K tokens). */
+const MAX_ITEMS = 40;
+
+const TEXT_CAPTION = 'Clean comic text in a white speech bubble.';
+const PANEL_WORD = /\bpanel\b/i;
 
 /** Whether a parser preset draws comic pages (漫画模式 and copies of it). */
 export function isComicPreset(preset) {
@@ -39,55 +40,132 @@ function list(value) {
     return Array.isArray(value) ? value.filter(isObject) : [];
 }
 
-/**
- * A box as the parser wrote it, as [top, left, bottom, right] in percent of the page (fractions of 1 are read as
- * such), kept inside the page; null when it is not four numbers or has no size.
- */
-export function readBox(value) {
+/** MOSS-Image's three item labels, from the names models also use for them. */
+const LABELS = {
+    object: 'object', panel: 'object', frame: 'object', scene: 'object', background: 'object', prop: 'object',
+    character: 'character', person: 'character', people: 'character', human: 'character', figure: 'character',
+    text: 'text', dialogue: 'text', speech: 'text', bubble: 'text', narration: 'text', sfx: 'text', title: 'text',
+};
+
+function labelOf(item) {
+    const name = String(item.label ?? item.type ?? '').trim().toLowerCase();
+    if (Object.hasOwn(LABELS, name)) return LABELS[name];
+    return asWords(item.text) ? 'text' : 'object';
+}
+
+/** Four numbers as the parser wrote them (an array or { top, left, bottom, right }), or null. */
+function rawBox(value) {
     const raw = Array.isArray(value)
         ? value
         : isObject(value) ? [value.top ?? value.y_min, value.left ?? value.x_min, value.bottom ?? value.y_max, value.right ?? value.x_max] : [];
-    let numbers = raw.map(Number);
-    if (numbers.length !== 4 || numbers.some(number => !Number.isFinite(number))) return null;
-    if (numbers.every(number => number >= 0 && number <= 1)) numbers = numbers.map(number => number * 100);
-    let [top, left, bottom, right] = numbers.map(number => Math.min(100, Math.max(0, number)));
+    const numbers = raw.map(Number);
+    return numbers.length === 4 && numbers.every(Number.isFinite) ? numbers : null;
+}
+
+/** [top, left, bottom, right] kept inside the page and in order; null when it has no size. */
+function tidyBox(box) {
+    let [top, left, bottom, right] = box.map(number => Math.min(100, Math.max(0, number)));
     if (bottom < top) [top, bottom] = [bottom, top];
     if (right < left) [left, right] = [right, left];
     return bottom - top >= 1 && right - left >= 1 ? [top, left, bottom, right] : null;
 }
 
 /**
- * The parser's page, checked: { caption, panels: [{ box, caption, characters: [{ box, caption }], texts: [{ box,
- * text, caption }] }] }, or null when it has no panel. When a panel has no usable box, the page is laid out again as
- * full-width rows (everything in a panel then takes the panel's box); a person or text without one takes its panel's.
+ * A page's boxes as percent of the page, [top, left, bottom, right]. Asked for in percent, they may come as
+ * fractions of 1, per mille (0–1000), pixels from the top-left corner or MOSS-Image's own pixels around the centre
+ * (copied from its examples); all boxes of a page are read the same way, judged by their range.
+ */
+function percentBoxes(boxes) {
+    const values = boxes.flat();
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const ys = boxes.flatMap(box => [box[0], box[2]]);
+    const xs = boxes.flatMap(box => [box[1], box[3]]);
+    let convert = box => box;
+    if (min < 0 && -min >= max * 0.3) {
+        // Around the centre: the page spans as far as its boxes reach. (A slightly negative number in percent is a
+        // slip, kept inside the page below.)
+        const halfY = Math.max(...ys.map(Math.abs)) || 1;
+        const halfX = Math.max(...xs.map(Math.abs)) || 1;
+        convert = box => box.map((value, index) => (value / (index % 2 ? halfX : halfY) + 1) * 50);
+    } else if (max <= 1) {
+        convert = box => box.map(value => value * 100);
+    } else if (max > 100 && max <= 1000) {
+        convert = box => box.map(value => value / 10);
+    } else if (max > 1000) {
+        const height = Math.max(...ys) || 1;
+        const width = Math.max(...xs) || 1;
+        convert = box => box.map((value, index) => value / (index % 2 ? width : height) * 100);
+    }
+    return boxes.map(box => tidyBox(convert(box)));
+}
+
+/** v1.45's page, panel by panel (panels with characters and texts), as a layout of items. */
+function flattenPanels(value) {
+    const panels = list(value.panels);
+    const single = panels.length === 1;
+    const items = [];
+    for (const panel of panels) {
+        const box = panel.box ?? panel.bbox;
+        if (!single) items.push({ label: 'object', caption: panel.caption ?? panel.description, bbox: box, panel: true });
+        for (const person of list(panel.characters ?? panel.people)) items.push({ label: 'character', caption: person.caption ?? person.description, bbox: person.box ?? person.bbox ?? box });
+        for (const words of list(panel.texts ?? panel.text)) items.push({ label: 'text', caption: words.caption ?? words.description, text: words.text ?? words.content, bbox: words.box ?? words.bbox ?? box });
+    }
+    const caption = [asText(value.caption ?? value.summary), single ? asText(panels[0].caption ?? panels[0].description) : ''].filter(Boolean).join(' ');
+    return { summary: { canvas: single ? 'single' : 'multi_panel', caption }, items };
+}
+
+/**
+ * The parser's comic page, checked: { caption, canvas: 'single' | 'multi_panel', items: [{ label, caption, text?,
+ * box, panel? }] } with boxes in percent of the page, or null when it has no usable item. Read from MOSS-Image's
+ * layout format (summary + items; the parser was asked for it) or v1.45's panel by panel one. On a page of several
+ * panels, an object that says it is a panel or takes up a good part of the page is one. An item without a usable
+ * box takes the panel before it (items go panel by panel), else the whole page.
  */
 export function readComicPage(value) {
     if (!isObject(value)) return null;
-    const panels = [];
-    for (const raw of list(value.panels).slice(0, MAX_PANELS)) {
-        const panel = {
-            box: readBox(raw.box ?? raw.bbox),
-            caption: asText(raw.caption ?? raw.description),
-            characters: list(raw.characters ?? raw.people)
-                .map(item => ({ box: readBox(item.box ?? item.bbox), caption: asText(item.caption ?? item.description) }))
-                .filter(item => item.caption)
-                .slice(0, MAX_CHARACTERS),
-            texts: list(raw.texts ?? raw.text)
-                .map(item => ({ box: readBox(item.box ?? item.bbox), text: asWords(item.text ?? item.content), caption: asText(item.caption ?? item.description) }))
-                .filter(item => item.text)
-                .slice(0, MAX_TEXTS),
+    const source = Array.isArray(value.panels) && !Array.isArray(value.items) ? flattenPanels(value) : value;
+    const summary = isObject(source.summary) ? source.summary : {};
+    const entries = list(source.items).slice(0, MAX_ITEMS).map(item => {
+        const label = labelOf(item);
+        return {
+            label,
+            caption: asText(item.caption ?? item.description),
+            text: label === 'text' ? asWords(item.text ?? item.content) : '',
+            raw: rawBox(item.bbox ?? item.box),
+            marked: item.panel === true,
         };
-        if (panel.caption || panel.characters.length) panels.push(panel);
-    }
-    if (!panels.length) return null;
-    const relaid = panels.some(panel => !panel.box);
-    panels.forEach((panel, index) => {
-        if (relaid) panel.box = [index * 100 / panels.length, 0, (index + 1) * 100 / panels.length, 100];
-        for (const item of [...panel.characters, ...panel.texts]) {
-            if (relaid || !item.box) item.box = [...panel.box];
-        }
+    }).filter(item => (item.label === 'text' ? item.text : item.caption));
+    if (!entries.length) return null;
+    const boxed = entries.filter(item => item.raw);
+    if (boxed.length) percentBoxes(boxed.map(item => item.raw)).forEach((box, index) => { boxed[index].box = box; });
+    const area = box => (box ? (box[2] - box[0]) * (box[3] - box[1]) / 100 : 0);
+    const panelLike = item => item.label === 'object' && (item.marked || PANEL_WORD.test(item.caption) || area(item.box) >= 8);
+    // The canvas as declared, unless the items name several panels.
+    const declared = String(summary.canvas ?? source.canvas ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    const named = entries.filter(item => item.label === 'object' && (item.marked || PANEL_WORD.test(item.caption))).length;
+    const canvas = named > 1 || (declared !== 'single' && (declared === 'multi_panel' || entries.filter(panelLike).length > 1)) ? 'multi_panel' : 'single';
+    let panelBox = [0, 0, 100, 100];
+    const items = entries.map(item => {
+        const panel = canvas === 'multi_panel' && panelLike(item);
+        const box = item.box ?? [...panelBox];
+        if (panel) panelBox = box;
+        return {
+            label: item.label,
+            caption: item.caption || (item.label === 'text' ? TEXT_CAPTION : ''),
+            ...(item.label === 'text' ? { text: item.text } : {}),
+            box,
+            ...(panel ? { panel: true } : {}),
+        };
     });
-    return { caption: asText(value.caption ?? value.summary), panels };
+    return { caption: asText(summary.caption ?? source.caption), canvas, items };
+}
+
+/** How many panels a page has (v1.45's pages list them; a layout names them "… panel"). */
+export function comicPanelCount(page) {
+    if (Array.isArray(page?.panels)) return page.panels.length;
+    if (page?.canvas === 'single') return 1;
+    return (page?.items ?? []).filter(item => item.panel).length;
 }
 
 /** "Top-left vertical panel" from where a panel is on the page and its shape on the canvas. */
@@ -103,38 +181,28 @@ function panelName([top, left, bottom, right], width, height) {
     return `${where[0].toUpperCase()}${where.slice(1)}${shape} panel`;
 }
 
-/** A panel's caption, saying where it is ("Top-left vertical panel: …") unless it already does. */
-function panelCaption(panel, width, height) {
-    if (/^[^:：.]{0,40}\bpanel\b[^:：.]{0,20}[:：]/i.test(panel.caption)) return panel.caption;
-    return `${panelName(panel.box, width, height)}: ${panel.caption}`;
-}
-
 /**
- * MOSS-Image's JSON layout of a page on a width × height canvas, as OpenMOSS's examples write it: the summary
- * (`caption` is its description, the style and trigger words included), then per panel an object item, its people
- * as character items and its words as text items. A one-panel page is a single canvas: there the panel has no item
- * of its own (its description goes into the summary, see prompt.js).
+ * MOSS-Image's JSON layout of a page on a width × height canvas, as OpenMOSS's examples and the LoRA card write it:
+ * the summary (`caption` is its description, the style and trigger words included) and the items in the parser's
+ * order, boxes in pixels around the canvas centre. A panel that does not say where it is gets its place in front
+ * ("Top-left vertical panel: …").
  */
 export function comicLayout(page, { width, height, caption }) {
-    const single = page.panels.length === 1;
-    const canvas = single ? 'single' : 'multi_panel';
+    const canvas = page.canvas === 'single' ? 'single' : 'multi_panel';
     const pixels = ([top, left, bottom, right]) => [
         (top / 100 - 0.5) * height,
         (left / 100 - 0.5) * width,
         (bottom / 100 - 0.5) * height,
         (right / 100 - 0.5) * width,
     ].map(Math.round);
-    const items = [];
-    for (const panel of page.panels) {
-        if (!single && panel.caption) items.push({ label: 'object', caption: panelCaption(panel, width, height), bbox: pixels(panel.box) });
-        for (const person of panel.characters) items.push({ label: 'character', caption: person.caption, bbox: pixels(person.box) });
-        for (const words of panel.texts) {
-            items.push({ label: 'text', caption: words.caption || 'Clean comic text in a white speech bubble.', text: words.text, bbox: pixels(words.box) });
-        }
-    }
     return {
         summary: { meta: ['comic', canvas, 'digital_painting'], canvas, caption },
-        items,
+        items: page.items.map(item => ({
+            label: item.label,
+            caption: item.panel && !PANEL_WORD.test(item.caption) ? `${panelName(item.box, width, height)}: ${item.caption}` : item.caption,
+            ...(item.label === 'text' ? { text: item.text } : {}),
+            bbox: pixels(item.box),
+        })),
         bbox_coord_space: 'abs_centralized',
         bbox_format: 'yxyx',
     };

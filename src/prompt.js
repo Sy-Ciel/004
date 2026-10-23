@@ -321,7 +321,7 @@ export function finishPrompt(prompt, order = {}) {
 /**
  * 漫画模式: the page the parser laid out, as MOSS-Image's JSON layout for the canvas it is drawn on. Its summary
  * starts with the plain trigger words (the mode's and the character LoRA's) and the style prefixes, then the page's
- * description (a one-panel page's panel too), and ends with the suffix; structural tags go on the first line.
+ * description, and ends with the suffix; structural tags go on the first line.
  */
 function buildComicPrompt(preset, page, { parserPreset, canvas }) {
     const settings = getSettings();
@@ -330,7 +330,6 @@ function buildComicPrompt(preset, page, { parserPreset, canvas }) {
     const parts = [
         [words, prefix].filter(Boolean).join(' '),
         page.caption,
-        page.panels.length === 1 ? page.panels[0].caption : '',
         resolveMacros(settings.suffix || ''),
     ].map(text => cleanLine(String(text || ''))).filter(Boolean);
     const caption = joinParts(parts, false);
