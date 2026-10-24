@@ -760,7 +760,15 @@
     display: none;
 }
 
-/* 一键开关 (quickToggle.js), left of the chat input next to the wand; sized like its neighbours by SillyTavern's
+/* 一键开关 (quickToggle.js) in the wand menu: a switch, in the theme's accent colour when pictures are on. */
+#ctp_wand_toggle.ctp-on > .extensionsMenuExtensionButton {
+    color: var(--SmartThemeQuoteColor);
+}
+#ctp_wand_toggle.ctp-off > .extensionsMenuExtensionButton {
+    opacity: 0.6;
+}
+
+/* 一键开关 as a button left of the chat input next to the wand; sized like its neighbours by SillyTavern's
    #leftSendForm > div rule. On: the picture in the theme's accent colour; off: the picture dimmed (::before is Font
    Awesome's glyph) under a red slash, outlined so it shows on any theme. */
 #ctp_quick_toggle {

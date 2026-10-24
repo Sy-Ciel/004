@@ -402,7 +402,7 @@ export const FKEY_NEGATIVE = `<|texture_and_style_neg|>photorealistic, real huma
 <|universal_anatomy_neg|>blurry, out of focus, lowres, censored, mosaic censoring, bar censor, ugly face, distorted face, overly squished grotesque cheek, worst quality, bad anatomy, fused bodies, fused legs, extra limbs, extra arms, extra legs, extra hands, three hands, extra fingers, mutated hands, fused fingers, six fingers, floating hand, watermark, signature<|/universal_anatomy_neg|>`;
 
 /** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */
-export const SETTINGS_VERSION = 7;
+export const SETTINGS_VERSION = 8;
 
 /** A render profile's LoRA set to this means "no style LoRA", as opposed to empty = use the default. */
 export const LORA_NONE = '__none__';
@@ -437,8 +437,8 @@ export const DEFAULT_SETTINGS = {
     absentFallback: true,
     /** The 🖼 「重新生成配图」 button right in each reply's button bar, not only in its 「…」 menu (see messageButtons.js). */
     quickRegenButton: true,
-    /** 一键开关: the 🖼 button left of the chat input that turns 「启用」 on and off (see quickToggle.js). */
-    quickToggleButton: true,
+    /** 一键开关 for 「启用」: 'wand' (in the wand menu) | 'input' (a 🖼 button left of the chat input) | 'none'; see quickToggle.js. */
+    quickTogglePlace: 'wand',
     /** Words every prompt of this mode starts with (e.g. a style LoRA's trigger); the parser is told about them. */
     triggerWords: '',
     /** Anima only: prompts in English sentences instead of Danbooru tags (see modes.js promptStyle). */

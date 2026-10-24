@@ -136,7 +136,7 @@ function onSettingChanged(path) {
         resetPanelGeometry();
     }
     if (path === 'quickRegenButton') injectMessageButtons();
-    if (path === 'quickToggleButton') updateQuickToggle();
+    if (path === 'quickTogglePlace') updateQuickToggle();
     // Off stops pictures in the making too, as the 🖼 switch by the chat input does.
     if (path === 'enabled' && applyEnabled()) toastr.info('配图已关闭，正在进行的配图已取消', 'ComfyUI 角色配图');
     if (path === 'parser.source') updateSourceVisibility();
@@ -1018,7 +1018,7 @@ async function resetAllSettings() {
         fresh.panelAlsoInMessage = settings.panelAlsoInMessage;
         fresh.absentFallback = settings.absentFallback;
         fresh.quickRegenButton = settings.quickRegenButton;
-        fresh.quickToggleButton = settings.quickToggleButton;
+        fresh.quickTogglePlace = settings.quickTogglePlace;
         for (const key of DISPLAY_KEYS) fresh[key] = structuredClone(settings[key]);
     }
     if (keep('reset-other')) {

@@ -43,8 +43,14 @@
                     <label class="checkbox_label"><input type="checkbox" data-ctp="debug"> 调试模式</label>
                     <label class="checkbox_label" title="每次请求解析模型之前，先弹出要发送的完整内容，可以检查、修改，再决定发送或取消"><input type="checkbox" data-ctp="reviewParserInput"> 发送前检查解析输入</label>
                 </div>
-                <label class="checkbox_label"><input type="checkbox" data-ctp="quickToggleButton"> 在输入框左边显示一键开关 <i class="fa-solid fa-image"></i></label>
-                <small class="ctp-hint">一键开关就是上面的「启用」，放在聊天输入框左边（菜单 ☰、魔杖 🪄 旁边），聊天时随时点：关掉后不再生成新图（自动配图和各个生成按钮都不画），也不给正文 AI 加状态栏、画面分级的要求，正在进行的配图会取消；已有的图照常显示，可以翻看、删除。图标带斜杠、变暗 = 关着。斜杠命令 <code>/ctimg-enable on|off</code> 也能开关（可以做成快速回复按钮）。</small>
+                <label>一键开关放在
+                    <select class="text_pole" data-ctp="quickTogglePlace">
+                        <option value="wand">魔杖菜单里（不容易误触）</option>
+                        <option value="input">输入框左边（一点就开关）</option>
+                        <option value="none">不显示</option>
+                    </select>
+                </label>
+                <small class="ctp-hint">一键开关就是上面的「启用」，聊天时不用打开设置就能开关配图。默认在输入框左边的魔杖 🪄 菜单里：点魔杖，再点「ComfyUI 配图：开 / 关」。也可以放在输入框左边当一个 🖼 按钮（一点就开关，但容易误触；带斜杠、变暗 = 关着）。关掉后不再生成新图（自动配图和各个生成按钮都不画），也不给正文 AI 加状态栏、画面分级的要求，正在进行的配图会取消；已有的图照常显示，可以翻看、删除。斜杠命令 <code>/ctimg-enable on|off</code> 也能开关（可以做成快速回复按钮）。</small>
                 <div class="ctp-row ctp-wrap-row">
                     <label class="checkbox_label"><input type="checkbox" data-ctp="parser.multiScene"> 多张图：正文换了时间或地点时，每一段各画一张</label>
                     <label>最多 <select class="text_pole" data-ctp="parser.maxScenes" data-type="int">

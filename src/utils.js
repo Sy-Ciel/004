@@ -83,6 +83,12 @@ function migrateSettings(settings) {
             for (const [key, own] of Object.entries(settings.modeStore)) upgrade(own, normalizeMode(key.split('@')[0]));
         }
     }
+    if (version < 8) {
+        // v1.46's 一键开关 by the chat input was easy to hit by accident: it moves into the wand menu (or stays
+        // hidden, for those who had turned it off).
+        if (settings.quickToggleButton === false) settings.quickTogglePlace = 'none';
+        delete settings.quickToggleButton;
+    }
     settings.settingsVersion = SETTINGS_VERSION;
 }
 

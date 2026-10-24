@@ -224,9 +224,9 @@ function onMessageButton() {
 function injectWandButton() {
     const menu = $('#extensionsMenu');
     if (!menu.length || $('#ctp_wand').length) return;
-    const item = $(`<div id="ctp_wand" class="list-group-item flex-container flexGap5" title="为最新楼层生成角色配图">
+    const item = $(`<div id="ctp_wand" class="list-group-item flex-container flexGap5" title="ComfyUI 角色配图：为最新楼层生成配图">
         <div class="fa-solid fa-image extensionsMenuExtensionButton"></div>
-        <span>ComfyUI 角色配图</span>
+        <span>为最新楼层生成配图</span>
     </div>`);
     item.on('click', () => {
         const mesId = lastFloorId();
