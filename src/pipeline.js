@@ -28,7 +28,6 @@ import {
 /** In-flight jobs, keyed by the chat message object so index shifts cannot misplace results. */
 const jobs = new WeakMap();
 const activeJobs = new Set();
-let queue = Promise.resolve();
 let rerender = () => {};
 let imageAdded = () => {};
 let modeSwitcher = () => false;
@@ -200,6 +199,137 @@ export function hasActiveJobs() {
     return activeJobs.size > 0;
 }
 
+function abortError() {
+    return new DOMException('Aborted', 'AbortError');
+}
+
+/*
+ * How jobs share the work: each one parses at once, side by side with the others (no queue for the parser), and
+ * ComfyUI draws one job's pictures at a time, in the order the jobs got there — parsed first, drawn first. Jobs
+ * that do not parse (🎲, ✏️) go straight to that line.
+ */
+
+/** The job drawing now, and the ones waiting for ComfyUI after it: { job, start, place }. */
+let drawingNow = null;
+const drawingLine = [];
+
+function startNextDrawing() {
+    if (drawingNow || !drawingLine.length) return;
+    drawingNow = drawingLine.shift();
+    drawingNow.start();
+    drawingLine.forEach((entry, index) => entry.place(index + 1));
+}
+
+/**
+ * Waits for the job's turn at ComfyUI; resolves to the function that ends it (the job calls it when its pictures are
+ * done, or it fails or is cancelled). Cancelling while waiting leaves the line.
+ */
+function drawingTurn(job, message) {
+    return new Promise((resolve, reject) => {
+        const signal = job.controller.signal;
+        if (signal.aborted) {
+            reject(abortError());
+            return;
+        }
+        const leaveLine = () => {
+            const index = drawingLine.indexOf(entry);
+            if (index < 0) return;
+            drawingLine.splice(index, 1);
+            drawingLine.forEach((other, at) => other.place(at + 1));
+            reject(abortError());
+        };
+        const entry = {
+            job,
+            start() {
+                signal.removeEventListener('abort', leaveLine);
+                resolve(() => {
+                    if (drawingNow !== entry) return;
+                    drawingNow = null;
+                    startNextDrawing();
+                });
+            },
+            place(ahead) {
+                setStage(job, message, 'waiting', `等 ComfyUI 出图，前面还有 ${ahead} 个…`);
+            },
+        };
+        signal.addEventListener('abort', leaveLine, { once: true });
+        drawingLine.push(entry);
+        if (drawingNow) entry.place(drawingLine.length);
+        startNextDrawing();
+    });
+}
+
+/*
+ * 按画面自动切换模型: a job runs in one image model mode from start to end, and the settings are the active mode's,
+ * so jobs of one mode run side by side and a job for the other mode waits until they are done, then the mode
+ * switches. Every job behind a waiting one waits too, so none waits for good. Without the automatic switch all jobs
+ * are in the current mode and start at once.
+ */
+const modeLine = [];
+let modeJobs = 0;
+let jobsMode = null;
+
+function admitJobs() {
+    while (modeLine.length) {
+        const next = modeLine[0];
+        const wanted = next.mode ?? currentMode();
+        if (modeJobs > 0 && wanted !== jobsMode) return;
+        modeLine.shift();
+        if (wanted !== currentMode()) modeSwitcher(wanted);
+        jobsMode = currentMode();
+        modeJobs++;
+        next.start();
+    }
+}
+
+/** Waits until the job may run in `mode` (null: the current one), switching to it when no other job is running. */
+function enterMode(job, message, mode) {
+    return new Promise((resolve, reject) => {
+        const signal = job.controller.signal;
+        if (signal.aborted) {
+            reject(abortError());
+            return;
+        }
+        const leaveLine = () => {
+            const index = modeLine.indexOf(entry);
+            if (index < 0) return;
+            modeLine.splice(index, 1);
+            reject(abortError());
+            admitJobs();
+        };
+        const entry = {
+            mode,
+            start() {
+                signal.removeEventListener('abort', leaveLine);
+                resolve();
+            },
+        };
+        signal.addEventListener('abort', leaveLine, { once: true });
+        modeLine.push(entry);
+        admitJobs();
+        if (!modeLine.includes(entry)) return;
+        const wanted = mode ?? currentMode();
+        setStage(job, message, 'queued', wanted !== jobsMode
+            ? `等 ${modeLabel(jobsMode)} 模式的配图画完，再切到 ${modeLabel(wanted)} 模式…`
+            : '排队中：前面的配图要先切换模型模式…');
+    });
+}
+
+function leaveMode() {
+    modeJobs = Math.max(0, modeJobs - 1);
+    if (!modeJobs) jobsMode = null;
+    admitJobs();
+}
+
+/** 「发送前检查解析输入」: one review popup at a time, also when several floors parse at once. */
+let reviewLine = Promise.resolve();
+
+function oneReviewAtATime(review) {
+    const turn = reviewLine.then(review, review);
+    reviewLine = turn.catch(() => {});
+    return turn;
+}
+
 /** Thrown when the image model mode changed while a job or dry run was waiting; nothing is written. */
 function modeChangedError() {
     const error = new DOMException('Image model mode changed', 'AbortError');
@@ -279,8 +409,8 @@ export function enqueue(mesId, options = {}) {
     jobs.set(message, job);
     activeJobs.add(job);
     render(message);
-    queue = queue.then(() => runJob(message, job, options)).catch(error => warn(error));
-    return queue;
+    // No queue: the job parses at once; only ComfyUI takes the jobs one at a time (see drawingTurn).
+    return runJob(message, job, options).catch(error => warn(error));
 }
 
 /**
@@ -378,15 +508,17 @@ function swipeText(message, swipeId) {
     return message.swipes?.[swipeId] ?? message.mes;
 }
 
-/** Switches to the mode the floor's rating marker asks for (when the switch is on); returns a debug note. */
-function applyRating(message, swipeId) {
+/**
+ * The mode the floor's rating marker asks for (when 按画面自动切换模型 is on), with a debug note; mode null = the
+ * current one. The switch itself waits for the other jobs (see enterMode).
+ */
+function floorRating(message, swipeId) {
     const settings = getSettings();
-    if (!settings.enabled || !settings.autoModelByRating) return '';
+    if (!settings.enabled || !settings.autoModelByRating) return { mode: null, note: '' };
     const rating = readRating(swipeText(message, swipeId));
     const target = modeForRating(rating);
-    if (!target) return '按画面自动切换模型：这一楼没有分级标记，用当前模式';
-    if (target !== currentMode()) modeSwitcher(target);
-    return `画面分级：${rating.toUpperCase()}（正文 AI 标记）→ ${modeLabel(target)} 模式`;
+    if (!target) return { mode: null, note: '按画面自动切换模型：这一楼没有分级标记，用当前模式' };
+    return { mode: target, note: `画面分级：${rating.toUpperCase()}（正文 AI 标记）→ ${modeLabel(target)} 模式` };
 }
 
 /**
@@ -517,7 +649,7 @@ async function askParser(message, job, data, parserPrompt, target, modelMode) {
     if (settings.reviewParserInput && parserReviewer) {
         const stage = job.text;
         setStage(job, message, 'parsing', '等待检查解析输入…');
-        const reviewed = await parserReviewer(mesId, parserPrompt, target);
+        const reviewed = await oneReviewAtATime(() => (signal.aborted ? null : parserReviewer(ctx().chat.indexOf(message), parserPrompt, target)));
         if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
         assertMode(modelMode);
         if (!reviewed) {
@@ -626,6 +758,8 @@ async function redrawPicture(message, job, data, options, modelMode, otherMode) 
         if (described) data.debug.notes.push(described);
     }
 
+    job.endDrawing = await drawingTurn(job, message);
+    assertMode(modelMode);
     setStage(job, message, 'drawing', `ComfyUI 生成中：「${label}」…`);
     const values = workflowValues(plan, modelMode, { prompt, negative, width, height, seed });
     const template = await getWorkflowTemplate(plan.comfy, plan.profile, modelMode);
@@ -686,15 +820,35 @@ async function redrawPicture(message, job, data, options, modelMode, otherMode) 
 }
 
 async function runJob(message, job, options) {
+    // 按画面自动切换模型: the main AI's rating marker picks the mode before anything else happens (an edited
+    // prompt was written for the mode it was edited in, so it is drawn there).
+    const rating = options.mode === 'edit' ? { mode: null, note: '' } : floorRating(message, job.swipeId);
+    try {
+        await enterMode(job, message, rating.mode);
+    } catch (error) {
+        // Cancelled while waiting for the other mode's pictures.
+        jobs.delete(message);
+        activeJobs.delete(job);
+        render(message);
+        if (isAbortError(error)) toastr.info('已取消配图');
+        else warn(error);
+        return;
+    }
+    try {
+        await runJobInMode(message, job, options, rating.note);
+    } finally {
+        leaveMode();
+    }
+}
+
+/** One job, in the image model mode it was let in with. */
+async function runJobInMode(message, job, options, ratingNote) {
     const settings = getSettings();
     const signal = job.controller.signal;
     const previous = swipeData(message, job.swipeId);
     const data = previous ? structuredClone(previous) : { v: 1, images: [], index: 0 };
     data.images ??= [];
     const mode = options.mode === 'edit' || options.mode === 'reroll' ? options.mode : 'reparse';
-    // 按画面自动切换模型: the main AI's rating marker picks the mode before anything else happens (an edited
-    // prompt was written for the mode it was edited in, so it is drawn there).
-    const ratingNote = mode === 'edit' || signal.aborted ? '' : applyRating(message, job.swipeId);
     // The whole job uses one image model mode; switching modes cancels it (see assertMode).
     const modelMode = currentMode();
     // The floor's state was made in the other mode: 🔄 parses it again instead of reusing that model's prompt, and
@@ -834,6 +988,9 @@ async function runJob(message, job, options) {
             data.parserPresetId = parserPrompt.preset.id;
             data.parserPresetName = parserPrompt.preset.name;
             data.promptMode = parserPrompt.mode;
+            // Floors parsed while this one waits for ComfyUI read its new state (outfit and scene continuity).
+            data.skipped = null;
+            commit(message, job.swipeId, structuredClone(data));
         } else if (mode === 'edit') {
             if (otherMode) {
                 // The other mode's parse results must not reach this mode's parser as earlier outputs.
@@ -879,6 +1036,9 @@ async function runJob(message, job, options) {
         data.skipped = null;
         if (!String(data.prompt ?? '').trim()) throw new Error('最终提示词为空');
 
+        // ComfyUI draws one job at a time, in the order they got here.
+        job.endDrawing = await drawingTurn(job, message);
+        assertMode(modelMode);
         setStage(job, message, 'drawing', data.scenes?.length ? `ComfyUI 生成中：结束时这一张（1/${data.scenes.length + 1}）…` : 'ComfyUI 生成中…');
         // The character's render profile swaps in its own model / LoRA / sampling settings.
         const plan = renderPlan(data, overrides);
@@ -998,6 +1158,7 @@ async function runJob(message, job, options) {
         const where = job.stage === 'parsing' ? '（解析模型）' : job.stage === 'drawing' ? '（ComfyUI）' : '';
         toastr.error(truncate(data.error, 300), `配图失败${where}`);
     } finally {
+        job.endDrawing?.();
         jobs.delete(message);
         activeJobs.delete(job);
         render(message);
