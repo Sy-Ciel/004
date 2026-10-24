@@ -11,7 +11,7 @@ import { MODEL_ANIMA, MODEL_LABELS, MODEL_MODES, modeDefaults, normalizeMode } f
 import { fillDefaults, getSettings, isPlainObject } from './utils.js';
 
 /** Top-level keys all modes (and all profiles) share. */
-const SHARED_KEYS = ['settingsVersion', 'enabled', 'modelMode', 'modeStore', 'perPersonaProfiles', 'profilePersona', 'personaModes', 'autoModelByRating', 'reviewParserInput', 'placeInStory', 'panelAlsoInMessage', 'absentFallback', 'quickRegenButton'];
+const SHARED_KEYS = ['settingsVersion', 'enabled', 'modelMode', 'modeStore', 'perPersonaProfiles', 'profilePersona', 'personaModes', 'autoModelByRating', 'reviewParserInput', 'placeInStory', 'panelAlsoInMessage', 'absentFallback', 'quickRegenButton', 'quickToggleButton'];
 
 /**
  * Keys of parser / comfy all modes share: the API settings, and which part of a message is the story (that

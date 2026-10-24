@@ -43,6 +43,8 @@
                     <label class="checkbox_label"><input type="checkbox" data-ctp="debug"> 调试模式</label>
                     <label class="checkbox_label" title="每次请求解析模型之前，先弹出要发送的完整内容，可以检查、修改，再决定发送或取消"><input type="checkbox" data-ctp="reviewParserInput"> 发送前检查解析输入</label>
                 </div>
+                <label class="checkbox_label"><input type="checkbox" data-ctp="quickToggleButton"> 在输入框左边显示一键开关 <i class="fa-solid fa-image"></i></label>
+                <small class="ctp-hint">一键开关就是上面的「启用」，放在聊天输入框左边（菜单 ☰、魔杖 🪄 旁边），聊天时随时点：关掉后不再生成新图（自动配图和各个生成按钮都不画），也不给正文 AI 加状态栏、画面分级的要求，正在进行的配图会取消；已有的图照常显示，可以翻看、删除。图标带斜杠、变暗 = 关着。斜杠命令 <code>/ctimg-enable on|off</code> 也能开关（可以做成快速回复按钮）。</small>
                 <div class="ctp-row ctp-wrap-row">
                     <label class="checkbox_label"><input type="checkbox" data-ctp="parser.multiScene"> 多张图：正文换了时间或地点时，每一段各画一张</label>
                     <label>最多 <select class="text_pole" data-ctp="parser.maxScenes" data-type="int">
@@ -561,7 +563,7 @@
                         <div class="menu_button redWarningBG" id="ctp_reset_all">全部恢复默认值</div>
                     </div>
                     <small class="ctp-hint">「全部恢复默认值」把当前模型模式的所有设置恢复成刚安装时的样子（另一个模式可以选择一起恢复），可以选择保留角色预设、渲染配置和 API / ComfyUI 的连接信息；聊天里的图片不受影响。</small>
-                    <small class="ctp-hint">斜杠命令：/ctimg [target=名字] [at=楼层] [prompt=提示词] · /ctimg-target 名字|user|char|auto · /ctimg-preset 预设名 · /ctimg-mode fixed|ai · /ctimg-model krea2|anima|moss · /ctimg-debug on|off</small>
+                    <small class="ctp-hint">斜杠命令：/ctimg [target=名字] [at=楼层] [prompt=提示词] · /ctimg-target 名字|user|char|auto · /ctimg-preset 预设名 · /ctimg-mode fixed|ai · /ctimg-model krea2|anima|moss · /ctimg-enable on|off（开关配图）· /ctimg-debug on|off</small>
                 </div>
             </div>
 

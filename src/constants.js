@@ -437,6 +437,8 @@ export const DEFAULT_SETTINGS = {
     absentFallback: true,
     /** The 🖼 「重新生成配图」 button right in each reply's button bar, not only in its 「…」 menu (see messageButtons.js). */
     quickRegenButton: true,
+    /** 一键开关: the 🖼 button left of the chat input that turns 「启用」 on and off (see quickToggle.js). */
+    quickToggleButton: true,
     /** Words every prompt of this mode starts with (e.g. a style LoRA's trigger); the parser is told about them. */
     triggerWords: '',
     /** Anima only: prompts in English sentences instead of Danbooru tags (see modes.js promptStyle). */

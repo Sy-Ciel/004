@@ -26,6 +26,7 @@ import {
 } from './constants.js';
 import { lastFloorId, showChatDebug, showDryRun, showParserPreview } from './debug.js';
 import { injectMessageButtons } from './messageButtons.js';
+import { applyEnabled, updateQuickToggle } from './quickToggle.js';
 import { DISPLAY_KEYS, SHARED_COMFY_KEYS, SHARED_PARSER_KEYS, currentMode, modeLabel, adoptProfile, hasProfile, otherSlotKey, personaMode, releaseProfile, swapModeSettings, swapProfile } from './modes.js';
 import { resetPanelForMode, resetPanelGeometry } from './panel.js';
 import { bindPickers, getPath, readInput, registerPickerOwner, renderPicker, renderPickers, setPath, writeInput } from './form.js';
@@ -135,6 +136,9 @@ function onSettingChanged(path) {
         resetPanelGeometry();
     }
     if (path === 'quickRegenButton') injectMessageButtons();
+    if (path === 'quickToggleButton') updateQuickToggle();
+    // Off stops pictures in the making too, as the 🖼 switch by the chat input does.
+    if (path === 'enabled' && applyEnabled()) toastr.info('配图已关闭，正在进行的配图已取消', 'ComfyUI 角色配图');
     if (path === 'parser.source') updateSourceVisibility();
     if (path.startsWith('parser.')) updateThinkingHint();
     if (path === 'perPersonaProfiles') {
@@ -1014,6 +1018,7 @@ async function resetAllSettings() {
         fresh.panelAlsoInMessage = settings.panelAlsoInMessage;
         fresh.absentFallback = settings.absentFallback;
         fresh.quickRegenButton = settings.quickRegenButton;
+        fresh.quickToggleButton = settings.quickToggleButton;
         for (const key of DISPLAY_KEYS) fresh[key] = structuredClone(settings[key]);
     }
     if (keep('reset-other')) {
@@ -1103,6 +1108,7 @@ function refreshAllSettingsUi() {
     lastUserKey = `${currentPersona()}|${findUserPreset()?.id ?? ''}`;
     updateStatusPrompt();
     updateLoraSummary();
+    updateQuickToggle();
     renderAll();
 }
 

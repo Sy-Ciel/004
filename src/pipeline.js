@@ -261,6 +261,11 @@ function imageFolder() {
 export function enqueue(mesId, options = {}) {
     const message = ctx().chat[mesId];
     if (!message) return Promise.resolve();
+    // 「启用」 off (the 🖼 switch by the chat input): no picture at all, whichever button asked for it.
+    if (!getSettings().enabled) {
+        toastr.info('配图已关闭。点输入框左边的 🖼 开关（或设置里的「启用」）打开后再生成。', 'ComfyUI 角色配图');
+        return Promise.resolve();
+    }
     if (jobs.has(message)) {
         toastr.info(`#${mesId} 正在生成中`);
         return Promise.resolve();

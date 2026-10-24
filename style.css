@@ -759,3 +759,29 @@
 .mes:not([is_user="true"]):not([is_system="true"]) .mes_buttons:has(> .ctp_mes_quick) .extraMesButtons .ctp_mes_gen {
     display: none;
 }
+
+/* 一键开关 (quickToggle.js), left of the chat input next to the wand; sized like its neighbours by SillyTavern's
+   #leftSendForm > div rule. On: the picture in the theme's accent colour; off: the picture dimmed (::before is Font
+   Awesome's glyph) under a red slash, outlined so it shows on any theme. */
+#ctp_quick_toggle {
+    position: relative;
+}
+#ctp_quick_toggle.ctp-on {
+    color: var(--SmartThemeQuoteColor);
+}
+#ctp_quick_toggle.ctp-off::before {
+    opacity: 0.45;
+}
+#ctp_quick_toggle.ctp-off::after {
+    content: '';
+    position: absolute;
+    left: 16%;
+    right: 16%;
+    top: 50%;
+    height: 2px;
+    margin-top: -1px;
+    border-radius: 1px;
+    background: #e0524a;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+    transform: rotate(-40deg);
+}

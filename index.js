@@ -9,6 +9,7 @@ import { currentIndex } from './src/markup.js';
 import { onLayoutChange, renderAll, renderMessage } from './src/render.js';
 import { updateRatingPrompt } from './src/rating.js';
 import { replyProblem } from './src/replyCheck.js';
+import { setEnabled, updateQuickToggle } from './src/quickToggle.js';
 import { updateStatusPrompt } from './src/statusBar.js';
 import { currentMode, imageMode, modeLabel } from './src/modes.js';
 import { findParserPreset } from './src/parserPresets.js';
@@ -217,10 +218,6 @@ function onAction(event) {
 function onMessageButton() {
     const mesId = Number($(this).closest('.mes').attr('mesid'));
     if (!Number.isInteger(mesId)) return;
-    if (!getSettings().enabled) {
-        toastr.info('ComfyUI 角色配图扩展已停用');
-        return;
-    }
     enqueue(mesId, { mode: 'reparse', force: true });
 }
 
@@ -255,6 +252,7 @@ function renderAllSoon() {
     clearTimeout(renderAllTimer);
     renderAllTimer = setTimeout(() => {
         injectMessageButtons();
+        updateQuickToggle();
         renderAll();
     }, 50);
 }
@@ -439,6 +437,19 @@ function registerSlashCommands() {
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'ctimg-enable',
+        helpString: '一键开关 ComfyUI 角色配图（设置里的「启用」）：on / off，不带参数则切换。关掉后不再生成新图，已有的图照常显示。',
+        unnamedArgumentList: [
+            SlashCommandArgument.fromProps({ description: 'on / off', typeList: [ARGUMENT_TYPE.STRING], isRequired: false }),
+        ],
+        callback: async (_args, value) => {
+            const wanted = String(value || '').trim().toLowerCase();
+            setEnabled(wanted ? ['on', 'true', '1', '开'].includes(wanted) : !getSettings().enabled);
+            return String(getSettings().enabled);
+        },
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'ctimg-debug',
         helpString: '开关配图调试模式：on / off，不带参数则切换。',
         unnamedArgumentList: [
@@ -470,6 +481,7 @@ jQuery(async () => {
         await initSettingsUi();
         injectMessageButtons();
         injectWandButton();
+        updateQuickToggle();
         registerEvents();
         registerSlashCommands();
         updateStatusPrompt();
