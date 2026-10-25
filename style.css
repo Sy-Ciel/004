@@ -602,7 +602,8 @@
     flex-wrap: wrap;
 }
 
-.ctp-settings .ctp-extra-lora select[data-list] {
+.ctp-settings .ctp-extra-lora select[data-list],
+.ctp-settings .ctp-extra-lora .ctp-picker {
     flex: 2 1 160px;
 }
 
@@ -792,4 +793,26 @@
     background: #e0524a;
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
     transform: rotate(-40deg);
+}
+
+/* 快速过滤 (form.js): a small 🔍 box in front of a model / LoRA picker, wider while in use. */
+.ctp-settings .ctp-picker {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+.ctp-settings .ctp-picker > select {
+    flex: 1;
+    min-width: 0;
+}
+.ctp-settings .ctp-picker-filter {
+    flex: 0 0 auto;
+    width: 5.5em;
+    margin: 0;
+    transition: width var(--animation-duration, 0.15s);
+}
+.ctp-settings .ctp-picker-filter:focus,
+.ctp-settings .ctp-picker-filter:not(:placeholder-shown) {
+    width: 11em;
 }
