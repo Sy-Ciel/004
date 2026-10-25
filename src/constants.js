@@ -437,6 +437,10 @@ export const DEFAULT_SETTINGS = {
     absentFallback: true,
     /** The 🖼 「重新生成配图」 button right in each reply's button bar, not only in its 「…」 menu (see messageButtons.js). */
     quickRegenButton: true,
+    /** 出图参数预设 of each mode: { [mode]: [{ id, name, values: { comfy, triggerWords }, cards }] }, shared by every profile (paramPresets.js). */
+    paramPresets: {},
+    /** The 出图参数预设 this profile last put in place ('' = none). */
+    paramPresetId: '',
     /** 一键开关 for 「启用」: 'wand' (in the wand menu) | 'input' (a 🖼 button left of the chat input) | 'none'; see quickToggle.js. */
     quickTogglePlace: 'wand',
     /** Words every prompt of this mode starts with (e.g. a style LoRA's trigger); the parser is told about them. */

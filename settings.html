@@ -409,6 +409,16 @@
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
+                    <h4>出图参数预设</h4>
+                    <div class="ctp-row">
+                        <select class="text_pole flex1" id="ctp_param_select"></select>
+                        <div class="menu_button fa-solid fa-plus" id="ctp_param_new" title="把现在的出图参数存成新预设"></div>
+                        <div class="menu_button fa-solid fa-floppy-disk" id="ctp_param_save" title="用现在的出图参数覆盖选中的预设"></div>
+                        <div class="menu_button fa-solid fa-pen" id="ctp_param_rename" title="重命名"></div>
+                        <div class="menu_button fa-solid fa-trash-can" id="ctp_param_delete" title="删除"></div>
+                    </div>
+                    <label class="checkbox_label"><input type="checkbox" id="ctp_param_bind"> 打开 <span id="ctp_param_card"></span> 的聊天时自动套用选中的预设 <span class="ctp-muted" id="ctp_param_bound"></span></label>
+                    <small class="ctp-hint">把调好的模型、风格 LoRA、更多 LoRA、采样、分辨率、放大、跳层引导、工作流和触发词存成预设（➕），换新角色卡时在下拉框里选一下就全部套用，不用重新调。预设按模型模式分开，所有人设共用（新人设的档案虽然从默认设置开始，预设还在）。勾选「自动套用」= 这张角色卡（群聊就是这个群）一打开聊天就套用选中的预设；切换模型模式时套用那个模式里绑定的预设。套用后又改了参数，点 💾 存回预设，不然下次打开这张卡又会换回预设里的。角色 LoRA 在角色预设里，不在出图参数预设里。</small>
                     <div class="ctp-row ctp-wrap-row">
                         <div class="menu_button" id="ctp_reset_official">恢复为官方 Krea 2 Turbo 模板的设置</div>
                         <div class="menu_button ctp-mode-only" data-mode="anima" id="ctp_anima_turbo">改用官方 Turbo LoRA（8 步）</div>

@@ -31,6 +31,7 @@ import { DISPLAY_KEYS, SHARED_COMFY_KEYS, SHARED_PARSER_KEYS, currentMode, modeL
 import { resetPanelForMode, resetPanelGeometry } from './panel.js';
 import { bindPickers, getPath, readInput, registerPickerOwner, renderPicker, renderPickers, setPath, writeInput } from './form.js';
 import { initParserPresetUi, refreshParserPresetUi } from './ui-parser-presets.js';
+import { applyCardParamPreset, initParamPresetUi, refreshParamPresetUi } from './ui-param-presets.js';
 import { initRenderProfileUi, refreshRenderProfileUi, refreshRenderProfileUsage, resetRenderProfileSelection } from './ui-render-profiles.js';
 import { renderProfileFor, sanitizeRenderProfile } from './renderProfiles.js';
 import { buildStatusInstruction, updateStatusPrompt } from './statusBar.js';
@@ -539,6 +540,8 @@ export function syncPersonaProfile() {
     if (settings.enabled) {
         toastr.info(`已切换到人设「${personaName(persona)}」的配图档案 · ${modeLabel(mode)} 模式${isNew ? '（第一次使用，全部是默认设置）' : ''}${busy ? '，正在进行的配图已取消' : ''}\n${userSwitchText(preset, via)}`, 'ComfyUI 角色配图');
     }
+    // A new profile starts from the defaults: the open card's 出图参数预设 puts its models and LoRAs back.
+    applyCardParamPreset();
     return true;
 }
 
@@ -986,7 +989,7 @@ async function resetAllSettings() {
     root.innerHTML = `
         <h3>全部恢复默认值</h3>
         <p>把这个扩展在 <b>${modeLabel(mode)}</b> 模式下的所有设置恢复成刚安装时的样子。聊天里已经生成的图片和配图记录不受影响。</p>
-        <label class="checkbox_label"><input type="checkbox" data-keep="presets" checked> 保留角色预设、人设绑定、渲染配置和自己建的配图风格</label>
+        <label class="checkbox_label"><input type="checkbox" data-keep="presets" checked> 保留角色预设、人设绑定、渲染配置、出图参数预设和自己建的配图风格</label>
         <label class="checkbox_label"><input type="checkbox" data-keep="parser" checked> 保留「解析模型」的 API 设置：地址、Key、模型、连接配置、温度、最大输出、超时、重试（所有模式共用）</label>
         <label class="checkbox_label"><input type="checkbox" data-keep="comfy" checked> 保留 ComfyUI 地址、连接方式和已读取的模型列表（所有模式共用）</label>
         <label class="checkbox_label"><input type="checkbox" data-keep="reset-other"> ${others.map(item => modeLabel(item)).join('、')} 模式的设置也恢复默认（同样按第一项保留角色预设；「图片显示」只有勾了这一项才恢复，它是所有模式共用的）</label>
@@ -1005,6 +1008,8 @@ async function resetAllSettings() {
     const fresh = structuredClone(modeDefaults(mode));
     fresh.modelMode = mode;
     if (keep('presets')) Object.assign(fresh, keptPresets(settings, mode));
+    // 出图参数预设 are shared by the profiles: kept with the presets, else this mode's go (every mode's when all reset).
+    fresh.paramPresets = keep('presets') ? settings.paramPresets : keep('reset-other') ? {} : { ...settings.paramPresets, [mode]: [] };
     // The API settings are shared by all modes: kept as a whole, so resetting one mode does not change the others.
     if (keep('parser')) for (const key of SHARED_PARSER_KEYS) fresh.parser[key] = structuredClone(settings.parser[key]);
     if (keep('comfy')) for (const key of SHARED_COMFY_KEYS) fresh.comfy[key] = structuredClone(settings.comfy[key]);
@@ -1109,6 +1114,7 @@ function refreshAllSettingsUi() {
     updateStatusPrompt();
     updateLoraSummary();
     updateQuickToggle();
+    refreshParamPresetUi();
     renderAll();
 }
 
@@ -1126,6 +1132,8 @@ export function switchModelMode(target) {
     saveSettings();
     refreshAllSettingsUi();
     toastr.success(`已切换到 ${modeLabel(to)} 模式${busy ? '，正在进行的配图已取消' : ''}`, 'ComfyUI 角色配图');
+    // The open card's 出图参数预设 of this mode.
+    applyCardParamPreset();
     return true;
 }
 
@@ -1141,6 +1149,7 @@ export function autoSwitchModelMode(target) {
     saveSettings();
     refreshAllSettingsUi();
     toastr.info(`按画面分级自动切换到 ${modeLabel(to)} 模式`, 'ComfyUI 角色配图', { timeOut: 2500 });
+    applyCardParamPreset();
     return true;
 }
 
@@ -1268,6 +1277,13 @@ export async function initSettingsUi() {
     // The model picker changes the guessed thinking format without going through onSettingChanged.
     $(root).on('change', '[data-picker="parser.customModel"]', updateThinkingHint);
     initRenderProfileUi({ onChange: renderPresetRenderOptions, validateWorkflow });
+    initParamPresetUi({
+        onApply() {
+            refreshComfyUi();
+            renderExtraLoras();
+            updateLoraSummary();
+        },
+    });
     refreshPresetSelect();
     updateSourceVisibility();
     updateWorkflowVisibility();
