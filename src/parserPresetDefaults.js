@@ -233,20 +233,32 @@ function comicAbsentRules(auto) {
  * 漫画模式 (MOSS-Image): the floor as one comic page, written in MOSS-Image's own JSON layout format (`layout`: a
  * summary and items, as in OpenMOSS's examples and the FKEY LoRA card), the boxes as percentages of the page; the
  * extension turns them into MOSS-Image's pixels (comic.js).
- * @param {{ panels: number, dialogue: boolean, width?: number, height?: number }} comic panels: per page at most;
- *   dialogue: speech bubbles or no text; width × height: the canvas, when known
+ * @param {{ panels: number, pages?: number, dialogue: boolean, width?: number, height?: number }} comic panels: per
+ *   page at most; pages: per floor at most (the parser decides how many; `pages` in the reply when more than one may
+ *   be drawn); dialogue: speech bubbles or no text; width × height: the canvas, when known
+ * @param {boolean} place 图片插在正文中间: each page's paragraph (else where each page's part of the story begins)
  */
-function comicRules(comic) {
+function comicRules(comic, place = false) {
     const single = comic.panels <= 1;
     const panels = single ? '1 格（整页一个画面）' : `1–${comic.panels} 格`;
+    const several = comic.pages > 1;
+    const anchor = place
+        ? 'place（这一页插在【当前楼层】第几段后面：写那一段前面的编号数字，通常是这一页最后一格画的那一段，一定要写）'
+        : 'start（这一页从【当前楼层】第几段开始：写那一段前面的编号数字，第一页写 1）';
+    const pages = several
+        ? `- 页数：由你按这一楼的内容决定画几页，最多 ${comic.pages} 页。内容少（一个场景、一两个动作、几句对话）就画 1 页；发生了好几件事、换了地点或时间、对话来回很多，就按时间顺序分成几页，每页画其中连续的一段，不要重复。每一页都是完整的一页漫画，有自己的格子
+- pages：按时间顺序每一页一项：label（中文，几个字说明这一页画的是哪一段，例如「前半段·门口」）、${anchor}、layout（这一页的版面，格式见下面）
+`
+        : '';
     const shape = comic.width > comic.height ? '横版' : comic.width < comic.height ? '竖版' : '方形';
     const canvas = comic.width && comic.height ? `整页画布是 ${comic.width}×${comic.height}（${shape}）。` : '';
     const texts = comic.dialogue
         ? `  - 文字："label": "text"，text 是要画出来的字，caption 用英文说明它是什么框、什么样、在哪（例如 "Clean horizontal Chinese dialogue text in a white speech bubble next to the girl's head."），bbox 放在说话的人旁边，不要盖住脸。对白用正文里人物说的原话（原文的语言，不要翻译），太长就删减，一个对话框最多 20 个字；需要旁白就写进方形的旁白框，也要短；可以有拟声词。文字横排，要换行时在 text 里写 \\n。每一格最多 3 个文字`
         : '  - 这一页不画任何文字：不要写 "label": "text" 的项，caption 里也不要要求画对话框、旁白或拟声词';
-    return `漫画分镜（这一楼画成一页${comic.dialogue ? '带对白的' : ''}彩色漫画，用 MOSS-Image 的 JSON 版面格式写在 layout 里）：
-- 格数：按剧情分 ${panels}。只有一个瞬间就少分几格；有几个连续的动作、几轮对话，就按时间顺序多分几格。每一格画一个瞬间，最后一格是【当前楼层】结束时的那一刻；pending 里还没做的事不能画
-- now_doing、now_wearing 写最后一格那一刻；前面的格子按各自那一刻画（这一楼里换了衣服，换之前的格子还穿原来的）
+    const last = several ? '最后一页的最后一格' : '最后一格';
+    return `漫画分镜（这一楼画成${several ? ` 1–${comic.pages} 页` : '一页'}${comic.dialogue ? '带对白的' : ''}彩色漫画，${several ? '每一页' : ''}用 MOSS-Image 的 JSON 版面格式写在${several ? ' pages 里那一页的' : ''} layout 里）：
+${pages}- ${several ? '每一页的' : ''}格数：按剧情分 ${panels}。只有一个瞬间就少分几格；有几个连续的动作、几轮对话，就按时间顺序多分几格。每一格画一个瞬间，${last}是【当前楼层】结束时的那一刻；pending 里还没做的事不能画
+- now_doing、now_wearing 写${last}那一刻；前面的格子按各自那一刻画（这一楼里换了衣服，换之前的格子还穿原来的）
 - 排版：${canvas}从上到下、从左到右阅读。格子铺满整页，格子之间只留很窄的间隙；可以有横跨整行的大格，也可以一行并排两三格。镜头要有变化：远景交代地点，中景、近景表现动作和对话，特写表现情绪
 - layout.summary：meta 写 ["comic", "multi_panel", "digital_painting"]，canvas 写 "multi_panel"（只有 1 格时这两处的 multi_panel 都换成 single）；caption 是整页的英文描述，最多 80 个词：几格、怎么排，这一页讲的事、出场的人、地点、时间、情绪、色调和光线${comic.dialogue ? '，以及文字的样子（例如 crisp Chinese dialogue text in clean white speech bubbles）' : ''}
 - layout.items：按阅读顺序一格一格写：先写这一格本身，再写这一格里的人和文字。每一项都有 label、caption、bbox，文字还有 text：
@@ -254,9 +266,26 @@ function comicRules(comic) {
   - 人物："label": "character"，这一格里看得见的每个人一项（每格最多 3 个），caption 是英文，最多 60 个词：外貌、此刻的穿着、动作姿势、表情。同一个人每次出现都要写外貌和穿着，而且前后一致
 ${texts}
 - bbox：一律写 [上, 左, 下, 右]，是整页高度和宽度的百分比（0–100，左上角 0, 0，右下角 100, 100），例如上半页一整格是 [0, 0, 50, 100]，右下四分之一是 [50, 50, 100, 100]；人物和文字的 bbox 在它那一格里面。程序会换算成 MOSS-Image 的像素坐标（abs_centralized、yxyx），bbox_coord_space 和 bbox_format 不用写
-- outfit：目标角色在最后一格的穿着（英文），和 items 里写的一致
+- outfit：目标角色在${last}的穿着（英文），和 items 里写的一致
 - 英文描述里不要写人名（用 the girl、the young man 这类称呼），也不要写画风词（画风由画风前缀和 LoRA 负责）
-- 一定要写 layout，整页的画面全部写在 layout 里：不要写自然语言的 prompt，也不要写 action、scene、camera 这些字段`;
+- ${several ? '一定要写 pages（至少一页），每一页都要有 layout' : '一定要写 layout'}，画面全部写在 layout 里：不要写自然语言的 prompt，也不要写 action、scene、camera 这些字段`;
+}
+
+/** A later page of 漫画模式's format example (several pages): one panel, the evening after. */
+function comicLaterExample(dialogue) {
+    const style = dialogue ? ', crisp Chinese dialogue text in a clean white speech bubble' : '';
+    return {
+        summary: { meta: ['comic', 'single', 'digital_painting'], canvas: 'single', caption: `A fully colored single-panel comic page later that evening in the same café: the girl wipes the wooden counter while the young man, now dry, smiles at her from a bar stool, warm lamp light, dark window behind them${style}.` },
+        items: [
+            { label: 'character', caption: 'The same young woman with long straight black hair and amber eyes, in the white blouse with a navy ribbon, wiping the counter with a cloth and glancing up with a shy smile.', bbox: [18, 50, 100, 96] },
+            { label: 'character', caption: 'The same tall young man with short brown hair, now in a dry grey sweater, sitting on a bar stool with a teacup, smiling warmly.', bbox: [24, 4, 100, 48] },
+            ...(dialogue ? [{ label: 'text', caption: 'Clean horizontal Chinese dialogue text in a white speech bubble above the young man.', text: '今天谢谢你了', bbox: [6, 6, 16, 44] }] : []),
+        ],
+    };
+}
+
+function layoutJson(example) {
+    return `{"summary": ${JSON.stringify(example.summary)}, "items": [\n${example.items.map(item => JSON.stringify(item)).join(',\n')}\n]}`;
 }
 
 /** The people of 漫画模式's format example (made up, like the café they are in). */
@@ -309,18 +338,24 @@ function comicExample(panels, dialogue) {
 function comicFormat(comic, negative, aspect, place, absent) {
     const panels = Math.min(3, comic.panels);
     const example = comicExample(panels, comic.dialogue);
+    const several = comic.pages > 1;
     const fields = [
         '"skip": false', '"target": "目标角色名"', ...(absent ? ['"absent": false', '"looks": ""'] : []),
-        '"now_doing": "递给他一杯热茶"', '"now_wearing": "白色短袖衬衫、藏青色领结、灰色百褶裙"', '"pending": "无"',
+        several ? '"now_doing": "擦着吧台，和他聊天"' : '"now_doing": "递给他一杯热茶"', '"now_wearing": "白色短袖衬衫、藏青色领结、灰色百褶裙"', '"pending": "无"',
         '"outfit": "a white short-sleeved blouse with a navy ribbon and a grey pleated skirt"',
     ];
-    const layout = `"layout": {"summary": ${JSON.stringify(example.summary)}, "items": [\n${example.items.map(item => JSON.stringify(item)).join(',\n')}\n]}`;
     const tail = [];
     if (negative) tail.push('"negative": ""');
     if (aspect) tail.push(`"aspect": "${aspect.fallback}"`);
+    if (several) {
+        const anchor = (start, after) => (place ? `"place": ${after}` : `"start": ${start}`);
+        const pages = `"pages": [\n{"label": "前半段·门口", ${anchor(1, 2)}, "layout": ${layoutJson(example)}},\n{"label": "后半段·晚上", ${anchor(3, 4)}, "layout": ${layoutJson(comicLaterExample(comic.dialogue))}}\n]`;
+        return `输出格式（下面是一个 2 页的示例，第一页 ${panels} 格、第二页 1 格，内容是虚构的：只照它的格式写，页数、格数、内容、位置都按这一楼的剧情来，不要照抄；内容少就只写一页）：
+{${fields.join(', ')}, ${pages}${tail.length ? `, ${tail.join(', ')}` : ''}}`;
+    }
     if (place) tail.push('"place": 2');
     return `输出格式（下面是一个 ${panels} 格的示例，内容是虚构的：只照它的格式写，格数、内容、位置都按这一楼的剧情来，不要照抄）：
-{${fields.join(', ')}, ${layout}${tail.length ? `, ${tail.join(', ')}` : ''}}`;
+{${fields.join(', ')}, "layout": ${layoutJson(example)}${tail.length ? `, ${tail.join(', ')}` : ''}}`;
 }
 
 /**
@@ -383,10 +418,10 @@ export function buildOutputRules(mode, allowOthers = false, model = 'krea2', neg
             TIMELINE_RULES,
             APPEARANCE_COMIC,
             absent ? comicAbsentRules(absent.auto) : '',
-            comicRules(comic),
+            comicRules(comic, place),
             negative ? negativeRules(model) : '',
             aspect ? aspectRules(aspect) : '',
-            place ? COMIC_PLACE_RULE : '',
+            place && !(comic.pages > 1) ? COMIC_PLACE_RULE : '',
             comicFormat(comic, negative, aspect, place, absent),
         ].filter(Boolean).join('\n\n');
     }
@@ -633,6 +668,7 @@ function comicSystem() {
  * @property {boolean} [allowOthers] Other people in the scene may be drawn too (field `others`)
  * @property {boolean} [comic] 漫画模式 (MOSS-Image): the floor as one comic page (see comic.js)
  * @property {number} [panels] Comic: panels per page at most (1–6)
+ * @property {number} [pages] Comic: pages per floor at most (1–4); the parser decides how many
  * @property {boolean} [dialogue] Comic: the story's lines in speech bubbles (off: no text in the picture)
  */
 
@@ -645,7 +681,7 @@ function makeBuiltins(model) {
         // MOSS-Image draws JSON layouts (panels, speech bubbles with the words in them). 848×1200: about 1 MP, the
         // FKEY comic LoRA's main training size.
         ...(model === 'moss'
-            ? [{ id: 'comic', name: '漫画模式', system: comicSystem(), user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: '', width: 848, height: 1200, allowOthers: true, comic: true, panels: 4, dialogue: true }]
+            ? [{ id: 'comic', name: '漫画模式', system: comicSystem(), user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: '', width: 848, height: 1200, allowOthers: true, comic: true, panels: 4, pages: 3, dialogue: true }]
             : []),
     ];
 }

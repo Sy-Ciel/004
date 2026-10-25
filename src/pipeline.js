@@ -1,7 +1,7 @@
 import { EXTRA_KEY, modeDefaults } from './constants.js';
 import { addExtraLoras, addUpscale, getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
 import { comparable, findQuote } from './anchors.js';
-import { comicPanelCount, fitLayout, isComicPreset } from './comic.js';
+import { comicPages, comicPanelCount, fitLayout, isComicPreset } from './comic.js';
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
 import { buildParserPrompt, parserLabel, requestParse, storyParagraphs } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution, sceneLimit } from './parserPresets.js';
@@ -927,9 +927,9 @@ async function runJobInMode(message, job, options, ratingNote) {
             if (built.canvas) data.canvas = built.canvas;
             else delete data.canvas;
             data.negative = buildNegativePrompt(target.preset, built.parsed, built.prompt);
-            // 多张图: the earlier parts of the floor (another time or place), drawn before the end in the floor. A
-            // comic page tells the whole floor in its panels.
-            const limit = isComicPreset(parserPrompt.preset) ? 0 : sceneLimit(settings.parser);
+            // 多张图: the earlier parts of the floor (another time or place), drawn before the end in the floor. 漫画模式:
+            // its earlier pages (up to its own page limit).
+            const limit = isComicPreset(parserPrompt.preset) ? comicPages(parserPrompt.preset) : sceneLimit(settings.parser);
             const scenes = limit > 1 ? (parsed.earlierScenes ?? []).slice(0, limit - 1) : [];
             // Where pictures go: the paragraphs the parser named, as their words and share of the whole story.
             const paragraphs = storyParagraphs(message);
@@ -1179,7 +1179,7 @@ export async function dryRun(mesId, targetOverride) {
     const { subject, sceneSubject } = raw.skip ? { subject: target, sceneSubject: () => target } : subjectsOf(chosen, raw, parserPrompt, message, notes);
     target = subject;
     const built = raw.skip ? { parsed: raw, prompt: '' } : promptFromParse(subjectPreset(target), raw, parserPrompt, notes, { nobody: !!target.nobody });
-    const limit = isComicPreset(parserPrompt.preset) ? 0 : sceneLimit(getSettings().parser);
+    const limit = isComicPreset(parserPrompt.preset) ? comicPages(parserPrompt.preset) : sceneLimit(getSettings().parser);
     const scenes = raw.skip || limit < 2 ? [] : (raw.earlierScenes ?? []).slice(0, limit - 1).map((scene, index) => ({
         label: scene.label || `第 ${index + 1} 段`,
         prompt: scenePrompt(scene, sceneSubject(scene), target, built.parsed, parserPrompt).prompt,

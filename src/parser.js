@@ -1,4 +1,4 @@
-import { comicPanelCount, comicPanels, isComicPreset, readComicPage } from './comic.js';
+import { comicPages, comicPanelCount, comicPanels, isComicPreset, readComicPage } from './comic.js';
 import { MODEL_MOSS, PARSED_FIELDS, STATE_FIELDS } from './constants.js';
 import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
@@ -25,11 +25,17 @@ import {
     withTimeout,
 } from './utils.js';
 
-/** The parser's output limit for a comic page at least (when 「最大输出」 is set lower). */
-const COMIC_MIN_TOKENS = 4096;
+/** The parser's output limit for a comic of so many pages at least (when 「最大输出」 is set lower). */
+function comicMinTokens(pages) {
+    return Math.min(8192, 2048 * (pages + 1));
+}
 
-/** The last words of a comic request: the page in MOSS-Image's layout format, never a written-out prompt. */
-const COMIC_REMINDER = '【输出要求】这是漫画模式：只输出一个 JSON 对象，这一页漫画全部写在 layout 里（MOSS-Image 的 JSON 版面格式：summary + items，照 System 里的格式示例写），不要写自然语言提示词。';
+/** The last words of a comic request: the pages in MOSS-Image's layout format, never a written-out prompt. */
+function comicReminder(pages) {
+    return pages > 1
+        ? `【输出要求】这是漫画模式：只输出一个 JSON 对象，漫画写在 pages 里（按内容画 1–${pages} 页，每一页一个 layout，用 MOSS-Image 的 JSON 版面格式：summary + items，照 System 里的格式示例写），不要写自然语言提示词。`
+        : '【输出要求】这是漫画模式：只输出一个 JSON 对象，这一页漫画全部写在 layout 里（MOSS-Image 的 JSON 版面格式：summary + items，照 System 里的格式示例写），不要写自然语言提示词。';
+}
 
 /** The tag name of 「只读取标签里的正文」, without brackets (default game). */
 export function storyTagName(parser = getSettings().parser) {
@@ -384,7 +390,7 @@ function triggerWordsRule(mode, comic = false) {
     const tags = promptStyle() === MODEL_MOSS ? words.filter(isTriggerTag) : [];
     const plain = words.filter(word => !tags.includes(word));
     const tagNote = tags.length ? `${tags.join('、')} 由程序单独放在提示词的第一行，你不要写。` : '';
-    if (comic) return `触发词：${list}。程序会把它们加进提示词，page 里不用写。`;
+    if (comic) return `触发词：${list}。程序会把它们加进提示词，layout 里不用写。`;
     if (!plain.length) return `触发词：${tagNote}`;
     return mode === 'ai'
         ? `触发词：最终提示词必须带上这些触发词：${plain.join(', ')}。把它们原样写在 prompt 的最前面（不翻译、不改写、不加括号或权重），每次都要写。${tagNote}`
@@ -434,7 +440,8 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     const settings = getSettings();
     const preset = activeParserPreset();
     // 漫画模式: the parser lays out a whole comic page (the people's looks included) instead of picture fields.
-    const comic = isComicPreset(preset) ? { panels: comicPanels(preset), dialogue: preset.dialogue !== false } : null;
+    // One page written again (🔄 on it) is one page.
+    const comic = isComicPreset(preset) ? { panels: comicPanels(preset), pages: focus ? 1 : comicPages(preset), dialogue: preset.dialogue !== false } : null;
     const mode = comic ? 'ai' : promptMode();
     const allowOthers = !!preset.allowOthers;
     // The parser writes the picture's negative prompt too (Anima: a real negative prompt at CFG 4).
@@ -488,7 +495,7 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
         prev_outputs: prevOutputs,
         history: history.length ? history.join('\n\n') : '（无）',
         // Where pictures go is asked as paragraph numbers: the floor is shown numbered then.
-        latest: place || scenes > 1
+        latest: place || scenes > 1 || comic?.pages > 1
             ? numberedFloor(chat[mesId], maxChars)
             : formatMessage(chat[mesId], maxChars, withoutStatusBar(chat[mesId].mes, status)),
         status_bar: statusBarBlock(status),
@@ -519,13 +526,13 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
 
     const triggerRule = triggerWordsRule(mode, !!comic);
     // A comic page (every panel, person and speech bubble described) is a long answer.
-    const minTokens = comic ? COMIC_MIN_TOKENS : 0;
+    const minTokens = comic ? comicMinTokens(comic.pages) : 0;
     const raised = minTokens > (Number(settings.parser.maxTokens) || 2048);
     // Anima in natural-language mode: the presets were written for tags, so this rule overrides them.
     const natural = promptStyle() === 'anima-natural';
     return {
         system: [fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', triggerRule].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
-        user: [fillTemplate(userTemplate, vars), focus ? focusBlock(focus) : '', comic ? COMIC_REMINDER : ''].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
+        user: [fillTemplate(userTemplate, vars), focus ? focusBlock(focus) : '', comic ? comicReminder(comic.pages) : ''].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
         preset,
         mode,
         absent: !!absent,
@@ -542,7 +549,7 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
             negative ? '解析模型补充反向提示词' : '',
             aspect ? '解析模型选择宽高比' : '',
             scenes ? `多张图：正文换了时间或地点时最多画 ${scenes} 张` : '',
-            comic && !focus && sceneLimit(settings.parser) ? '漫画模式一楼画一页（分格），不分成多张图' : '',
+            comic?.pages > 1 ? `漫画：按内容画 1–${comic.pages} 页（「多张图」的设置对漫画不起作用）` : '',
             raised ? `漫画的输出比较长：这次的最大输出用 ${minTokens}（设置里是 ${Number(settings.parser.maxTokens) || 2048}）` : '',
             place ? '图片插在正文中间：由解析模型选位置' : '',
             absent ? '画谁不在画面里时，改画在场的人或场景' : '',
@@ -888,6 +895,41 @@ function salvageLayout(text) {
 }
 
 /**
+ * 漫画模式, several pages, in a reply that is not valid JSON: every page whose layout can be read (a cut-off last one
+ * as far as it goes), with the label and paragraph written in front of its layout.
+ */
+function salvagePages(text) {
+    const pages = [];
+    const pattern = /"layout"\s*:\s*\{/g;
+    let match;
+    while ((match = pattern.exec(text))) {
+        const open = match.index + match[0].length - 1;
+        const close = closingBracket(text, open);
+        // The page's own fields: after the last brace before its layout.
+        const head = text.slice(0, match.index).split(/[{}]/).pop();
+        const field = name => head.match(new RegExp(`"${name}"\\s*:\\s*"?([^",}]*)"?`))?.[1]?.trim() ?? '';
+        const layout = close > 0 ? parseLoose(text.slice(open, close + 1)) : salvageLayout(text.slice(open));
+        if (layout && typeof layout === 'object') pages.push({ label: field('label'), start: field('start'), place: field('place'), layout });
+        if (close < 0) break;
+        pattern.lastIndex = close + 1;
+    }
+    return pages;
+}
+
+/** 漫画模式, several pages: each usable page as { label, start, place, page }, in order. */
+function readPages(value) {
+    return (Array.isArray(value) ? value : [])
+        .filter(item => item && typeof item === 'object' && !Array.isArray(item))
+        .map(item => ({
+            label: normalizeValue(item.label ?? item.title ?? item.name),
+            start: normalizeValue(item.start ?? item.begin),
+            place: normalizeValue(item.place ?? item.position),
+            page: readComicPage(layoutOf(item)),
+        }))
+        .filter(item => item.page);
+}
+
+/**
  * Where a reply keeps its comic layout: `layout` (asked for), `page` (v1.45), a layout written out as a string, or
  * the reply itself when it is just a layout.
  */
@@ -965,7 +1007,9 @@ export function parseParserOutput(raw, { comic = false } = {}) {
         }
     }
 
-    let layout = comic && object && typeof object === 'object' ? layoutOf(object) : null;
+    // 漫画模式: one page's `layout`, or `pages` when the floor may get several.
+    let pages = comic && object && typeof object === 'object' ? readPages(object.pages) : [];
+    let layout = comic && object && typeof object === 'object' && !pages.length ? layoutOf(object) : null;
     let partial = false;
     if (!object) {
         // Salvage fields from broken or truncated JSON, or from "key: value" lines. A quoted value only counts
@@ -983,10 +1027,11 @@ export function parseParserOutput(raw, { comic = false } = {}) {
         const absent = text.match(/["']?absent["']?\s*[:：]\s*(true|false)/i);
         if (absent) object.absent = absent[1].toLowerCase() === 'true';
         if (comic) {
-            layout = salvageLayout(text);
-            partial = !!layout;
+            pages = /"pages"\s*:\s*\[/.test(text) ? readPages(salvagePages(text)) : [];
+            layout = pages.length ? null : salvageLayout(text);
+            partial = pages.length > 0 || !!layout;
         }
-        if (!Object.keys(object).length && !layout) {
+        if (!Object.keys(object).length && !layout && !pages.length) {
             throw new Error('解析模型没有返回可识别的 JSON');
         }
     }
@@ -1015,8 +1060,30 @@ export function parseParserOutput(raw, { comic = false } = {}) {
     // Only with 画谁不在画面里: the target is not in the scene; `target` is who is drawn instead ('' = nobody).
     result.absent = isTrue(object.absent);
     result.looks = normalizeValue(object.looks);
+    // Only in 漫画模式 with several pages: the last page is the end of the floor, the ones before it are drawn as the
+    // floor's earlier parts (as 多张图 does), each placed at its own paragraph.
+    if (pages.length) {
+        const last = pages.at(-1);
+        result.page = last.page;
+        if (partial) result.partial = true;
+        result.earlierScenes = pages.slice(0, -1).map(item => ({
+            label: item.label,
+            start: item.start,
+            place: item.place,
+            absent: result.absent,
+            target: result.target,
+            looks: result.looks,
+            ...Object.fromEntries(PARSED_FIELDS.map(field => [field, ''])),
+            prompt: '',
+            negative: '',
+            page: item.page,
+        }));
+        result.start = result.earlierScenes.length ? last.start : '';
+        result.place = last.place || result.place;
+        result.prompt = '';
+    }
     // Only in 漫画模式: the comic page the parser laid out (see comic.js).
-    const page = readComicPage(layout);
+    const page = pages.length ? null : readComicPage(layout);
     if (page) {
         result.page = page;
         if (partial) result.partial = true;

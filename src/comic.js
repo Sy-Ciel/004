@@ -22,6 +22,11 @@ export function comicPanels(preset) {
     return Math.min(6, Math.max(1, Math.trunc(Number(preset?.panels)) || 4));
 }
 
+/** Pages per floor at most (1–4) of a comic preset; the parser decides how many (presets from before: 3). */
+export function comicPages(preset) {
+    return Math.min(4, Math.max(1, Math.trunc(Number(preset?.pages)) || 3));
+}
+
 function isObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

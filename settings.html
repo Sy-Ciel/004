@@ -221,9 +221,15 @@
                                     <option value="5">5</option>
                                     <option value="6">6</option>
                                 </select> 格</label>
+                                <label>每楼最多 <select class="text_pole" data-pp="pages" data-type="int">
+                                    <option value="1">1</option>
+                                    <option value="2">2</option>
+                                    <option value="3">3</option>
+                                    <option value="4">4</option>
+                                </select> 页</label>
                                 <label class="checkbox_label"><input type="checkbox" data-pp="dialogue"> 画对白（正文里的对白写进对话框）</label>
                             </div>
-                            <small class="ctp-hint">漫画模式由解析 AI 直接用 MOSS-Image 的 JSON 版面格式（summary + items，和 FKEY LoRA 说明里的示例一样）写整页分镜：分几格（不超过上面的格数，1 = 整页一个画面）、每一格的镜头和人物、对话框里的字（用正文里的原话，MOSS-Image 能直接画出中文）。位置写成整页的百分比，扩展换算成像素坐标（abs_centralized），最终提示词就是这个 JSON 版面。回复里没有版面时会按「重试次数」重新请求，不会改用自然语言提示词；JSON 有小错（没转义的引号、被截断）时尽量修好、用读得出来的部分。人物外貌总是由 AI 写进每一格，上面的「提示词生成方式」对漫画不起作用；一楼画一页，「多张图」也不起作用。漫画的输出比较长，「解析模型」的最大输出低于 4096 时，漫画请求自动用 4096。关掉「画对白」= 整页不画任何文字。</small>
+                            <small class="ctp-hint">漫画模式由解析 AI 直接用 MOSS-Image 的 JSON 版面格式（summary + items，和 FKEY LoRA 说明里的示例一样）写整页分镜：分几格（不超过上面的格数，1 = 整页一个画面）、每一格的镜头和人物、对话框里的字（用正文里的原话，MOSS-Image 能直接画出中文）。位置写成整页的百分比，扩展换算成像素坐标（abs_centralized），最终提示词就是这个 JSON 版面。回复里没有版面时会按「重试次数」重新请求，不会改用自然语言提示词；JSON 有小错（没转义的引号、被截断）时尽量修好、用读得出来的部分。人物外貌总是由 AI 写进每一格，上面的「提示词生成方式」对漫画不起作用；画几页由解析 AI 按这一楼的内容决定（不超过「每楼最多几页」，默认 3）：内容少就一页；发生了好几件事、换了地点或时间、对话很多，就按时间顺序分成几页，每页插在正文里它画的那一段旁边，和「多张图」一样（「多张图」本身的开关对漫画不起作用）。每多一页就多一次出图时间。漫画的输出比较长，「解析模型」的最大输出低于 4096 时，漫画请求自动用 4096。关掉「画对白」= 整页不画任何文字。</small>
                         </div>
                         <div class="ctp-pp-picture">
                         <label class="checkbox_label"><input type="checkbox" data-pp="allowOthers"> 允许画面里出现其他人物</label>
