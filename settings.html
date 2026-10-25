@@ -564,6 +564,7 @@
                         <label class="flex1">文件名前缀 <input type="text" class="text_pole" data-ctp="comfy.filenamePrefix"></label>
                         <label>超时(秒) <input type="number" class="text_pole" min="0" step="10" data-ctp="comfy.timeoutSec" data-type="int"></label>
                     </div>
+                    <small class="ctp-hint">文件名前缀可以用酒馆的宏，例如 <code>{{char}}/{{user}}_</code>、<code>ST_{{char}}_{{date}}</code>：{{user}} 是当前用户人设的名字，{{char}} 是角色卡的名字，{{date}}、{{time}} 是日期、时间。用在 ComfyUI 输出文件夹里的文件名上（「/」= 子文件夹），也用在酒馆保存的那一份（user/images/角色名/ 里，「/」换成「_」）。文件名里不能有的字符（: * ? " &lt; &gt; | \）自动换成「_」。</small>
 
                     <h4>会使用的 LoRA</h4>
                     <div class="ctp-lora-summary" id="ctp_lora_summary"></div>

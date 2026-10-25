@@ -569,11 +569,24 @@ function workflowValues(plan, modelMode, { prompt, negative, width, height, seed
         // Text-encoder strength of the LoRA loaders (0 = model only, like "LoraLoaderModelOnly").
         lora_clip_strength: plan.loraClip ? plan.styleLoraStrength : 0,
         char_lora_clip_strength: plan.loraClip ? plan.charLoraStrength : 0,
-        filename_prefix: comfy.filenamePrefix || defaults.filenamePrefix,
+        filename_prefix: filenamePrefix(comfy.filenamePrefix) || filenamePrefix(defaults.filenamePrefix),
         batch_size: 1,
         // MOSS-Image's skip layer guidance: the layer it skips, '' = off (the node then passes the model on).
         slg_layers: comfy.slg ? '22' : '',
     };
+}
+
+/**
+ * 文件名前缀 with SillyTavern's macros filled in ({{user}}, {{char}}, {{date}} …), safe for a file name: characters
+ * a file name cannot have become "_"; "/" stays (ComfyUI makes subfolders of it), without empty or ".." parts.
+ */
+export function filenamePrefix(text) {
+    return resolveMacros(String(text ?? ''))
+        .replace(/[\\:*?"<>|\u0000-\u001f]/g, '_')
+        .split('/')
+        .map(part => part.trim().replace(/^\.+$/, '_'))
+        .filter(Boolean)
+        .join('/');
 }
 
 /** The workflow for one picture: the template filled in, plus the "更多 LoRA" chain and the 放大 step. */
@@ -617,10 +630,14 @@ function refinedText(template, image) {
     return template.refine && image.texts?.length ? truncate(image.texts.join('\n'), 4000) : '';
 }
 
-/** Saves a picture on the SillyTavern server; when that fails it is kept in the chat as base64. */
-async function storePicture(image, notes) {
+/**
+ * Saves a picture on the SillyTavern server (in the character's image folder, named after the 文件名前缀 of the
+ * workflow, `prefix`); when that fails it is kept in the chat as base64.
+ */
+async function storePicture(image, notes, prefix = '') {
     try {
-        const path = await saveImage(image, imageFolder(), `ctp_${Date.now()}`);
+        const name = String(prefix).replace(/\//g, '_') || 'ctp';
+        const path = await saveImage(image, imageFolder(), `${name}${/[_-]$/.test(name) ? '' : '_'}${Date.now()}`);
         return { src: toSrc(path), path };
     } catch (error) {
         warn(error);
@@ -772,7 +789,7 @@ async function redrawPicture(message, job, data, options, modelMode, otherMode) 
     const image = await runWorkflow(workflow, signal, text => setStage(job, message, 'drawing', `「${label}」${text}`));
     assertMode(modelMode);
     data.comfyMs = Math.round(performance.now() - started);
-    const stored = await storePicture(image, data.debug.notes);
+    const stored = await storePicture(image, data.debug.notes, values.filename_prefix);
     assertMode(modelMode);
 
     const version = structuredClone(base);
@@ -1080,7 +1097,7 @@ async function runJobInMode(message, job, options, ratingNote) {
         assertMode(modelMode);
         data.comfyMs = Math.round(performance.now() - started);
         data.refinedPrompt = refinedText(template, image);
-        const { src, path } = await storePicture(image, data.debug.notes);
+        const { src, path } = await storePicture(image, data.debug.notes, values.filename_prefix);
         // A switch during the upload cancelled this picture: the floor is not touched.
         assertMode(modelMode);
 
@@ -1102,7 +1119,7 @@ async function runJobInMode(message, job, options, ratingNote) {
                     : { ...values, prompt: scene.prompt, negative_prompt: scene.negative || '', seed: sceneSeed };
                 const picture = await runWorkflow(buildWorkflow(sceneTemplate, sceneValues, scenePlan), signal, text => setStage(job, message, 'drawing', `「${scene.label}」${text}`));
                 assertMode(modelMode);
-                const stored = await storePicture(picture, data.debug.notes);
+                const stored = await storePicture(picture, data.debug.notes, sceneValues.filename_prefix);
                 assertMode(modelMode);
                 scenes.push({
                     ...stored, seed: sceneSeed, width, height,
