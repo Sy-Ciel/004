@@ -301,6 +301,23 @@ function withTriggerTags(prompt, words) {
     return [...tags, text].filter(Boolean).join('\n');
 }
 
+const OPEN_TAG = /<\|[^/|<>\s][^|<>\s]*\|>/;
+
+/** Whether a prompt is written in <|name|>…<|/name|> blocks. */
+function hasBlocks(text) {
+    return new RegExp(`${OPEN_TAG.source}[\\s\\S]*?<\\|/[^|<>\\s]+\\|>`).test(String(text ?? ''));
+}
+
+/** A prompt in closed-tag blocks, one per line (the parser's reply may have them on one), spacing tidied. */
+function blockLines(text) {
+    return String(text)
+        .replace(new RegExp(`(<\\|/[^|<>\\s]+\\|>)[ \\t]*(?=${OPEN_TAG.source})`, 'g'), '$1\n')
+        .split('\n')
+        .map(line => line.replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+        .join('\n');
+}
+
 /**
  * Last step for every generated prompt: the mode's trigger words (MOSS-Image's structural tags as the first lines),
  * Anima's tag order, then escaping if the mode wants it (not in a JSON layout, which would stop being one).
@@ -373,6 +390,11 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
         // The parser's tags start with the count (put in its place by officialTagOrder); the trigger words go in
         // the artist's place. In sentences, the tags lead and the description follows.
         const lead = !anima ? [character, prefix] : tags ? [[prefix, rating, character].join(', ')] : [[prefix, rating, character, artist].join(', ')];
+        // MOSS-Image written in closed-tag blocks (the prompt skill's way, see mossSkill.js): a block per line.
+        if (style === MODEL_MOSS && hasBlocks(parsed.prompt)) {
+            const head = joinParts([...lead, scenery].map(clean).filter(Boolean), false);
+            return finishPrompt([head, blockLines(parsed.prompt), clean(resolveMacros(settings.suffix || ''))].filter(Boolean).join('\n'), order);
+        }
         const parts = [...lead, scenery, parsed.prompt, resolveMacros(settings.suffix || '')]
             .map(clean)
             .filter(Boolean);

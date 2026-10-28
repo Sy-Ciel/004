@@ -25,6 +25,7 @@ import {
     resolutionPresets,
 } from './constants.js';
 import { lastFloorId, showChatDebug, showDryRun, showParserPreview } from './debug.js';
+import { downloadMossSkill, importMossSkill, mossSkillStatus } from './mossSkill.js';
 import { injectMessageButtons } from './messageButtons.js';
 import { applyEnabled, updateQuickToggle } from './quickToggle.js';
 import { DISPLAY_KEYS, SHARED_COMFY_KEYS, SHARED_PARSER_KEYS, currentMode, modeLabel, adoptProfile, hasProfile, otherSlotKey, personaMode, releaseProfile, swapModeSettings, swapProfile } from './modes.js';
@@ -929,6 +930,37 @@ function withoutFkeyTrigger(text) {
  * MOSS-Image's FKEY comic style LoRA, as its card recommends: the LoRA (0.6), Euler / sgm_uniform, 25 steps, CFG 3,
  * its trigger tag (first line, see finishPrompt), its style phrase as the style prefix and its sectioned negative.
  */
+/** MOSS-Image 提示词 skill: download it again, or take the file the user downloaded (see mossSkill.js). */
+function initMossSkillUi() {
+    const showState = () => $('#ctp_moss_skill_state').text(mossSkillStatus());
+    $('#ctp_moss_skill_download').on('click', async () => {
+        $('#ctp_moss_skill_state').text('下载中…');
+        try {
+            await downloadMossSkill();
+            toastr.success('已下载 MOSS-Image 提示词 skill');
+        } catch (error) {
+            toastr.error(errorMessage(error), 'MOSS-Image 提示词 skill 下载失败');
+        }
+        showState();
+    });
+    $('#ctp_moss_skill_import').on('click', () => $('#ctp_moss_skill_file').trigger('click'));
+    $('#ctp_moss_skill_file').on('change', async function () {
+        const file = this.files?.[0];
+        this.value = '';
+        if (!file) return;
+        try {
+            await importMossSkill(file);
+            toastr.success('已导入 MOSS-Image 提示词 skill');
+        } catch (error) {
+            toastr.error(errorMessage(error), 'MOSS-Image 提示词 skill');
+        }
+        showState();
+    });
+    // A parse may download it while the settings are open.
+    $('#ctp_moss_skill_state').closest('.inline-drawer').on('click', '.inline-drawer-toggle', showState);
+    showState();
+}
+
 async function useFkeyStyle() {
     const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
     const confirmed = await callGenericPopup(
@@ -1307,6 +1339,7 @@ export async function initSettingsUi() {
     $('#ctp_anima_turbo').on('click', useAnimaTurbo);
     $('#ctp_moss_quality').on('click', useMossQuality);
     $('#ctp_moss_fkey').on('click', useFkeyStyle);
+    initMossSkillUi();
     $('#ctp_reset_all').on('click', resetAllSettings);
     $('#ctp_debug_chat').on('click', showChatDebug);
     $('#ctp_debug_preview, #ctp_debug_preview_top').on('click', showParserPreview);

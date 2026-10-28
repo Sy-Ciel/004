@@ -499,6 +499,15 @@ async function proxyList(endpoint) {
 
 const strings = value => (Array.isArray(value) ? value.filter(item => typeof item === 'string') : []);
 
+/**
+ * The choices of a combo input in object_info: [[...], { ... }] for most nodes, ["COMBO", { options: [...] }] for
+ * nodes on ComfyUI's newer node schema (UpscaleModelLoader, for one).
+ */
+function comboOptions(input) {
+    if (!Array.isArray(input)) return [];
+    return Array.isArray(input[0]) ? strings(input[0]) : strings(input[1]?.options);
+}
+
 /** Lists SillyTavern's server can read for us: diffusion models, VAEs, samplers, schedulers. */
 async function listsViaProxy() {
     const [models, vae, sampler, scheduler] = await Promise.allSettled([
@@ -523,19 +532,20 @@ async function listsDirect() {
         objectInfo('UpscaleModelLoader').catch(() => ({})),
     ]);
     return {
-        unet: strings(unet.unet_name?.[0]),
-        clip: strings(clip.clip_name?.[0]),
-        vae: strings(vae.vae_name?.[0]),
-        lora: strings(lora.lora_name?.[0]),
-        sampler: strings(sampler.sampler_name?.[0]),
-        scheduler: strings(sampler.scheduler?.[0]),
-        upscale: strings(upscale.model_name?.[0]),
+        unet: comboOptions(unet.unet_name),
+        clip: comboOptions(clip.clip_name),
+        vae: comboOptions(vae.vae_name),
+        lora: comboOptions(lora.lora_name),
+        sampler: comboOptions(sampler.sampler_name),
+        scheduler: comboOptions(sampler.scheduler),
+        upscale: comboOptions(upscale.model_name),
     };
 }
 
 /**
  * Reads model / sampler lists. The SillyTavern proxy works wherever generation works but has no route for
- * LoRAs or text encoders; those come from a direct object_info request when the browser can reach ComfyUI.
+ * LoRAs, text encoders or upscale models; those come from a direct object_info request when the browser can reach
+ * ComfyUI.
  * @returns {Promise<{ lists: typeof EMPTY_LISTS, notes: string[], direct: boolean }>}
  */
 export async function fetchModelLists() {
@@ -556,7 +566,7 @@ export async function fetchModelLists() {
         }
     } else {
         const reason = direct.reason?.name === 'TimeoutError' ? '超时' : errorMessage(direct.reason);
-        notes.push(`LoRA 和文本编码器列表要由浏览器直接访问 ComfyUI（${browserBase()}）才能读取，这次失败了：${reason}。可以填「浏览器直连地址」并给 ComfyUI 加 --listen --enable-cors-header，或者用下拉框里的「手动输入」。`);
+        notes.push(`LoRA、文本编码器和放大模型的列表要由浏览器直接访问 ComfyUI（${browserBase()}）才能读取，这次失败了：${reason}。可以填「浏览器直连地址」并给 ComfyUI 加 --listen --enable-cors-header，或者用下拉框里的「手动输入」。`);
     }
     return { lists, notes, direct: direct.status === 'fulfilled' };
 }

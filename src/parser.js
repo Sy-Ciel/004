@@ -4,6 +4,7 @@ import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
 import { currentMode, floorMode, imageMode, modeLabel, promptStyle } from './modes.js';
 import { NATURAL_STYLE_RULE } from './parserPresetDefaults.js';
+import { mossSkillBlock } from './mossSkill.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
 import { ASPECT_RATIOS, baseSize, parseAspect, parserPicksAspect } from './resolution.js';
 import { describeThinking, profileThinking, thinkingBody, thinkingMaxTokens } from './thinking.js';
@@ -525,13 +526,15 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     else if ((negative || aspect || scenes || place || absent) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += `\n\n${extraFieldRules(negative, aspect, scenes, place, absent)}`;
 
     const triggerRule = triggerWordsRule(mode, !!comic);
+    // MOSS-Image: how to write for the model, from Moeblack's prompt skill (downloaded once, see mossSkill.js).
+    const skill = promptStyle() === MODEL_MOSS && settings.parser.mossSkill !== false ? await mossSkillBlock({ mode, comic, allowOthers }) : null;
     // A comic page (every panel, person and speech bubble described) is a long answer.
     const minTokens = comic ? comicMinTokens(comic.pages) : 0;
     const raised = minTokens > (Number(settings.parser.maxTokens) || 2048);
     // Anima in natural-language mode: the presets were written for tags, so this rule overrides them.
     const natural = promptStyle() === 'anima-natural';
     return {
-        system: [fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', triggerRule].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
+        system: [fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', triggerRule, skill?.text].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
         user: [fillTemplate(userTemplate, vars), focus ? focusBlock(focus) : '', comic ? comicReminder(comic.pages) : ''].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
         preset,
         mode,
@@ -542,6 +545,7 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
             `${modeLabel()} 模式 · 解析预设：${preset.name} · ${comic ? `漫画：AI 画整页分镜（最多 ${comic.panels} 格，${comic.dialogue ? '带对白' : '不画文字'}）` : `${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`}`,
             triggerRule ? `触发词：${triggerWordList().join(', ')}` : '',
             natural ? '英文自然语言写法' : '',
+            skill?.note ?? '',
             settings.parser.hideCharName ? `隐藏了角色卡的名字（AI 的消息标成「${HIDDEN_CHAR_LABEL}」）` : '',
             settings.parser.storyTagOnly
                 ? hasStoryTag(chat[mesId].mes) ? `只读取 <${storyTagName()}> 标签里的正文` : `当前楼层没有 <${storyTagName()}> 标签，读取了全文（去掉了 \`\`\` 代码块）`

@@ -210,6 +210,16 @@
                         </select>
                     </label>
                     <small class="ctp-hint">固定外貌 + AI 补充：角色预设的外貌原样放进提示词，AI 只写服装、动作、表情等。AI 写完整提示词：把外貌交给解析 AI，由它写出整段提示词。两种方式都会自动加上最上面的「触发词」、角色的 LoRA 触发词和画风前缀 / 后缀。</small>
+                    <div class="ctp-mode-only" data-mode="moss">
+                        <label class="checkbox_label"><input type="checkbox" data-ctp="parser.mossSkill"> 解析 AI 参考 MOSS-Image 提示词 skill</label>
+                        <div class="ctp-row ctp-wrap-row">
+                            <div class="menu_button" id="ctp_moss_skill_download">下载</div>
+                            <div class="menu_button" id="ctp_moss_skill_import">从文件导入</div>
+                            <input type="file" id="ctp_moss_skill_file" accept=".md,text/markdown,text/plain" hidden>
+                            <small id="ctp_moss_skill_state"></small>
+                        </div>
+                        <small class="ctp-hint">把 Moeblack 的《MOSS-Image 提示词编译 SKILL》（<a href="https://github.com/Moeblack/moss-image-prompt-skill" target="_blank" rel="noopener">moss-image-prompt-skill</a> v2.0.0）里讲写法的几节原文发给解析 AI：每次都带 §11（实测无效的写法）；允许其他人物时加 §7（多人按位置分区、写明差异）；「AI 写完整提示词」时加 §16，提示词改用 &lt;|…|&gt; 闭合标签分块、一行一块；漫画画对白时加 §19（气泡的说话人归属）。「固定外貌 + AI 补充」时提示词由扩展按固定顺序拼，用不上分块写法。讲人物年龄、身材、写真风格的章节不用：人物长什么样以角色设定为准。原文的协议是 CC BY-NC-ND 4.0（可以原样自用，不能改写、精简后再发布），所以扩展里不带它的内容：第一次用时由浏览器下载核对过的那一版（GitHub，连不上换 jsDelivr），存在这个浏览器里；都连不上时，自己下载那一版的 SKILL.md（提交 79f2e3e）再「从文件导入」。每次解析多发约 1 千到 5 千 token。</small>
+                    </div>
                     <div id="ctp_pp_editor">
                         <div id="ctp_pp_comic">
                             <div class="ctp-row ctp-wrap-row">

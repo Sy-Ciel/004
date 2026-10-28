@@ -391,7 +391,8 @@ function outputFormat(mode, allowOthers, negative = false, aspect = null, scenes
     if (negative) fields.push('"negative": ""');
     if (aspect) fields.push(`"aspect": "${aspect.fallback}"`);
     if (mode === 'ai') fields.push('"prompt": "完整的英文提示词"');
-    if (place) fields.push('"place": 0');
+    // Not 0: a model may copy the example's number, and 0 is no paragraph.
+    if (place) fields.push('"place": "段落编号"');
     if (scenes > 1 && !place) fields.push('"start": 0');
     if (scenes > 1) fields.push('"earlier_scenes": []');
     return `输出格式：\n{${fields.join(', ')}}`;
@@ -554,8 +555,8 @@ function storySystem(model) {
 {{output_rules}}`;
 }
 
-/** Fingerprint of a prompt text, to recognise earlier built-in prompts without keeping their whole text. */
-function fingerprint(text) {
+/** Fingerprint of a prompt text, to recognise earlier built-in prompts (or a known file) without keeping its text. */
+export function fingerprint(text) {
     let hash = 0x811c9dc5;
     for (let i = 0; i < text.length; i++) {
         hash ^= text.charCodeAt(i);

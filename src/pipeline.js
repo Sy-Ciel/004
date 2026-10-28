@@ -3,7 +3,7 @@ import { addExtraLoras, addUpscale, getWorkflowTemplate, prepareWorkflow, runWor
 import { comparable, findQuote } from './anchors.js';
 import { comicPages, comicPanelCount, fitLayout, isComicPreset } from './comic.js';
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
-import { buildParserPrompt, parserLabel, requestParse, storyParagraphs } from './parser.js';
+import { buildParserPrompt, floorParagraphs, parserLabel, requestParse, storyParagraphs } from './parser.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution, sceneLimit } from './parserPresets.js';
 import { buildImagePrompt, buildNegativePrompt, finishPrompt } from './prompt.js';
 import { modeForRating, readRating } from './rating.js';
@@ -68,6 +68,34 @@ function subjectsOf(chosen, parsed, parserPrompt, message, notes) {
     return { subject, sceneSubject };
 }
 
+/** A paragraph number in Chinese numerals (三, 十二, 二十一 …), NaN for anything else. */
+function chineseNumber(text) {
+    const digits = { 〇: 0, 零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+    const match = /^([一二两三四五六七八九]?)(十?)([〇零一二三四五六七八九]?)$/.exec(text);
+    if (!match || !text) return NaN;
+    const [, tens, ten, ones] = match;
+    if (!ten) return tens && !ones ? digits[tens] : NaN;
+    return (tens ? digits[tens] : 1) * 10 + (ones ? digits[ones] : 0);
+}
+
+/**
+ * The paragraph number in what the parser wrote: 3, "3", "[3]", "3.", "3-4" (the first), "第3段", "第三段", "3段之后",
+ * "段落 3", "paragraph 3", "after [3]", or the numbered line copied whole ("[3] 她推开门……"). NaN for a quote (a
+ * short sentence with a digit in it is one too).
+ */
+function paragraphNumber(value) {
+    const text = String(value ?? '').trim();
+    const line = /^[[【]\s*(\d+)\s*[\]】]/.exec(text);
+    if (line) return Number(line[1]);
+    if (!text || text.length > 20) return NaN;
+    const chinese = /^(?:第\s*)?([一二两三四五六七八九十]+)\s*(?:段|$)/.exec(text);
+    if (chinese) return chineseNumber(chinese[1]);
+    const words = /paragraphs?|para|after|no|p|第|段落?|之?[后後]面?|[\s[\]【】()（）.,，、:：;；~～#-]/gi;
+    if (text.replace(/\d+/g, '').replace(words, '')) return NaN;
+    const digits = /\d+/.exec(text);
+    return digits ? Number(digits[0]) : NaN;
+}
+
 /**
  * 图片插在正文中间 / 多张图: the parser names paragraphs of the floor by number ([1], [2] … as it saw them, see
  * floorParagraphs; `paragraphs` is the whole story, storyParagraphs). An anchor becomes that paragraph's opening
@@ -77,18 +105,41 @@ function subjectsOf(chosen, parsed, parserPrompt, message, notes) {
  * @returns {{ text: string, at: number | undefined }}
  */
 function paragraphAnchor(value, paragraphs, side) {
-    // 3, "3", "[3]", "第3段", "【3】" …, or the numbered line copied whole ("[3] 她推开门……").
-    const text = String(value ?? '');
-    const number = text.match(/^\s*[[【(（]?\s*(?:第\s*)?(\d+)\s*段?\s*[\]】)）.、]?\s*$/) ?? text.match(/^\s*[[【]\s*(\d+)\s*[\]】]/);
-    if (!number) return { text: text.trim(), at: undefined };
-    const index = Number(number[1]) - 1;
-    if (index < 0 || !paragraphs.length) return { text: '', at: undefined };
-    const clamped = Math.min(index, paragraphs.length - 1);
+    const text = String(value ?? '').trim();
+    const number = paragraphNumber(text);
+    if (Number.isNaN(number)) return { text, at: undefined };
+    if (number < 1 || !paragraphs.length) return { text: '', at: undefined };
+    return paragraphAt(paragraphs, Math.min(number - 1, paragraphs.length - 1), side);
+}
+
+/** The anchor of paragraph `index`: its opening words and its share of the story. */
+function paragraphAt(paragraphs, index, side) {
     // The share is counted in letters and digits, like the shown text is measured (see placeAnchors).
     const size = paragraphs.map(paragraph => comparable(paragraph).length);
     const total = size.reduce((sum, length) => sum + length, 0) || 1;
-    const before = size.slice(0, side === 'after' ? clamped + 1 : clamped).reduce((sum, length) => sum + length, 0);
-    return { text: paragraphs[clamped].slice(0, 40), at: before / total };
+    const before = size.slice(0, side === 'after' ? index + 1 : index).reduce((sum, length) => sum + length, 0);
+    return { text: paragraphs[index].slice(0, 40), at: before / total };
+}
+
+/**
+ * 图片插在正文中间 without a usable paragraph from the parser: the paragraph its now_doing (what the picture shows,
+ * in the story's own words) has most in common with, a later one when two tie; -1 when none shares enough. Only the
+ * paragraphs the parser was shown count.
+ */
+function guessPlace(doing, paragraphs) {
+    const pairs = text => new Set(Array.from({ length: Math.max(0, text.length - 1) }, (_, i) => text.slice(i, i + 2)));
+    const wanted = pairs(comparable(doing));
+    let best = -1;
+    let most = Math.max(3, Math.ceil(wanted.size / 4));
+    paragraphs.forEach((paragraph, index) => {
+        const own = comparable(paragraph);
+        const shared = [...wanted].filter(pair => own.includes(pair)).length;
+        if (shared >= most) {
+            best = index;
+            most = shared;
+        }
+    });
+    return best;
 }
 
 /**
@@ -990,8 +1041,17 @@ async function runJobInMode(message, job, options, ratingNote) {
                 }
             }
             if ((parsed.earlierScenes?.length ?? 0) > scenes.length) data.debug.notes.push(`解析模型多写了 ${parsed.earlierScenes.length - scenes.length} 段，超过「最多几张」的没有画`);
-            // 图片插在正文中间: the paragraph the end of the floor's picture goes after.
-            const place = paragraphAnchor(parsed.place, paragraphs, 'after');
+            // 图片插在正文中间: the paragraph the end of the floor's picture goes after. Without one (none given, 0, or
+            // words not in the story), the paragraph that tells what the picture shows (now_doing), rather than the
+            // end of the story.
+            let place = paragraphAnchor(parsed.place, paragraphs, 'after');
+            if (settings.placeInStory && (!place.text || missing([place.text]))) {
+                const guess = guessPlace(parsed.now_doing, paragraphs.slice(0, floorParagraphs(message).length));
+                if (guess >= 0) {
+                    place = paragraphAt(paragraphs, guess, 'after');
+                    data.debug.notes.push(`解析模型没给出能用的插图位置（写的是「${parsed.place || '空'}」），按它写的 now_doing 放在第 ${guess + 1} 段后面`);
+                }
+            }
             if (place.text) {
                 data.place = place.text;
                 data.placeAt = place.at;

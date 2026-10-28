@@ -488,6 +488,8 @@ export const DEFAULT_SETTINGS = {
         multiScene: false,
         /** Pictures per floor at most, the end of the floor included (2–4). */
         maxScenes: 3,
+        /** MOSS-Image: the parser also reads a few sections of Moeblack's MOSS-Image prompt skill (see mossSkill.js). */
+        mossSkill: true,
         historyFloors: 3,
         historyIncludePrompt: true,
         worldInfo: 'off',
