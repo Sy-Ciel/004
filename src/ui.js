@@ -1086,7 +1086,17 @@ async function resetAllSettings() {
 function applyModeChrome() {
     const mode = currentMode();
     const text = MODE_TEXT[mode];
-    $('#ctp_mode_title').text(`(${modeLabel(mode)})`);
+    const parser = getSettings().parser;
+    // 提示词写法 of Krea 2 (official template) and MOSS-Image (prompt skill), shown in the title when switched on.
+    const kreaRules = !!parser.kreaRules;
+    const mossSkill = parser.mossSkill !== false;
+    const writing = mode === MODEL_KREA2 && kreaRules ? ' · 官方模板写法' : mode === MODEL_MOSS && mossSkill ? ' · MOSS skill' : '';
+    $('#ctp_mode_title').text(`(${modeLabel(mode)}${writing})`);
+    markSwitch('#ctp_krea_rules', kreaRules);
+    markSwitch('#ctp_moss_skill_switch', mossSkill);
+    $('#ctp_krea_rules_hint').text(kreaRules
+        ? '官方模板写法：解析 AI 照 ComfyUI 官方 Krea 2 Turbo 模板里改写提示词的规则来写（原文附在发给它的要求后面）：只画正文写到的人和物，每个人和自己的外貌、动作写在一起，姿势和位置写具体，没有依据的细节不编；提示词最后加上官方那句 Absolutely no text…，让画面里不出现文字。画风仍由画风前缀和 LoRA 决定。「AI 写完整提示词」时效果最明显，「固定外貌 + AI 补充」时只影响各个字段的写法。每次解析多发约 800 token；开了它就不用再开「ComfyUI 端提示词扩写」。'
+        : '扩展默认：解析 AI 按扩展自己的规则写英文描述。切到「官方模板写法」，解析 AI 还会照 ComfyUI 官方 Krea 2 Turbo 模板里改写提示词的那套规则来写，提示词最后加上官方那句 Absolutely no text…（画面里不出现文字）。');
     $('#ctp_model_mode .ctp-mode-option').each(function () {
         const active = this.dataset.mode === mode;
         this.classList.toggle('active', active);
@@ -1110,6 +1120,38 @@ function applyModeChrome() {
     $('#ctp_style_hint').text(natural
         ? '解析模型用英文自然语言写完整的句子（服装、动作、表情、场景……以及「AI 写完整提示词」的整段 prompt），提示词按句子拼接。画质前缀、触发词照常加在最前面；AI 补充的反向提示词仍然是标签。'
         : '解析模型用 Danbooru 风格的英文标签写服装、动作、表情等（Anima 训练时主要用的写法），提示词用逗号连接。');
+}
+
+/** Marks the chosen side of an on / off switch (options with data-on="true" / "false"). */
+function markSwitch(selector, on) {
+    $(`${selector} .ctp-mode-option`).each(function () {
+        const active = (this.dataset.on === 'true') === on;
+        this.classList.toggle('active', active);
+        this.setAttribute('aria-checked', String(active));
+    });
+}
+
+/** Calls onPick(true / false) when a side of an on / off switch is clicked or chosen with the keyboard. */
+function bindSwitch(selector, onPick) {
+    const options = $(`${selector} .ctp-mode-option`);
+    options.on('click', function () {
+        onPick(this.dataset.on === 'true');
+    });
+    options.on('keydown', function (event) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        onPick(this.dataset.on === 'true');
+    });
+}
+
+/** 提示词写法 of Krea 2 / MOSS-Image: a parser setting of the current mode (kreaRules, mossSkill). */
+function setWriting(key, on, message) {
+    const parser = getSettings().parser;
+    if ((key === 'mossSkill' ? parser.mossSkill !== false : !!parser[key]) === on) return;
+    parser[key] = on;
+    saveSettings();
+    applyModeChrome();
+    toastr.success(message, 'ComfyUI 角色配图');
 }
 
 /** Anima: write prompts as Danbooru tags or as English sentences. */
@@ -1204,6 +1246,8 @@ function initModeSwitch() {
         event.preventDefault();
         setPromptStyle(this.dataset.style);
     });
+    bindSwitch('#ctp_krea_rules', on => setWriting('kreaRules', on, on ? 'Krea 2 提示词改用官方模板写法' : 'Krea 2 提示词改回扩展默认的写法'));
+    bindSwitch('#ctp_moss_skill_switch', on => setWriting('mossSkill', on, on ? 'MOSS-Image 解析 AI 改为参考 MOSS skill' : 'MOSS-Image 解析 AI 不再参考 MOSS skill'));
     applyModeChrome();
 }
 

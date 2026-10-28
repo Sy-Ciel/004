@@ -269,6 +269,9 @@ Follow these rules strictly:
 User's Input:
 `;
 
+/** How rule 4 of KREA2_REFINE_INSTRUCTIONS ends every prompt that has no words to draw. */
+export const KREA2_NO_TEXT = 'Absolutely no text, no typography, no letters, no words, no numbers, no logos, no watermark, no captions, pure imagery only.';
+
 /**
  * Defaults of ComfyUI's official Krea 2 Turbo text-to-image template, for "恢复为官方 Krea 2 Turbo 模板的设置".
  * The template refines prompts by default; here that stays off (users compare against the template with it off).
@@ -490,6 +493,8 @@ export const DEFAULT_SETTINGS = {
         maxScenes: 3,
         /** MOSS-Image: the parser also reads a few sections of Moeblack's MOSS-Image prompt skill (see mossSkill.js). */
         mossSkill: true,
+        /** Krea 2 「官方模板写法」: the parser follows the official template's prompt rules (KREA2_REFINE_INSTRUCTIONS). */
+        kreaRules: false,
         historyFloors: 3,
         historyIncludePrompt: true,
         worldInfo: 'off',

@@ -24,6 +24,28 @@
                     </div>
                 </div>
                 <small class="ctp-hint ctp-mode-only" data-mode="anima" id="ctp_style_hint"></small>
+                <div class="ctp-row ctp-mode-row ctp-mode-only" data-mode="krea2">
+                    <span class="ctp-mode-caption">提示词写法</span>
+                    <div class="ctp-mode-switch ctp-style-switch" id="ctp_krea_rules" role="radiogroup" aria-label="Krea 2 提示词写法">
+                        <div class="ctp-mode-option" data-on="false" role="radio" tabindex="0">扩展默认</div>
+                        <div class="ctp-mode-option" data-on="true" role="radio" tabindex="0"><i class="fa-solid fa-wand-magic-sparkles"></i> 官方模板写法</div>
+                    </div>
+                </div>
+                <small class="ctp-hint ctp-mode-only" data-mode="krea2" id="ctp_krea_rules_hint"></small>
+                <div class="ctp-row ctp-mode-row ctp-mode-only" data-mode="moss">
+                    <span class="ctp-mode-caption">提示词写法</span>
+                    <div class="ctp-mode-switch ctp-style-switch" id="ctp_moss_skill_switch" role="radiogroup" aria-label="MOSS-Image 提示词写法">
+                        <div class="ctp-mode-option" data-on="false" role="radio" tabindex="0">扩展默认</div>
+                        <div class="ctp-mode-option" data-on="true" role="radio" tabindex="0"><i class="fa-solid fa-wand-magic-sparkles"></i> 参考 MOSS skill</div>
+                    </div>
+                </div>
+                <div class="ctp-row ctp-wrap-row ctp-mode-only" data-mode="moss">
+                    <div class="menu_button" id="ctp_moss_skill_download">下载 skill</div>
+                    <div class="menu_button" id="ctp_moss_skill_import">从文件导入</div>
+                    <input type="file" id="ctp_moss_skill_file" accept=".md,text/markdown,text/plain" hidden>
+                    <small id="ctp_moss_skill_state"></small>
+                </div>
+                <small class="ctp-hint ctp-mode-only" data-mode="moss">把 Moeblack 的《MOSS-Image 提示词编译 SKILL》（<a href="https://github.com/Moeblack/moss-image-prompt-skill" target="_blank" rel="noopener">moss-image-prompt-skill</a> v2.0.0）里讲写法的几节原文发给解析 AI：每次都带 §11（实测无效的写法）；允许其他人物时加 §7（多人按位置分区、写明差异）；「AI 写完整提示词」时加 §16，提示词改用 &lt;|…|&gt; 闭合标签分块、一行一块；漫画画对白时加 §19（气泡的说话人归属）。「固定外貌 + AI 补充」时提示词由扩展按固定顺序拼，用不上分块写法。讲人物年龄、身材、写真风格的章节不用：人物长什么样以角色设定为准。原文的协议是 CC BY-NC-ND 4.0（可以原样自用，不能改写、精简后再发布），所以扩展里不带它的内容：第一次用时由浏览器下载核对过的那一版（GitHub，连不上换 jsDelivr），存在这个浏览器里；都连不上时，自己下载那一版的 SKILL.md（提交 79f2e3e）再「从文件导入」。每次解析多发约 1 千到 5 千 token。</small>
                 <label class="checkbox_label ctp-auto-mode"><input type="checkbox" data-ctp="autoModelByRating"> 按画面自动切换模型：NSFW 用 Anima，其余用 Krea 2</label>
                 <small class="ctp-hint">打开后，正文 AI 每次回复会在末尾加一个看不见的标记（&lt;!-- 画面:NSFW --&gt; 或 &lt;!-- 画面:SFW --&gt;）。配图前读这一楼的标记，自动切到对应模式再画（各用该模式自己的设置）；没有标记的楼层用当前模式。手动「编辑提示词」出图时不自动切换。</small>
                 <small class="ctp-hint">三个模式的设置完全分开保存，切换时整套一起换：角色预设、渲染配置、配图风格、提示词、工作流、模型和采样、状态栏等。所有模式共用的有「解析模型」的 API 设置、ComfyUI 的地址 / 连接方式，以及「图片显示」（图片位置、大小、侧边面板等，切换模型时保持不变）。</small>
@@ -210,16 +232,6 @@
                         </select>
                     </label>
                     <small class="ctp-hint">固定外貌 + AI 补充：角色预设的外貌原样放进提示词，AI 只写服装、动作、表情等。AI 写完整提示词：把外貌交给解析 AI，由它写出整段提示词。两种方式都会自动加上最上面的「触发词」、角色的 LoRA 触发词和画风前缀 / 后缀。</small>
-                    <div class="ctp-mode-only" data-mode="moss">
-                        <label class="checkbox_label"><input type="checkbox" data-ctp="parser.mossSkill"> 解析 AI 参考 MOSS-Image 提示词 skill</label>
-                        <div class="ctp-row ctp-wrap-row">
-                            <div class="menu_button" id="ctp_moss_skill_download">下载</div>
-                            <div class="menu_button" id="ctp_moss_skill_import">从文件导入</div>
-                            <input type="file" id="ctp_moss_skill_file" accept=".md,text/markdown,text/plain" hidden>
-                            <small id="ctp_moss_skill_state"></small>
-                        </div>
-                        <small class="ctp-hint">把 Moeblack 的《MOSS-Image 提示词编译 SKILL》（<a href="https://github.com/Moeblack/moss-image-prompt-skill" target="_blank" rel="noopener">moss-image-prompt-skill</a> v2.0.0）里讲写法的几节原文发给解析 AI：每次都带 §11（实测无效的写法）；允许其他人物时加 §7（多人按位置分区、写明差异）；「AI 写完整提示词」时加 §16，提示词改用 &lt;|…|&gt; 闭合标签分块、一行一块；漫画画对白时加 §19（气泡的说话人归属）。「固定外貌 + AI 补充」时提示词由扩展按固定顺序拼，用不上分块写法。讲人物年龄、身材、写真风格的章节不用：人物长什么样以角色设定为准。原文的协议是 CC BY-NC-ND 4.0（可以原样自用，不能改写、精简后再发布），所以扩展里不带它的内容：第一次用时由浏览器下载核对过的那一版（GitHub，连不上换 jsDelivr），存在这个浏览器里；都连不上时，自己下载那一版的 SKILL.md（提交 79f2e3e）再「从文件导入」。每次解析多发约 1 千到 5 千 token。</small>
-                    </div>
                     <div id="ctp_pp_editor">
                         <div id="ctp_pp_comic">
                             <div class="ctp-row ctp-wrap-row">

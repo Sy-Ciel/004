@@ -1,5 +1,5 @@
 import { comicPages, comicPanelCount, comicPanels, isComicPreset, readComicPage } from './comic.js';
-import { MODEL_MOSS, PARSED_FIELDS, STATE_FIELDS } from './constants.js';
+import { KREA2_REFINE_INSTRUCTIONS, MODEL_KREA2, MODEL_MOSS, PARSED_FIELDS, STATE_FIELDS } from './constants.js';
 import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
 import { currentMode, floorMode, imageMode, modeLabel, promptStyle } from './modes.js';
@@ -166,6 +166,25 @@ function statusBarBlock(found) {
     return `【正文状态栏（写正文的 AI 总结的本楼结束时的状态，重点参考）】
 ${found.text}
 这是写正文的 AI 对本楼结束时角色状态的总结：穿着、动作、状态、心情以它为准，翻译成英文、补成具体的视觉描写写进对应字段；正文只用来补充细节。状态栏写的不是目标角色时，只作参考。`;
+}
+
+/**
+ * Krea 2 with 「官方模板写法」: the rules ComfyUI's official Krea 2 Turbo template gives its prompt rewrite
+ * (KREA2_REFINE_INSTRUCTIONS, word for word), with how they apply to what the parser writes here. The text-free
+ * ending of rule 4 is added by buildImagePrompt.
+ */
+function kreaRulesBlock(mode) {
+    const how = mode === 'ai'
+        ? 'prompt 按这些规则写成一段连贯的英文：每个人和自己的外貌、衣服、动作写在一起，姿势和位置写具体，不添加正文里没有的人和东西，没有依据的细节不要编'
+        : '你只写各个英文字段，程序按固定顺序把它们拼成提示词：每个字段按规则 1、2、5 写（忠于正文、姿势和位置写具体、没有依据的细节不要编）';
+    return `【Krea 2 官方模板的写法】
+下面是 ComfyUI 官方 Krea 2 Turbo 模板里「Refine Prompt」那一步给模型的改写规则（Comfy-Org/workflow_templates，MIT 协议，原文照录）。写英文画面描述时按这些规则来；和上面的要求冲突时，以上面的为准：
+- 规则里「用户的提示词」就是正文里这一刻的画面。可以按规则开头说的先想一想，但思考过程不要写进回复，回复仍然只有上面要求的 JSON；规则 6、10 说的「只输出一段提示词」指的是画面描述本身的写法
+- 画风和媒介由画风前缀和 LoRA 决定：规则开头和规则 3、9 说的挑画风、挑媒介不用做；镜头和光线照常按剧情写
+- 规则 4 结尾那句 "Absolutely no text…" 不用写，程序会加在提示词最后
+- ${how}
+
+${KREA2_REFINE_INSTRUCTIONS.replace(/\s*User's Input:\s*$/, '').trim()}`;
 }
 
 /**
@@ -526,15 +545,18 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     else if ((negative || aspect || scenes || place || absent) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += `\n\n${extraFieldRules(negative, aspect, scenes, place, absent)}`;
 
     const triggerRule = triggerWordsRule(mode, !!comic);
-    // MOSS-Image: how to write for the model, from Moeblack's prompt skill (downloaded once, see mossSkill.js).
-    const skill = promptStyle() === MODEL_MOSS && settings.parser.mossSkill !== false ? await mossSkillBlock({ mode, comic, allowOthers }) : null;
+    // 提示词写法: MOSS-Image with Moeblack's prompt skill (downloaded once, see mossSkill.js); Krea 2 with the rules
+    // of its official template.
+    const writing = promptStyle() === MODEL_MOSS && settings.parser.mossSkill !== false ? await mossSkillBlock({ mode, comic, allowOthers })
+        : promptStyle() === MODEL_KREA2 && settings.parser.kreaRules ? { text: kreaRulesBlock(mode), note: '提示词写法：Krea 2 官方模板（最后加上 Absolutely no text…）' }
+            : null;
     // A comic page (every panel, person and speech bubble described) is a long answer.
     const minTokens = comic ? comicMinTokens(comic.pages) : 0;
     const raised = minTokens > (Number(settings.parser.maxTokens) || 2048);
     // Anima in natural-language mode: the presets were written for tags, so this rule overrides them.
     const natural = promptStyle() === 'anima-natural';
     return {
-        system: [fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', triggerRule, skill?.text].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
+        system: [fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', triggerRule, writing?.text].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
         user: [fillTemplate(userTemplate, vars), focus ? focusBlock(focus) : '', comic ? comicReminder(comic.pages) : ''].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
         preset,
         mode,
@@ -545,7 +567,7 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
             `${modeLabel()} 模式 · 解析预设：${preset.name} · ${comic ? `漫画：AI 画整页分镜（最多 ${comic.panels} 格，${comic.dialogue ? '带对白' : '不画文字'}）` : `${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`}`,
             triggerRule ? `触发词：${triggerWordList().join(', ')}` : '',
             natural ? '英文自然语言写法' : '',
-            skill?.note ?? '',
+            writing?.note ?? '',
             settings.parser.hideCharName ? `隐藏了角色卡的名字（AI 的消息标成「${HIDDEN_CHAR_LABEL}」）` : '',
             settings.parser.storyTagOnly
                 ? hasStoryTag(chat[mesId].mes) ? `只读取 <${storyTagName()}> 标签里的正文` : `当前楼层没有 <${storyTagName()}> 标签，读取了全文（去掉了 \`\`\` 代码块）`

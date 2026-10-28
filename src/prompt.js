@@ -1,5 +1,5 @@
 import { comicLayout, isComicPreset, layoutText, readLayoutPrompt } from './comic.js';
-import { ANIMA_NATURAL_TEMPLATE, ANIMA_NOBODY_LINE, BORDER_NEGATIVE, ANIMA_OTHERS_LINE, ANIMA_PROMPT_TEMPLATE, ANIMA_PROMPT_TEMPLATE_V1, ANIMA_SOLO_LINE, MODEL_MOSS, NOBODY_LINE, OTHERS_LINE, PARSED_FIELDS, SOLO_LINE } from './constants.js';
+import { ANIMA_NATURAL_TEMPLATE, ANIMA_NOBODY_LINE, BORDER_NEGATIVE, ANIMA_OTHERS_LINE, ANIMA_PROMPT_TEMPLATE, ANIMA_PROMPT_TEMPLATE_V1, ANIMA_SOLO_LINE, KREA2_NO_TEXT, MODEL_KREA2, MODEL_MOSS, NOBODY_LINE, OTHERS_LINE, PARSED_FIELDS, SOLO_LINE } from './constants.js';
 import { promptStyle } from './modes.js';
 import { fillTemplate, getSettings, resolveMacros } from './utils.js';
 
@@ -395,7 +395,7 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
             const head = joinParts([...lead, scenery].map(clean).filter(Boolean), false);
             return finishPrompt([head, blockLines(parsed.prompt), clean(resolveMacros(settings.suffix || ''))].filter(Boolean).join('\n'), order);
         }
-        const parts = [...lead, scenery, parsed.prompt, resolveMacros(settings.suffix || '')]
+        const parts = [...lead, scenery, parsed.prompt, resolveMacros(settings.suffix || ''), kreaEnding(parsed.prompt)]
             .map(clean)
             .filter(Boolean);
         return finishPrompt(joinParts(parts, tags), order);
@@ -444,7 +444,18 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
         // Lines are joined into one paragraph, so each is closed (sentences) or comma-separated (tags).
         if (cleaned) lines.push(cleaned);
     }
+    const ending = kreaEnding(PARSED_FIELDS.map(field => vars[field]).join(' '));
+    if (ending) lines.push(ending);
     return finishPrompt(joinParts(lines, tags), order);
+}
+
+/**
+ * Krea 2 with 「官方模板写法」: the sentence the official template ends every prompt with, so the picture has no
+ * lettering (Krea 2 Turbo has no negative prompt). Not when the parser quoted words to draw (rule 4) or wrote it.
+ */
+function kreaEnding(written) {
+    if (promptStyle() !== MODEL_KREA2 || !getSettings().parser.kreaRules) return '';
+    return /"[^"]+"|absolutely no text/i.test(String(written ?? '')) ? '' : KREA2_NO_TEXT;
 }
 
 const EMPTY_ANSWERS = new Set(['无', '没有', '空', '无需', 'none', 'n/a', 'na', 'null', 'false', '-']);

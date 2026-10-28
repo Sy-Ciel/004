@@ -142,7 +142,7 @@ function howToUse(mode, comic) {
  */
 export async function mossSkillBlock({ mode, comic, allowOthers }) {
     const skill = await skillForParse();
-    if (!skill) return { text: '', note: 'MOSS 提示词 skill 还没下载成功，这次解析没带上（设置「配图风格」里可以重新下载或从文件导入）' };
+    if (!skill) return { text: '', note: 'MOSS 提示词 skill 还没下载成功，这次解析没带上（设置最上方「提示词写法」那里可以重新下载或从文件导入）' };
     const keys = comic
         ? ['useless', ...(comic.dialogue ? ['bubbles'] : [])]
         : [...(allowOthers ? ['people'] : []), 'useless', ...(mode === 'ai' ? ['blocks'] : [])];
