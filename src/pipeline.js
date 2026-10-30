@@ -1,5 +1,5 @@
 import { EXTRA_KEY, modeDefaults } from './constants.js';
-import { addExtraLoras, addUpscale, getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage } from './comfy.js';
+import { addExtraLoras, addUpscale, deferUpscale, getWorkflowTemplate, prepareWorkflow, runWorkflow, saveImage, upscaleWorkflow } from './comfy.js';
 import { comparable, findQuote } from './anchors.js';
 import { comicPages, comicPanelCount, fitLayout, isComicPreset } from './comic.js';
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
@@ -260,15 +260,25 @@ function abortError() {
  * that do not parse (🎲, ✏️) go straight to that line.
  */
 
-/** The job drawing now, and the ones waiting for ComfyUI after it: { job, start, place }. */
+/**
+ * What ComfyUI works on now: a job drawing, or a picture being enlarged ({ task, start }, see queueUpscales); the
+ * jobs waiting to draw ({ job, start, place }); the pictures waiting for the upscale model (先画完所有图，再统一放大),
+ * which only start when no job waits to draw.
+ */
 let drawingNow = null;
 const drawingLine = [];
+const upscaleLine = [];
 
 function startNextDrawing() {
-    if (drawingNow || !drawingLine.length) return;
-    drawingNow = drawingLine.shift();
-    drawingNow.start();
-    drawingLine.forEach((entry, index) => entry.place(index + 1));
+    if (drawingNow) return;
+    if (drawingLine.length) {
+        drawingNow = drawingLine.shift();
+        drawingNow.start();
+        drawingLine.forEach((entry, index) => entry.place(index + 1));
+    } else if (upscaleLine.length) {
+        drawingNow = upscaleLine.shift();
+        drawingNow.start();
+    }
 }
 
 /**
@@ -308,6 +318,167 @@ function drawingTurn(job, message) {
         if (drawingNow) entry.place(drawingLine.length);
         startNextDrawing();
     });
+}
+
+/*
+ * 先画完所有图，再统一放大: a picture is shown as drawn, with its upscale step on it (`upscale`: the file in ComfyUI's
+ * output folder, model, factor, 文件名前缀; `error` once it failed). It waits in upscaleLine until no job waits to
+ * draw, then the enlarged picture takes its place in every version of the floor and the one as drawn is deleted.
+ */
+
+/** A picture's identity in a floor (redrawing one picture copies the others into the new version). */
+function pictureKey(picture) {
+    return picture?.path || picture?.src || '';
+}
+
+/** Every picture of every version of a floor. */
+function floorPictures(data) {
+    return (data?.images ?? []).flatMap(version => [...(version.scenes ?? []), version]);
+}
+
+/** The pictures of one version that wait for the upscale model. */
+function waitingPictures(version) {
+    return [...(version?.scenes ?? []), version].filter(picture => picture?.upscale);
+}
+
+/**
+ * Pictures enlarged in this session, by the picture they replace: a job that copied the floor before saves it with
+ * them too (commit).
+ */
+const enlarged = new Map();
+
+function applyEnlarged(data) {
+    if (!enlarged.size) return;
+    for (const picture of floorPictures(data)) {
+        const done = enlarged.get(pictureKey(picture));
+        if (!done) continue;
+        Object.assign(picture, done);
+        delete picture.upscale;
+    }
+}
+
+function deleteStoredFile(path) {
+    if (!path) return;
+    fetch('/api/images/delete', {
+        method: 'POST',
+        headers: ctx().getRequestHeaders(),
+        body: JSON.stringify({ path }),
+    }).catch(() => {});
+}
+
+/** Puts a version's pictures that wait for the upscale model in line (not the failed ones, not twice). */
+function queueUpscales(message, swipeId, version) {
+    let added = 0;
+    for (const picture of waitingPictures(version)) {
+        const key = pictureKey(picture);
+        if (picture.upscale.error || !key || [drawingNow, ...upscaleLine].some(entry => entry?.task?.key === key)) continue;
+        const task = { message, swipeId, key, ...picture.upscale, width: picture.width, height: picture.height, controller: new AbortController() };
+        const entry = { task };
+        entry.start = () => {
+            render(message);
+            runUpscale(task).finally(() => {
+                if (drawingNow === entry) drawingNow = null;
+                startNextDrawing();
+            });
+        };
+        upscaleLine.push(entry);
+        added++;
+    }
+    if (!added) return;
+    startNextDrawing();
+    render(message);
+}
+
+/** Enlarges one picture (its turn at ComfyUI came) and puts the result in its place. */
+async function runUpscale(task) {
+    const { message, swipeId, key } = task;
+    const floor = () => (ctx().chat.indexOf(message) >= 0 ? swipeData(message, swipeId) : null);
+    const pictures = () => floorPictures(floor()).filter(picture => pictureKey(picture) === key);
+    // Gone meanwhile (its version deleted, 不放大了, another chat): nothing to do.
+    if (task.controller.signal.aborted || !pictures().some(picture => picture.upscale)) return;
+    try {
+        const image = await runWorkflow(upscaleWorkflow(task.file, task, task.width, task.height, task.prefix), task.controller.signal);
+        const stored = await storePicture(image, [], task.prefix);
+        if (task.controller.signal.aborted || !pictures().length) {
+            deleteStoredFile(stored.path);
+            return;
+        }
+        const drawn = pictures()[0].path;
+        enlarged.set(key, stored);
+        commit(message, swipeId, floor());
+        deleteStoredFile(drawn);
+    } catch (error) {
+        if (isAbortError(error)) return;
+        warn(error);
+        const reason = truncate(errorMessage(error), 300);
+        for (const picture of pictures()) if (picture.upscale) picture.upscale = { ...picture.upscale, error: reason };
+        if (floor()) commit(message, swipeId, floor());
+        toastr.error(reason, '放大失败（原图保留）');
+    } finally {
+        render(message);
+    }
+}
+
+/**
+ * 先画完再放大 for the pictures of a version: how many wait, whether one of them is being enlarged, why one failed.
+ * null when none waits.
+ */
+export function upscaleStatus(message, version) {
+    const pictures = waitingPictures(version);
+    if (!pictures.length) return null;
+    const keys = new Set(pictures.map(pictureKey));
+    return {
+        count: pictures.length,
+        running: drawingNow?.task?.message === message && keys.has(drawingNow.task.key),
+        error: pictures.find(picture => picture.upscale.error)?.upscale.error ?? '',
+    };
+}
+
+/** The shown version of a floor, with the pictures of it that wait for the upscale model (by key). */
+function shownWaiting(mesId) {
+    const message = ctx().chat[mesId];
+    const swipeId = message?.swipe_id ?? 0;
+    const data = message ? swipeData(message, swipeId) : null;
+    const version = data?.images?.[Math.min(Math.max(0, data.index ?? 0), data.images.length - 1)];
+    return version ? { message, swipeId, data, version, keys: new Set(waitingPictures(version).map(pictureKey)) } : null;
+}
+
+/** 放大失败 → 重试: the shown version's pictures go back into the line. */
+export function retryUpscales(mesId) {
+    const shown = shownWaiting(mesId);
+    if (!shown?.keys.size) return;
+    for (const picture of floorPictures(shown.data)) if (shown.keys.has(pictureKey(picture)) && picture.upscale) delete picture.upscale.error;
+    commit(shown.message, shown.swipeId, shown.data);
+    queueUpscales(shown.message, shown.swipeId, shown.version);
+}
+
+/** 不放大了: the shown version's pictures stay as drawn. */
+export function dropUpscales(mesId) {
+    const shown = shownWaiting(mesId);
+    if (!shown?.keys.size) return;
+    for (const picture of floorPictures(shown.data)) if (shown.keys.has(pictureKey(picture))) delete picture.upscale;
+    for (let index = upscaleLine.length - 1; index >= 0; index--) {
+        if (upscaleLine[index].task.message === shown.message && shown.keys.has(upscaleLine[index].task.key)) upscaleLine.splice(index, 1);
+    }
+    if (drawingNow?.task?.message === shown.message && shown.keys.has(drawingNow.task.key)) drawingNow.task.controller.abort();
+    commit(shown.message, shown.swipeId, shown.data);
+    render(shown.message);
+}
+
+/** Another chat opens, or 配图 is switched off: the pictures stop waiting, marked as they are (see resumeUpscales). */
+export function cancelUpscales() {
+    upscaleLine.length = 0;
+    drawingNow?.task?.controller.abort();
+}
+
+/** The open chat's pictures still waiting for the upscale model get in line again (chat opened, page reloaded, 配图 on). */
+export function resumeUpscales() {
+    if (!getSettings().enabled) return;
+    for (const message of ctx().chat ?? []) {
+        if (!message) continue;
+        const swipeId = message.swipe_id ?? 0;
+        for (const version of swipeData(message, swipeId)?.images ?? []) queueUpscales(message, swipeId, version);
+    }
 }
 
 /*
@@ -414,6 +585,7 @@ function commit(message, swipeId, data) {
         return false;
     }
     data.updatedAt = Date.now();
+    applyEnlarged(data);
     setMessageData(message, swipeId, data);
     ctx().saveChat();
     return true;
@@ -515,12 +687,15 @@ export function renderPlan(data, overrides = null) {
     };
 }
 
-/** 放大: the upscale model and the final size factor, or null when it is off (or no model is set). */
+/**
+ * 放大: the upscale model and the final size factor, or null when it is off (or no model is set). later: 先画完所有图，
+ * 再统一放大 (the picture is shown as drawn and enlarged once ComfyUI has no more drawing to do).
+ */
 function upscaleOf(comfy) {
     const model = String(comfy.upscaleModel || '').trim();
     if (!comfy.upscale || !model) return null;
     const factor = Number(comfy.upscaleFactor);
-    return { model, factor: Number.isFinite(factor) && factor >= 1 && factor <= 8 ? factor : 2 };
+    return { model, factor: Number.isFinite(factor) && factor >= 1 && factor <= 8 ? factor : 2, later: comfy.upscaleLater !== false };
 }
 
 /** The "更多 LoRA" entries used for a character preset (entries for every picture and the preset's own). */
@@ -640,13 +815,28 @@ export function filenamePrefix(text) {
         .join('/');
 }
 
-/** The workflow for one picture: the template filled in, plus the "更多 LoRA" chain and the 放大 step. */
+/**
+ * The workflow for one picture: the template filled in, plus the "更多 LoRA" chain and the 放大 step — or, with 先画完
+ * 所有图，再统一放大, the picture saved for enlarging later (`later`, see laterMark and queueUpscales).
+ * @returns {{ workflow: object, later: { file: string, model: string, factor: number, prefix: string } | null }}
+ */
 function buildWorkflow(template, values, plan, notes = []) {
     const { workflow, notes: prepared } = prepareWorkflow(template.text, values);
     addExtraLoras(workflow, plan.extraLoras, plan.loraClip, prepared);
-    if (plan.upscale) addUpscale(workflow, plan.upscale, values.width, values.height, prepared);
+    let later = null;
+    if (plan.upscale) {
+        const saved = plan.upscale.later ? deferUpscale(workflow, plan.upscale, values.width, values.height, prepared) : null;
+        if (saved) later = { file: saved.file, model: plan.upscale.model, factor: plan.upscale.factor, prefix: values.filename_prefix };
+        else addUpscale(workflow, plan.upscale, values.width, values.height, prepared);
+        if (plan.upscale.later && !saved) prepared.push('这个工作流的输出不是单独一个 SaveImage，放大照旧在出图时一起做');
+    }
     notes.push(...prepared);
-    return workflow;
+    return { workflow, later };
+}
+
+/** A picture to enlarge later: its upscale step, with the file ComfyUI reported (direct mode), else the one it was given. */
+function laterMark(later, image) {
+    return later ? { upscale: { file: image.file || later.file, model: later.model, factor: later.factor, prefix: later.prefix } } : {};
 }
 
 /** The latest drawing's settings, for the debug view. */
@@ -832,7 +1022,7 @@ async function redrawPicture(message, job, data, options, modelMode, otherMode) 
     const values = workflowValues(plan, modelMode, { prompt, negative, width, height, seed });
     const template = await getWorkflowTemplate(plan.comfy, plan.profile, modelMode);
     assertMode(modelMode);
-    const workflow = buildWorkflow(template, values, plan, data.debug.notes);
+    const { workflow, later } = buildWorkflow(template, values, plan, data.debug.notes);
     data.params = drawingParams(plan, template, values, modelMode);
     if (getSettings().debug) data.debug.workflow = workflow;
     else delete data.debug.workflow;
@@ -840,12 +1030,13 @@ async function redrawPicture(message, job, data, options, modelMode, otherMode) 
     const image = await runWorkflow(workflow, signal, text => setStage(job, message, 'drawing', `「${label}」${text}`));
     assertMode(modelMode);
     data.comfyMs = Math.round(performance.now() - started);
-    const stored = await storePicture(image, data.debug.notes, values.filename_prefix);
+    const stored = { ...await storePicture(image, data.debug.notes, values.filename_prefix), ...laterMark(later, image) };
     assertMode(modelMode);
 
     const version = structuredClone(base);
     const replaced = scene >= 0 ? version.scenes[scene] : version;
     Object.assign(replaced, { ...stored, seed, width, height, prompt, negative, refined: refinedText(template, image) || undefined });
+    if (!stored.upscale) delete replaced.upscale;
     // A part parsed again records who it shows now (the end of the floor's subject is the floor's, below).
     if (fresh && scene >= 0) Object.assign(replaced, who);
     version.time = Date.now();
@@ -885,6 +1076,7 @@ async function redrawPicture(message, job, data, options, modelMode, otherMode) 
     if (commit(message, job.swipeId, data) && (message.swipe_id ?? 0) === job.swipeId) {
         imageAdded(ctx().chat.indexOf(message));
     }
+    queueUpscales(message, job.swipeId, version);
 }
 
 async function runJob(message, job, options) {
@@ -1142,7 +1334,7 @@ async function runJobInMode(message, job, options, ratingNote) {
 
         const template = await getWorkflowTemplate(comfy, profile, modelMode);
         assertMode(modelMode);
-        const workflow = buildWorkflow(template, values, plan, data.debug.notes);
+        const { workflow, later } = buildWorkflow(template, values, plan, data.debug.notes);
         if (template.refine) {
             data.debug.notes.push(comfy.mode === 'direct'
                 ? 'ComfyUI 端提示词扩写已开启：实际用来出图的是扩写后的文字（见下方）'
@@ -1158,6 +1350,7 @@ async function runJobInMode(message, job, options, ratingNote) {
         data.comfyMs = Math.round(performance.now() - started);
         data.refinedPrompt = refinedText(template, image);
         const { src, path } = await storePicture(image, data.debug.notes, values.filename_prefix);
+        const mark = laterMark(later, image);
         // A switch during the upload cancelled this picture: the floor is not touched.
         assertMode(modelMode);
 
@@ -1177,12 +1370,13 @@ async function runJobInMode(message, job, options, ratingNote) {
                 const sceneValues = own
                     ? workflowValues(scenePlan, modelMode, { prompt: scene.prompt, negative: scene.negative, width, height, seed: sceneSeed })
                     : { ...values, prompt: scene.prompt, negative_prompt: scene.negative || '', seed: sceneSeed };
-                const picture = await runWorkflow(buildWorkflow(sceneTemplate, sceneValues, scenePlan), signal, text => setStage(job, message, 'drawing', `「${scene.label}」${text}`));
+                const built = buildWorkflow(sceneTemplate, sceneValues, scenePlan);
+                const picture = await runWorkflow(built.workflow, signal, text => setStage(job, message, 'drawing', `「${scene.label}」${text}`));
                 assertMode(modelMode);
                 const stored = await storePicture(picture, data.debug.notes, sceneValues.filename_prefix);
                 assertMode(modelMode);
                 scenes.push({
-                    ...stored, seed: sceneSeed, width, height,
+                    ...stored, ...laterMark(built.later, picture), seed: sceneSeed, width, height,
                     prompt: scene.prompt,
                     negative: scene.negative || '',
                     refined: refinedText(sceneTemplate, picture) || undefined,
@@ -1201,7 +1395,7 @@ async function runJobInMode(message, job, options, ratingNote) {
         }
 
         addVersion(data, {
-            src, path, seed, width, height,
+            src, path, ...mark, seed, width, height,
             prompt: data.prompt,
             negative: data.negative || '',
             refined: data.refinedPrompt || undefined,
@@ -1221,6 +1415,7 @@ async function runJobInMode(message, job, options, ratingNote) {
         if (commit(message, job.swipeId, data) && (message.swipe_id ?? 0) === job.swipeId) {
             imageAdded(ctx().chat.indexOf(message));
         }
+        queueUpscales(message, job.swipeId, data.images.at(-1));
         log(`#${mesId} 完成`, data);
     } catch (error) {
         if (isAbortError(error)) {

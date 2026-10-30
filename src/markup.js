@@ -13,6 +13,20 @@ export function statusHtml(job) {
     </div>`;
 }
 
+/** 先画完所有图，再统一放大: the line under a version whose pictures wait for the upscale model (upscaleStatus). */
+export function upscaleStatusHtml(status) {
+    if (!status) return '';
+    const text = status.error
+        ? `放大失败（原图保留）：${status.error}`
+        : status.running ? `正在放大…（这一版还剩 ${status.count} 张）` : `先出原图，排队的图画完后再放大（${status.count} 张）`;
+    return `<div class="ctp-status ctp-upscale-status">
+        <i class="fa-solid ${status.error ? 'fa-triangle-exclamation' : 'fa-up-right-and-down-left-from-center'}${status.running ? ' fa-beat-fade' : ''}"></i>
+        <span>${escapeHtml(text)}</span>
+        ${status.error ? '<span class="ctp-link ctp-act" data-act="upscale-retry">重试</span>' : ''}
+        <span class="ctp-link ctp-act" data-act="upscale-drop">不放大了</span>
+    </div>`;
+}
+
 /**
  * The pictures of one version in story order: with 多张图 the earlier parts of the floor first, then the end.
  * @returns {{ src: string, label: string, scene: number, start: string, place: string }[]} scene = index in

@@ -4,7 +4,7 @@ import { openEditDialog } from './src/editDialog.js';
 import { captureHints, hintsEnabled, openHintDialog, pendingHints, removeHint, stripHints, stripOutgoingChat } from './src/hints.js';
 import { injectMessageButtons } from './src/messageButtons.js';
 import { resetPanelForChat, showInPanel } from './src/panel.js';
-import { cancelAllJobs, cancelJob, enqueue, getJob, setImageAddedHandler, setModeSwitcher, setParserReviewer, setRenderer } from './src/pipeline.js';
+import { cancelAllJobs, cancelJob, cancelUpscales, dropUpscales, enqueue, getJob, resumeUpscales, retryUpscales, setImageAddedHandler, setModeSwitcher, setParserReviewer, setRenderer } from './src/pipeline.js';
 import { currentIndex } from './src/markup.js';
 import { onLayoutChange, renderAll, renderMessage } from './src/render.js';
 import { updateRatingPrompt } from './src/rating.js';
@@ -203,6 +203,9 @@ function onAction(event) {
         case 'picture-reparse': redrawPicture(mesId, Number(button.dataset.scene), 'reparse'); break;
         case 'picture-edit': openEditDialog(mesId, Number(button.dataset.scene)); break;
         case 'hint': redrawWithHints(mesId); break;
+        // 先画完所有图，再统一放大
+        case 'upscale-retry': retryUpscales(mesId); break;
+        case 'upscale-drop': dropUpscales(mesId); break;
         case 'debug': showFloorDebug(mesId); break;
         case 'delete': deleteImage(mesId); break;
         case 'clear': clearState(mesId); break;
@@ -293,13 +296,15 @@ function registerEvents() {
         updateStatusPrompt();
         updateRatingPrompt();
         cancelAllJobs();
+        cancelUpscales();
         resetPanelForChat();
         renderAllSoon();
         refreshTargetSelect();
         // A chat locked to a persona switches it on load; its profile follows. Then the card's 出图参数预设 (a profile
-        // switch puts it in place itself).
+        // switch puts it in place itself). Pictures of this chat still waiting for the upscale model get in line.
         setTimeout(() => {
             if (!syncPersonaProfile()) applyCardParamPreset();
+            resumeUpscales();
         }, 0);
     });
     // Registered after initPersonaTracking's own listener, so the new persona is already known here.

@@ -531,7 +531,8 @@
                             </select>
                         </label>
                     </div>
-                    <small class="ctp-hint">画完后先用放大模型放大，再缩放到选的倍数（例：4x 模型选 2 倍 = 先放大 4 倍再缩回一半，比直接放大 2 倍更清晰）。模型文件放在 ComfyUI/models/upscale_models/。Anima 模式已经填好了 4x_IllustrationJaNai_V3detail_DAT2_28k_bf16.safetensors，打开开关就能用。出图会慢一些、图片文件更大；「编辑提示词后生成」里可以单独关掉这一次的放大。</small>
+                    <label class="checkbox_label"><input type="checkbox" data-ctp="comfy.upscaleLater"> 先画完所有图，再统一放大</label>
+                    <small class="ctp-hint">画完后先用放大模型放大，再缩放到选的倍数（例：4x 模型选 2 倍 = 先放大 4 倍再缩回一半，比直接放大 2 倍更清晰）。模型文件放在 ComfyUI/models/upscale_models/。Anima 模式已经填好了 4x_IllustrationJaNai_V3detail_DAT2_28k_bf16.safetensors，打开开关就能用。出图会慢一些、图片文件更大；「编辑提示词后生成」里可以单独关掉这一次的放大。<br>「先画完所有图，再统一放大」（默认打开）：每张图先显示画好的原图，等排队的图（几楼、多张图）全部画完，再一张张放大，放大好的图自动替换原图；原图下面会显示「先出原图，排队的图画完后再放大」，可以点「不放大了」。放大前的原图另存在 ComfyUI 的 output/comfy-portrait-base 文件夹里（第二步要从那里读取），可以随时清空。关掉 = 每张图画完立刻放大，下一张要等它放大完。</small>
 
                     <h4>采样</h4>
                     <div class="ctp-row">

@@ -1,10 +1,10 @@
 import { renderHints } from './hints.js';
 import { layoutMode } from './layout.js';
 import { insertAfterLine, insertBeforeLine, placeAnchors, shownText } from './anchors.js';
-import { currentIndex, pictureHtml, statusHtml, toolbarHtml, versionPictures } from './markup.js';
+import { currentIndex, pictureHtml, statusHtml, toolbarHtml, upscaleStatusHtml, versionPictures } from './markup.js';
 import { getPanelMesId, schedulePanelRefresh } from './panel.js';
 import { storyParagraphs } from './parser.js';
-import { getJob } from './pipeline.js';
+import { getJob, upscaleStatus } from './pipeline.js';
 import { decorateStatusBars } from './statusBar.js';
 import { ctx, escapeHtml, getMessageData, getSettings } from './utils.js';
 
@@ -241,6 +241,7 @@ export function renderMessage(mesId) {
     const parts = [];
     if (showJob) parts.push(statusHtml(job));
     if (hasImages) parts.push(kind === 'panel' ? chipHtml(data) : imageHtml(data, settings.debug, pictures, several, mode.kind === 'panel'));
+    if (hasImages) parts.push(upscaleStatusHtml(upscaleStatus(message, data.images[currentIndex(data)])));
     if (showError) {
         parts.push(`<div class="ctp-error">
             <i class="fa-solid fa-triangle-exclamation"></i>

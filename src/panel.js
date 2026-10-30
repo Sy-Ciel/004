@@ -1,8 +1,8 @@
 import { placeAnchors, positionTop } from './anchors.js';
 import { layoutMode } from './layout.js';
-import { currentIndex, pictureHtml, statusHtml, toolbarHtml, versionPictures } from './markup.js';
+import { currentIndex, pictureHtml, statusHtml, toolbarHtml, upscaleStatusHtml, versionPictures } from './markup.js';
 import { storyParagraphs } from './parser.js';
-import { getJob } from './pipeline.js';
+import { getJob, upscaleStatus } from './pipeline.js';
 import { ctx, escapeHtml, getMessageData, getSettings, saveSettings } from './utils.js';
 
 /**
@@ -303,6 +303,7 @@ function panelHtml(mesId, data, job) {
     </div>
     ${job ? statusHtml(job) : ''}
     ${picturesHtml(pictures)}
+    ${upscaleStatusHtml(upscaleStatus(ctx().chat[mesId], image))}
     ${toolbarHtml(data, settings.debug, { scene: pictures.length > 1 ? pictures[0].scene : null })}`;
 }
 

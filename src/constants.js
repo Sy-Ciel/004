@@ -576,6 +576,8 @@ export const DEFAULT_SETTINGS = {
         upscale: false,
         upscaleModel: '',
         upscaleFactor: 2,
+        /** 先画完所有图，再统一放大: pictures are shown as drawn and enlarged once no picture waits to be drawn. */
+        upscaleLater: true,
         /** MOSS-Image only: skip layer guidance on layer 22 (the official template's SLG switch, off there). */
         slg: false,
         /** More LoRAs: [{ name, strength, presetId }] — presetId '' = every picture, else only that character's. */

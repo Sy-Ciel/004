@@ -12,7 +12,7 @@ export const PARAM_COMFY_KEYS = [
     'unet', 'clip', 'vae', 'lora', 'loraStrength', 'extraLoras', 'loraClip',
     'steps', 'cfg', 'sampler', 'scheduler', 'seed',
     'sizeMode', 'width', 'height', 'aspectRatio', 'megapixels', 'parserAspect',
-    'upscale', 'upscaleModel', 'upscaleFactor', 'slg', 'refinePrompt', 'workflowSource', 'workflow',
+    'upscale', 'upscaleModel', 'upscaleFactor', 'upscaleLater', 'slg', 'refinePrompt', 'workflowSource', 'workflow',
 ];
 
 /** The presets of an image model mode (stored with the shared settings, so every profile sees them). */

@@ -4,7 +4,7 @@
  * prompt; pictures already made still show. Where it is (quickTogglePlace): in the wand menu by the chat input (one
  * more tap, so it is not hit by accident), as a 🖼 button left of the chat input, or nowhere.
  */
-import { cancelAllJobs, hasActiveJobs } from './pipeline.js';
+import { cancelAllJobs, cancelUpscales, hasActiveJobs, resumeUpscales } from './pipeline.js';
 import { updateRatingPrompt } from './rating.js';
 import { updateStatusPrompt } from './statusBar.js';
 import { getSettings, saveSettings } from './utils.js';
@@ -77,13 +77,19 @@ export function updateQuickToggle() {
 
 /**
  * What follows the switch wherever it was flipped: the main AI's instructions (status bar, picture rating), the
- * switch itself, and pictures in the making, which stop when it goes off. Returns whether any were cancelled.
+ * switch itself, and pictures in the making, which stop when it goes off (pictures waiting for the upscale model
+ * wait until it is on again). Returns whether any were cancelled.
  */
 export function applyEnabled() {
     updateStatusPrompt();
     updateRatingPrompt();
     updateQuickToggle();
-    if (getSettings().enabled || !hasActiveJobs()) return false;
+    if (getSettings().enabled) {
+        resumeUpscales();
+        return false;
+    }
+    cancelUpscales();
+    if (!hasActiveJobs()) return false;
     cancelAllJobs();
     return true;
 }

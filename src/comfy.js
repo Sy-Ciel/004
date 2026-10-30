@@ -1,4 +1,4 @@
-import { EMPTY_LISTS, KREA2_REFINE_INSTRUCTIONS, MODEL_ANIMA, MODEL_KREA2, MODEL_MOSS, normalizeMode } from './constants.js';
+import { EMPTY_LISTS, KREA2_REFINE_INSTRUCTIONS, MODEL_ANIMA, MODEL_KREA2, MODEL_MOSS, makeId, normalizeMode } from './constants.js';
 import { currentMode } from './modes.js';
 import { ctx, errorMessage, getSettings, sleep, truncate, withTimeout } from './utils.js';
 
@@ -328,6 +328,39 @@ export function addUpscale(workflow, { model, factor }, width, height, notes = [
     return workflow;
 }
 
+/** Where 先画完再放大 keeps the pictures it enlarges later, in ComfyUI's output folder. */
+const LATER_FOLDER = 'comfy-portrait-base';
+
+/**
+ * 先画完所有图，再统一放大: the picture is saved as drawn, under a name of its own in ComfyUI's output folder, so a
+ * later workflow can load it from there (upscaleWorkflow) — through SillyTavern's proxy too, which only hands back
+ * the picture. Needs one SaveImage as the workflow's only output (SaveImage numbers a new name from _00001_).
+ * @returns {{ file: string } | null} the file in ComfyUI's output folder, or null (enlarge in the workflow then)
+ */
+export function deferUpscale(workflow, { model, factor }, width, height, notes = []) {
+    const outputs = Object.values(workflow).filter(node => ['SaveImage', 'PreviewImage'].includes(node.class_type));
+    if (outputs.length !== 1 || outputs[0].class_type !== 'SaveImage' || !isLink(outputs[0].inputs?.images)) return null;
+    const name = `${LATER_FOLDER}/${Date.now().toString(36)}_${makeId()}`;
+    outputs[0].inputs.filename_prefix = name;
+    notes.push(`放大：先出原图，排队的图都画完后再用 ${model} 放大，缩放到 ×${factor}（${Math.round(width * factor)}×${Math.round(height * factor)}）`);
+    return { file: `${name}_00001_.png` };
+}
+
+/**
+ * The workflow that enlarges a picture drawn earlier (deferUpscale): loaded from ComfyUI's output folder, through
+ * the upscale model, resized to `factor` × its drawn size, saved under the user's 文件名前缀.
+ */
+export function upscaleWorkflow(file, { model, factor }, width, height, prefix) {
+    const target = { width: Math.round(width * factor), height: Math.round(height * factor) };
+    return {
+        1: { class_type: 'LoadImage', inputs: { image: `${file} [output]` }, _meta: { title: '原图' } },
+        2: { class_type: 'UpscaleModelLoader', inputs: { model_name: model }, _meta: { title: '放大模型' } },
+        3: { class_type: 'ImageUpscaleWithModel', inputs: { upscale_model: ['2', 0], image: ['1', 0] }, _meta: { title: '用放大模型放大' } },
+        4: { class_type: 'ImageScale', inputs: { image: ['3', 0], upscale_method: 'lanczos', ...target, crop: 'disabled' }, _meta: { title: `缩放到 ×${factor}` } },
+        5: { class_type: 'SaveImage', inputs: { images: ['4', 0], filename_prefix: prefix || 'ComfyPortrait' }, _meta: { title: '保存' } },
+    };
+}
+
 /** ComfyUI address as seen from the SillyTavern server (proxy mode). */
 function comfyBase() {
     const url = getSettings().comfy.url.trim().replace(/\/+$/, '');
@@ -435,7 +468,9 @@ async function generateDirect(workflow, signal, onStatus) {
         const format = (image.filename.split('.').pop() || 'png').toLowerCase();
         // Text outputs, e.g. the prompt rewritten by the "refine" step (PreviewAny).
         const texts = Object.values(item.outputs || {}).flatMap(output => output.text || []).map(String);
-        return { format, data: await blobToBase64(blob), texts };
+        // Where ComfyUI saved it (先画完再放大 loads it from there).
+        const file = image.type === 'output' ? [image.subfolder, image.filename].filter(Boolean).join('/') : '';
+        return { format, data: await blobToBase64(blob), texts, file };
     } finally {
         signal.removeEventListener('abort', interrupt);
     }
@@ -443,7 +478,8 @@ async function generateDirect(workflow, signal, onStatus) {
 
 /**
  * Queues a workflow and waits for the first output image.
- * @returns {Promise<{format: string, data: string, texts?: string[]}>} base64 image, plus text outputs in direct mode
+ * @returns {Promise<{format: string, data: string, texts?: string[], file?: string}>} base64 image, plus text outputs
+ *   and the saved file (in ComfyUI's output folder) in direct mode
  */
 export async function runWorkflow(workflow, parentSignal, onStatus) {
     const { comfy } = getSettings();
