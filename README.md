@@ -463,16 +463,17 @@ MOSS-Image 模式下，模式开关正下方的「提示词写法」选 **参考
 
 「解析模型」里的 **思考模式** 和 **思考强度**：
 
-- 默认：不发送任何思考参数（和以前一样）；关闭思考：更快、不占输出额度；开启思考：先思考再写，可以选强度 低 / 中 / 高
+- 默认：不发送任何思考参数（和以前一样）；关闭思考：更快、不占输出额度；开启思考：先思考再写，可以选强度 **最低 / 低 / 中 / 高 / 超高 / 最大**（minimal / low / medium / high / xhigh / max）
+- 最低、超高、最大不是每家都支持：OpenAI 新模型有 minimal 和 xhigh，Claude 有 xhigh 和 max；接口不认识的强度会报错，换回 低 / 中 / 高 就行。超高、最大会想很久，记得把「最大输出」调大
 - 各家接口的思考参数不一样，「思考参数格式」默认按 API 地址和模型名自动判断，也可以手动选：
-  - OpenAI 格式 `reasoning_effort`（OpenAI、Gemini、Grok 等；关闭 = `none`）
-  - OpenRouter 格式 `reasoning: {enabled, effort}`
+  - OpenAI 格式 `reasoning_effort`（OpenAI、Gemini、Grok 等；强度原样发送，关闭 = `none`）
+  - OpenRouter 格式 `reasoning: {enabled, effort}`（强度原样发送）
   - `thinking.type` 格式（智谱 GLM、豆包、DeepSeek；只有开 / 关，没有强度）
-  - 通义千问格式 `enable_thinking` + `thinking_budget`（强度 低 / 中 / 高 = 1024 / 4096 / 16384 token）
-  - Claude 格式 `thinking` + `budget_tokens`（同样的预算，开启时温度固定为 1）
+  - 通义千问格式 `enable_thinking` + `thinking_budget`（强度 最低 / 低 / 中 / 高 / 超高 / 最大 = 512 / 1024 / 4096 / 16384 / 24576 / 32768 token）
+  - Claude 格式：Claude 4.6 以后的模型（Opus 4.6+、Sonnet 4.6+、Claude 5 系列等）用 `thinking: {type: "adaptive"}` + `output_config: {effort}`（最低按 low 发送），不发送温度（这些模型不接受温度参数）；关闭时只发 `output_config: {effort: "low"}`，因为有的新模型不能完全关掉思考。Claude 4.5 及更早（按模型名判断，例如 claude-sonnet-4-5、claude-3-7-sonnet）照旧用 `thinking` + `budget_tokens`（同样的预算，至少 1024，开启时温度固定为 1）
 - 设置下面会显示实际发送的参数；「附加请求参数」里自己写的同名参数优先
-- 有思考预算的格式会自动把「最大输出」调到至少 预算 + 2048，留出写 JSON 的空间
-- 「酒馆连接配置」：开启时把强度交给酒馆，由酒馆按服务商转换；关闭沿用连接配置自己的设置。「酒馆当前 API」：用酒馆自己的设置，这里不生效
+- 通义千问和 Claude 格式会自动把「最大输出」调到至少 预算 + 2048（Claude 新模型按同样的数估算），留出写 JSON 的空间
+- 「酒馆连接配置」：开启时把强度交给酒馆，由酒馆按服务商转换（酒馆的强度只有 最小 / 低 / 中 / 高 / 最大：最低按最小、超高按最大发送）；关闭沿用连接配置自己的设置。「酒馆当前 API」：用酒馆自己的设置，这里不生效
 - 思考模型偶尔把「最大输出」用完、返回空内容：把思考强度调低，或改成关闭
 
 ## 解析模型能看到什么

@@ -665,9 +665,12 @@
                         </label>
                         <label class="flex1">思考强度
                             <select class="text_pole" data-ctp="parser.thinkingEffort" id="ctp_thinking_effort">
+                                <option value="minimal">最低（minimal）</option>
                                 <option value="low">低</option>
                                 <option value="medium">中</option>
                                 <option value="high">高</option>
+                                <option value="xhigh">超高（xhigh）</option>
+                                <option value="max">最大（max）</option>
                             </select>
                         </label>
                     </div>
@@ -678,7 +681,7 @@
                             <option value="openrouter">OpenRouter 格式 reasoning</option>
                             <option value="type">thinking.type 格式（智谱 GLM、豆包、DeepSeek）</option>
                             <option value="qwen">通义千问格式 enable_thinking + thinking_budget</option>
-                            <option value="claude">Claude 格式 thinking + budget_tokens</option>
+                            <option value="claude">Claude 格式 thinking + effort（Claude 4.5 及更早用 budget_tokens）</option>
                         </select>
                     </label>
                     <small class="ctp-hint" id="ctp_thinking_hint"></small>

@@ -7,7 +7,7 @@ import { NATURAL_STYLE_RULE } from './parserPresetDefaults.js';
 import { mossSkillBlock } from './mossSkill.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
 import { ASPECT_RATIOS, baseSize, parseAspect, parserPicksAspect } from './resolution.js';
-import { describeThinking, profileThinking, thinkingBody, thinkingMaxTokens } from './thinking.js';
+import { describeThinking, profileThinking, thinkingBody, thinkingMaxTokens, thinkingOmits } from './thinking.js';
 import { isTriggerTag, triggerWordList } from './prompt.js';
 import { findStatusBar, withoutStatusBar } from './statusBar.js';
 import { findUserPreset, presetForName, presetName, presetsMentioned } from './targets.js';
@@ -641,6 +641,9 @@ async function callCustom(system, user, signal, parser = getSettings().parser) {
     // Thinking parameters first, so the user's own 「附加请求参数」 can override them.
     const extraBody = { ...thinkingBody(parser), ...parseExtraBody() };
     const maxTokens = thinkingMaxTokens(parser);
+    // Fields the thinking parameters do without (no temperature for Claude after 4.5), unless the user sets them.
+    const omitted = thinkingOmits(parser).filter(key => !Object.hasOwn(extraBody, key));
+    const temperature = omitted.includes('temperature') ? undefined : Number(parser.temperature);
 
     const service = ctx().ChatCompletionService;
     if (service?.processRequest) {
@@ -654,8 +657,9 @@ async function callCustom(system, user, signal, parser = getSettings().parser) {
             custom_url: url,
             custom_include_headers: authHeaders(parser.customKey.trim()),
             custom_include_body: Object.keys(extraBody).length ? JSON.stringify(extraBody) : undefined,
+            custom_exclude_body: omitted.length ? JSON.stringify(omitted) : undefined,
             max_tokens: maxTokens,
-            temperature: Number(parser.temperature),
+            temperature,
         }, {}, false, signal);
         return readCompletion(json);
     }
@@ -670,7 +674,7 @@ async function callCustom(system, user, signal, parser = getSettings().parser) {
             model: parser.customModel.trim(),
             messages,
             max_tokens: maxTokens,
-            temperature: Number(parser.temperature),
+            temperature,
             stream: false,
             ...extraBody,
         }),

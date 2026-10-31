@@ -117,7 +117,7 @@ function updateThinkingHint() {
     const text = parser.thinking === 'default'
         ? '默认：不发送任何思考参数，模型按它自己的默认方式思考或不思考。'
         : `${describeThinking(parser)}${parser.source === 'custom' && !formatHasEffort(format) && parser.thinking === 'on' ? '。这种格式只有开 / 关，没有强度' : ''}`;
-    $('#ctp_thinking_hint').text(`${text} 开启思考会更慢，也更占「最大输出」；「附加请求参数」里自己写的同名参数优先。`);
+    $('#ctp_thinking_hint').text(`${text} 开启思考会更慢，也更占「最大输出」；最低、超高、最大不是每家都支持（例如 OpenAI 的 minimal / xhigh、Claude 的 max），不支持的接口会报错，换回低 / 中 / 高就行；「附加请求参数」里自己写的同名参数优先。`);
 }
 
 function validateExtraBody() {
