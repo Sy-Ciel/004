@@ -48,6 +48,16 @@ const MODEL_TEXT = {
  */
 export const NATURAL_STYLE_RULE = `写法（优先于上面所有关于 Danbooru 标签的要求）：这次所有画面字段和 prompt 都用英文自然语言来写——具体、可视化的短语或完整的句子，像描述一张插画那样连贯地写，不要写成逗号分隔的 Danbooru 标签串（例如写 "a red wool coat buttoned to the neck"，不要写 "red coat, buttons"）。人数可以在 prompt 开头用一句话说明，例如 "A solo illustration of one girl"。按 Anima 官方的建议，自然语言要写得具体：prompt 至少写两句，太短的描述出图不稳定。`;
 
+/**
+ * Appended to the system prompt with MOSS-Image's 中文提示词 switch. The presets ask for English, so this overrides
+ * their wording for this request; character tags, trigger words and the JSON layout's fixed values stay as they are.
+ */
+export const CHINESE_PROMPT_RULE = `中文提示词（优先于上面和下面所有「用英文写」「翻译成英文」的要求）：这次画面描述全部用中文写——
+- 画面字段（outfit、action、expression、demeanor、scene、camera、lighting、others、looks）、「AI 写完整提示词」时的 prompt、漫画 layout 里的 summary.caption 和每一项的 caption，都写成具体、可视化的中文短语或句子；【角色设定】和正文状态栏里的内容也写成中文
+- 原样保留、不要翻译：角色标签（Danbooru 风格的角色名、作品名，例如 salt_(maimai)）、LoRA 触发词、<|…|> 形式的标签
+- JSON 的结构和固定值不变：键名、label（object / character / text）、summary.meta、canvas、bbox 照旧；文字框的 text 照旧是正文里的原话
+- 示例里的英文只是格式示意，内容换成中文；negative（要求写的时候）照旧用英文`;
+
 function modelText(model) {
     return MODEL_TEXT[model] ?? MODEL_TEXT.krea2;
 }

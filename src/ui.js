@@ -1090,10 +1090,13 @@ function applyModeChrome() {
     // 提示词写法 of Krea 2 (official template) and MOSS-Image (prompt skill), shown in the title when switched on.
     const kreaRules = !!parser.kreaRules;
     const mossSkill = parser.mossSkill !== false;
-    const writing = mode === MODEL_KREA2 && kreaRules ? ' · 官方模板写法' : mode === MODEL_MOSS && mossSkill ? ' · MOSS skill' : '';
+    const chinese = !!getSettings().chinesePrompt;
+    const writing = mode === MODEL_KREA2 && kreaRules ? ' · 官方模板写法'
+        : mode === MODEL_MOSS ? [mossSkill ? ' · MOSS skill' : '', chinese ? ' · 中文' : ''].join('') : '';
     $('#ctp_mode_title').text(`(${modeLabel(mode)}${writing})`);
     markSwitch('#ctp_krea_rules', kreaRules);
     markSwitch('#ctp_moss_skill_switch', mossSkill);
+    markSwitch('#ctp_moss_chinese', chinese);
     $('#ctp_krea_rules_hint').text(kreaRules
         ? '官方模板写法：解析 AI 照 ComfyUI 官方 Krea 2 Turbo 模板里改写提示词的规则来写（原文附在发给它的要求后面）：只画正文写到的人和物，每个人和自己的外貌、动作写在一起，姿势和位置写具体，没有依据的细节不编；提示词最后加上官方那句 Absolutely no text…，让画面里不出现文字。画风仍由画风前缀和 LoRA 决定。「AI 写完整提示词」时效果最明显，「固定外貌 + AI 补充」时只影响各个字段的写法。每次解析多发约 800 token；开了它就不用再开「ComfyUI 端提示词扩写」。'
         : '扩展默认：解析 AI 按扩展自己的规则写英文描述。切到「官方模板写法」，解析 AI 还会照 ComfyUI 官方 Krea 2 Turbo 模板里改写提示词的那套规则来写，提示词最后加上官方那句 Absolutely no text…（画面里不出现文字）。');
@@ -1152,6 +1155,15 @@ function setWriting(key, on, message) {
     saveSettings();
     applyModeChrome();
     toastr.success(message, 'ComfyUI 角色配图');
+}
+
+/** MOSS-Image 中文提示词: the picture written in Chinese, or in English. */
+function setChinesePrompt(on) {
+    if (!!getSettings().chinesePrompt === on) return;
+    getSettings().chinesePrompt = on;
+    saveSettings();
+    applyModeChrome();
+    toastr.success(on ? 'MOSS-Image 提示词改用中文' : 'MOSS-Image 提示词改回英文', 'ComfyUI 角色配图');
 }
 
 /** Anima: write prompts as Danbooru tags or as English sentences. */
@@ -1248,6 +1260,7 @@ function initModeSwitch() {
     });
     bindSwitch('#ctp_krea_rules', on => setWriting('kreaRules', on, on ? 'Krea 2 提示词改用官方模板写法' : 'Krea 2 提示词改回扩展默认的写法'));
     bindSwitch('#ctp_moss_skill_switch', on => setWriting('mossSkill', on, on ? 'MOSS-Image 解析 AI 改为参考 MOSS skill' : 'MOSS-Image 解析 AI 不再参考 MOSS skill'));
+    bindSwitch('#ctp_moss_chinese', setChinesePrompt);
     applyModeChrome();
 }
 

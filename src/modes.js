@@ -7,7 +7,7 @@
  * and the API settings (the parser model's connection and the ComfyUI server's address). The display settings
  * belong to the profile: kept per profile, but the same in all of its modes (DISPLAY_KEYS).
  */
-import { MODEL_ANIMA, MODEL_LABELS, MODEL_MODES, modeDefaults, normalizeMode } from './constants.js';
+import { MODEL_ANIMA, MODEL_LABELS, MODEL_MODES, MODEL_MOSS, modeDefaults, normalizeMode } from './constants.js';
 import { fillDefaults, getSettings, isPlainObject } from './utils.js';
 
 /** Top-level keys all modes (and all profiles) share. */
@@ -47,6 +47,11 @@ export function isAnimaMode() {
 export function promptStyle() {
     const mode = currentMode();
     return mode === MODEL_ANIMA && getSettings().naturalLanguage ? 'anima-natural' : mode;
+}
+
+/** MOSS-Image with 中文提示词: the picture is written in Chinese (character tags and trigger words as they are). */
+export function chinesePrompt() {
+    return currentMode() === MODEL_MOSS && !!getSettings().chinesePrompt;
 }
 
 /** The mode a floor was last drawn in (floors from before the Anima mode were drawn with Krea 2). */

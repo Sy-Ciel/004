@@ -122,14 +122,15 @@ function section(text, { from, until }) {
 }
 
 /** How the sections apply to what the parser writes. */
-function howToUse(mode, comic) {
+function howToUse(mode, comic, chinese) {
     if (comic) {
         return '漫画的版面照上面的格式写（layout、items，bbox 用整页的百分比）。旁白框和台词气泡的 caption、位置按 §19 写：它说的像素按整页约 1000 像素宽换算成百分比（80 像素约 8%）';
     }
     if (mode === 'ai') {
-        return 'prompt 改用 §16 的闭合标签分块写法（代替上面说的「一段」和其中的先后顺序）：<|英文概念名|>……<|/英文概念名|>，一行一块（JSON 字符串里用 \\n 换行），第一块写镜头、光影和氛围，然后是主角（外貌、服装、动作、表情、身上的光），有其他人时每人一块，最后是背景；两人全身紧贴（拥抱、背起来）或胸像特写时不分块，写一段连贯的短文';
+        const block = chinese ? '<|中文概念名|>「……」<|/中文概念名|>（§16 的中文写法）' : '<|英文概念名|>……<|/英文概念名|>';
+        return `prompt 改用 §16 的闭合标签分块写法（代替上面说的「一段」和其中的先后顺序）：${block}，一行一块（JSON 字符串里用 \\n 换行），第一块写镜头、光影和氛围，然后是主角（外貌、服装、动作、表情、身上的光），有其他人时每人一块，最后是背景；两人全身紧贴（拥抱、背起来）或胸像特写时不分块，写一段连贯的短文`;
     }
-    return '你只写各个英文字段，程序按固定顺序把它们拼成提示词：字段里不要写 <|……|> 标签';
+    return '你只写各个字段，程序按固定顺序把它们拼成提示词：字段里不要写 <|……|> 标签';
 }
 
 /**
@@ -137,10 +138,11 @@ function howToUse(mode, comic) {
  * §7 (people side by side) when others may be drawn, §11 (what does not work) always, §16 (closed-tag blocks)
  * when it writes the whole prompt, §19 (speech bubbles) for comic pages with dialogue — under a note on how they
  * apply here. Without the file (download failed) the parse goes on without it.
- * @param {{ mode: 'fixed'|'ai', comic: { dialogue: boolean }|null, allowOthers: boolean }} request
+ * @param {{ mode: 'fixed'|'ai', comic: { dialogue: boolean }|null, allowOthers: boolean, chinese?: boolean }} request
+ *   chinese: 中文提示词 (the picture is written in Chinese)
  * @returns {Promise<{ text: string, note: string }>}
  */
-export async function mossSkillBlock({ mode, comic, allowOthers }) {
+export async function mossSkillBlock({ mode, comic, allowOthers, chinese = false }) {
     const skill = await skillForParse();
     if (!skill) return { text: '', note: 'MOSS 提示词 skill 还没下载成功，这次解析没带上（设置最上方「提示词写法」那里可以重新下载或从文件导入）' };
     const keys = comic
@@ -148,11 +150,11 @@ export async function mossSkillBlock({ mode, comic, allowOthers }) {
         : [...(allowOthers ? ['people'] : []), 'useless', ...(mode === 'ai' ? ['blocks'] : [])];
     const used = keys.map(key => SECTIONS[key]);
     const text = `【MOSS-Image 提示词写法参考】
-下面几节是 Moeblack《MOSS-Image 提示词编译 SKILL》v${MOSS_SKILL_VERSION} 的原文（https://github.com/${REPO} ，CC BY-NC-ND 4.0）。写英文画面描述时按这些写法来；和上面的要求冲突时，以上面的为准：
+下面几节是 Moeblack《MOSS-Image 提示词编译 SKILL》v${MOSS_SKILL_VERSION} 的原文（https://github.com/${REPO} ，CC BY-NC-ND 4.0）。写${chinese ? '' : '英文'}画面描述时按这些写法来${chinese ? '（这次用中文写，它举的英文写法换成同样意思的中文）' : ''}；和上面的要求冲突时，以上面的为准：
 - 只输出上面要求的 JSON：它说的 Positive / Negative 两段格式、采样参数和自检都不用写
 - 画风由程序在提示词开头加的触发词和画风前缀决定：不要换画风，不要写画师名或 <|artist|> 标签
 - 人物的外貌、年龄、身材和穿着只按【角色设定】和正文写
-- ${howToUse(mode, comic)}
+- ${howToUse(mode, comic, chinese)}
 
 ${used.map(item => section(skill, item)).join('\n\n')}`;
     return { text, note: `参考了 MOSS 提示词 skill 的 ${used.map(item => `§${item.number}`).join('、')}` };

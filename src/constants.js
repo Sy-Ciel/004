@@ -82,6 +82,11 @@ export const ANIMA_NOBODY_LINE = 'no humans, scenery';
 export const ANIMA_SOLO_LINE = 'solo';
 export const ANIMA_OTHERS_LINE = '{{others}}';
 
+/** MOSS-Image with 中文提示词: the same lines in Chinese. */
+export const SOLO_LINE_ZH = '画面里只有一个人。';
+export const OTHERS_LINE_ZH = '画面里还有：{{others}}。';
+export const NOBODY_LINE_ZH = '一幅没有人物的风景插画。';
+
 export const DEFAULT_PROMPT_TEMPLATE = `{{trigger}} {{prefix}}
 ${SOLO_LINE}
 {{appearance}}
@@ -90,6 +95,17 @@ Wearing {{outfit}}.
 Facial expression: {{expression}}. {{demeanor}}.
 Setting: {{scene}}.
 {{camera}}, {{lighting}}.
+{{suffix}}`;
+
+/** MOSS-Image with 中文提示词: the default template in Chinese (used while the template is the untouched default). */
+export const CHINESE_PROMPT_TEMPLATE = `{{trigger}} {{prefix}}
+${SOLO_LINE_ZH}
+{{appearance}}
+穿着{{outfit}}。
+{{action}}。
+表情：{{expression}}。{{demeanor}}。
+场景：{{scene}}。
+{{camera}}，{{lighting}}。
 {{suffix}}`;
 
 /**
@@ -450,6 +466,8 @@ export const DEFAULT_SETTINGS = {
     triggerWords: '',
     /** Anima only: prompts in English sentences instead of Danbooru tags (see modes.js promptStyle). */
     naturalLanguage: false,
+    /** MOSS-Image only, 中文提示词: the parser writes the picture in Chinese (see modes.js chinesePrompt). */
+    chinesePrompt: false,
     /** Escape ( ) in prompts so ComfyUI reads them as text, not as weights, e.g. "artoria pendragon \(fate\)". */
     escapeParens: false,
     autoGenerate: true,

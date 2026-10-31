@@ -2,8 +2,8 @@ import { comicPages, comicPanelCount, comicPanels, isComicPreset, readComicPage 
 import { KREA2_REFINE_INSTRUCTIONS, MODEL_KREA2, MODEL_MOSS, PARSED_FIELDS, STATE_FIELDS } from './constants.js';
 import { pendingHints } from './hints.js';
 import { currentIndex } from './markup.js';
-import { currentMode, floorMode, imageMode, modeLabel, promptStyle } from './modes.js';
-import { NATURAL_STYLE_RULE } from './parserPresetDefaults.js';
+import { chinesePrompt, currentMode, floorMode, imageMode, modeLabel, promptStyle } from './modes.js';
+import { CHINESE_PROMPT_RULE, NATURAL_STYLE_RULE } from './parserPresetDefaults.js';
 import { mossSkillBlock } from './mossSkill.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
 import { ASPECT_RATIOS, baseSize, parseAspect, parserPicksAspect } from './resolution.js';
@@ -547,7 +547,8 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     const triggerRule = triggerWordsRule(mode, !!comic);
     // 提示词写法: MOSS-Image with Moeblack's prompt skill (downloaded once, see mossSkill.js); Krea 2 with the rules
     // of its official template.
-    const writing = promptStyle() === MODEL_MOSS && settings.parser.mossSkill !== false ? await mossSkillBlock({ mode, comic, allowOthers })
+    const chinese = chinesePrompt();
+    const writing = promptStyle() === MODEL_MOSS && settings.parser.mossSkill !== false ? await mossSkillBlock({ mode, comic, allowOthers, chinese })
         : promptStyle() === MODEL_KREA2 && settings.parser.kreaRules ? { text: kreaRulesBlock(mode), note: '提示词写法：Krea 2 官方模板（最后加上 Absolutely no text…）' }
             : null;
     // A comic page (every panel, person and speech bubble described) is a long answer.
@@ -556,7 +557,7 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     // Anima in natural-language mode: the presets were written for tags, so this rule overrides them.
     const natural = promptStyle() === 'anima-natural';
     return {
-        system: [fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', triggerRule, writing?.text].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
+        system: [fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', chinese ? CHINESE_PROMPT_RULE : '', triggerRule, writing?.text].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
         user: [fillTemplate(userTemplate, vars), focus ? focusBlock(focus) : '', comic ? comicReminder(comic.pages) : ''].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
         preset,
         mode,
@@ -567,6 +568,7 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
             `${modeLabel()} 模式 · 解析预设：${preset.name} · ${comic ? `漫画：AI 画整页分镜（最多 ${comic.panels} 格，${comic.dialogue ? '带对白' : '不画文字'}）` : `${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`}`,
             triggerRule ? `触发词：${triggerWordList().join(', ')}` : '',
             natural ? '英文自然语言写法' : '',
+            chinese ? '中文提示词（角色标签、触发词原样保留）' : '',
             writing?.note ?? '',
             settings.parser.hideCharName ? `隐藏了角色卡的名字（AI 的消息标成「${HIDDEN_CHAR_LABEL}」）` : '',
             settings.parser.storyTagOnly

@@ -1,17 +1,18 @@
 import { comicLayout, isComicPreset, layoutText, readLayoutPrompt } from './comic.js';
-import { ANIMA_NATURAL_TEMPLATE, ANIMA_NOBODY_LINE, BORDER_NEGATIVE, ANIMA_OTHERS_LINE, ANIMA_PROMPT_TEMPLATE, ANIMA_PROMPT_TEMPLATE_V1, ANIMA_SOLO_LINE, KREA2_NO_TEXT, MODEL_KREA2, MODEL_MOSS, NOBODY_LINE, OTHERS_LINE, PARSED_FIELDS, SOLO_LINE } from './constants.js';
-import { promptStyle } from './modes.js';
+import { ANIMA_NATURAL_TEMPLATE, ANIMA_NOBODY_LINE, BORDER_NEGATIVE, ANIMA_OTHERS_LINE, ANIMA_PROMPT_TEMPLATE, ANIMA_PROMPT_TEMPLATE_V1, ANIMA_SOLO_LINE, CHINESE_PROMPT_TEMPLATE, DEFAULT_PROMPT_TEMPLATE, KREA2_NO_TEXT, MODEL_KREA2, MODEL_MOSS, NOBODY_LINE, NOBODY_LINE_ZH, OTHERS_LINE, OTHERS_LINE_ZH, PARSED_FIELDS, SOLO_LINE, SOLO_LINE_ZH } from './constants.js';
+import { chinesePrompt, promptStyle } from './modes.js';
 import { fillTemplate, getSettings, resolveMacros } from './utils.js';
 
+/** Tidies one line of a sentence prompt: empty fields leave no stray punctuation (English or Chinese). */
 function cleanLine(line) {
     return line
         .replace(/\s+/g, ' ')
-        .replace(/\s+([,.;:!?])/g, '$1')
-        .replace(/([,;:])(?:\s*[,;:])+/g, '$1')
-        .replace(/,\s*\./g, '.')
-        .replace(/\.(?:\s*\.)+/g, '.')
-        .replace(/^[\s,.;:]+/, '')
-        .replace(/[\s,;:]+$/, '')
+        .replace(/\s+([,.;:!?，。；：、！？])/g, '$1')
+        .replace(/([,;:，；：、])(?:\s*[,;:，；：、])+/g, '$1')
+        .replace(/[,，]\s*([.。])/g, '$1')
+        .replace(/([.。])(?:\s*[.。])+/g, '$1')
+        .replace(/^[\s,.;:，。；：、]+/, '')
+        .replace(/[\s,;:，；：、]+$/, '')
         .trim();
 }
 
@@ -27,18 +28,23 @@ const SENTENCE_END = /[.!?。！？]$/;
 /** In a tag prompt only a full stop ends a sentence: "love live!" or "!?" are tags. */
 const TAG_SENTENCE_END = /[.。]$/;
 
+const CJK_END = /[\u3400-\u9fff\uf900-\ufaff」』）]$/;
+
+/** Closes a sentence: with a Chinese full stop after Chinese text (中文提示词), else an English one. */
 function closeSentence(text) {
-    return SENTENCE_END.test(text) ? text : `${text}.`;
+    if (SENTENCE_END.test(text)) return text;
+    return CJK_END.test(text) ? `${text}。` : `${text}.`;
 }
 
 /**
  * Joins the prompt's parts into one paragraph. Krea 2 reads sentences, so each part is closed with a full stop;
  * Anima reads tags, so parts are joined with commas (a part that already ends a sentence just gets a space).
+ * Chinese sentences follow each other without a space.
  */
 function joinParts(parts, tags) {
     const text = tags
         ? parts.reduce((out, part) => (!out ? part : TAG_SENTENCE_END.test(out) ? `${out} ${part}` : `${out}, ${part}`), '')
-        : parts.map(closeSentence).join(' ');
+        : parts.map(closeSentence).reduce((out, part) => (!out ? part : /[。！？]$/.test(out) && /^[\u3400-\u9fff]/.test(part) ? `${out}${part}` : `${out} ${part}`), '');
     return text.replace(/\s+/g, ' ').trim();
 }
 
@@ -46,21 +52,23 @@ function joinParts(parts, tags) {
  * With other people in the picture the template's "solo" line would contradict it, so it is dropped, and the
  * people go in {{others}} (added before the camera / lighting line when the template has no such slot).
  */
-function templateFor(template, hasOthers, tags, nobody = false) {
+function templateFor(template, hasOthers, tags, nobody = false, chinese = false) {
+    const solo = [SOLO_LINE, ANIMA_SOLO_LINE, SOLO_LINE_ZH];
     if (nobody) {
         // Nobody in the scene: the "one person" line says "no people" instead; the person lines are empty and drop out.
         const lines = template.split('\n');
-        const at = lines.findIndex(line => [SOLO_LINE, ANIMA_SOLO_LINE].includes(line.trim()));
-        if (at >= 0) lines[at] = tags ? ANIMA_NOBODY_LINE : NOBODY_LINE;
-        else lines.splice(Math.min(1, lines.length), 0, tags ? ANIMA_NOBODY_LINE : NOBODY_LINE);
+        const nobodyLine = tags ? ANIMA_NOBODY_LINE : chinese ? NOBODY_LINE_ZH : NOBODY_LINE;
+        const at = lines.findIndex(line => solo.includes(line.trim()));
+        if (at >= 0) lines[at] = nobodyLine;
+        else lines.splice(Math.min(1, lines.length), 0, nobodyLine);
         return lines.join('\n');
     }
     if (!hasOthers) return template;
-    const lines = template.split('\n').filter(line => ![SOLO_LINE, ANIMA_SOLO_LINE].includes(line.trim()));
+    const lines = template.split('\n').filter(line => !solo.includes(line.trim()));
     if (!lines.some(line => line.includes('{{others}}'))) {
         let at = lines.findIndex(line => /\{\{(camera|lighting)\}\}/.test(line));
         if (at < 0) at = lines.findIndex(line => line.includes('{{suffix}}'));
-        lines.splice(at < 0 ? lines.length : at, 0, tags ? ANIMA_OTHERS_LINE : OTHERS_LINE);
+        lines.splice(at < 0 ? lines.length : at, 0, tags ? ANIMA_OTHERS_LINE : chinese ? OTHERS_LINE_ZH : OTHERS_LINE);
     }
     return lines.join('\n');
 }
@@ -373,6 +381,8 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
     // Anima writes tags, unless its "英文自然语言" switch is on: then sentences, like Krea 2.
     const style = promptStyle();
     const tags = style === 'anima';
+    // MOSS-Image 中文提示词: the parser wrote Chinese; the lines the extension adds are Chinese too.
+    const chinese = chinesePrompt();
     const prefix = [settings.prefix, parserPreset?.prefix].map(text => resolveMacros(text || '')).filter(Boolean).join(tags ? ', ' : ' ');
 
     const clean = tags ? cleanTags : text => cleanLine(String(text || ''));
@@ -386,7 +396,7 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
     const rating = anima && !hasSafetyTag(own) ? ratingTag(parsed?.rating) : '';
     const order = { rating, character: triggerWordList(character) };
     if (mode === 'ai' && parsed?.prompt) {
-        const scenery = nobody ? (tags ? ANIMA_NOBODY_LINE : NOBODY_LINE) : '';
+        const scenery = nobody ? (tags ? ANIMA_NOBODY_LINE : chinese ? NOBODY_LINE_ZH : NOBODY_LINE) : '';
         // The parser's tags start with the count (put in its place by officialTagOrder); the trigger words go in
         // the artist's place. In sentences, the tags lead and the description follows.
         const lead = !anima ? [character, prefix] : tags ? [[prefix, rating, character].join(', ')] : [[prefix, rating, character, artist].join(', ')];
@@ -437,7 +447,8 @@ export function buildImagePrompt(preset, parsed, { parserPreset = null, mode = '
     // The untouched tag template does not fit sentences: natural-language Anima uses the sentence template then.
     let template = String(settings.promptTemplate || '');
     if (style === 'anima-natural' && [ANIMA_PROMPT_TEMPLATE, ANIMA_PROMPT_TEMPLATE_V1].includes(template)) template = ANIMA_NATURAL_TEMPLATE;
-    for (const line of templateFor(template, !!vars.others, tags, nobody).split('\n')) {
+    if (chinese && template === DEFAULT_PROMPT_TEMPLATE) template = CHINESE_PROMPT_TEMPLATE;
+    for (const line of templateFor(template, !!vars.others, tags, nobody, chinese).split('\n')) {
         const keys = [...line.matchAll(/\{\{(\w+)\}\}/g)].map(match => match[1]).filter(key => Object.hasOwn(vars, key));
         if (keys.length && keys.every(key => !vars[key])) continue;
         const cleaned = clean(fillTemplate(line, vars));
