@@ -10,11 +10,12 @@ import {
     V3_PARSER_SYSTEM,
     V3_PARSER_USER,
     MODEL_ANIMA,
+    MODEL_MOSS,
     makeId,
     modeDefaults,
     normalizeMode,
 } from './constants.js';
-import { BUILTIN_PARSER_PRESETS, builtinParserPresets, isPreviousStorySystem } from './parserPresetDefaults.js';
+import { BUILTIN_PARSER_PRESETS, REMOVED_PARSER_PRESETS, builtinParserPresets, isPreviousStorySystem } from './parserPresetDefaults.js';
 
 export const ctx = () => SillyTavern.getContext();
 
@@ -88,6 +89,33 @@ function migrateSettings(settings) {
         // hidden, for those who had turned it off).
         if (settings.quickToggleButton === false) settings.quickTogglePlace = 'none';
         delete settings.quickToggleButton;
+    }
+    if (version < 9) {
+        // v1.58 removed the built-in 立绘模式 and 小说插画模式 (copies made with 「复制」 are the user's and stay):
+        // out of every mode and profile, and a profile that used one goes back to the story preset.
+        const drop = own => {
+            if (!Array.isArray(own?.parserPresets)) return;
+            own.parserPresets = own.parserPresets.filter(preset => !REMOVED_PARSER_PRESETS.includes(preset?.id));
+            if (REMOVED_PARSER_PRESETS.includes(own.parserPresetId)) own.parserPresetId = 'story';
+        };
+        drop(settings);
+        if (isPlainObject(settings.modeStore)) Object.values(settings.modeStore).forEach(drop);
+        // 漫画模式 is drawn at the 出图参数 size now: a comic preset still at the old default 848 × 1200 follows.
+        const follow = own => {
+            for (const preset of Array.isArray(own?.parserPresets) ? own.parserPresets : []) {
+                if (preset?.id === 'comic' && Number(preset.width) === 848 && Number(preset.height) === 1200) Object.assign(preset, { width: 0, height: 0 });
+            }
+        };
+        follow(settings);
+        if (isPlainObject(settings.modeStore)) Object.values(settings.modeStore).forEach(follow);
+        // MOSS-Image now lets the parser add each picture's negative prompt by default, like Anima: profiles that
+        // had the old default (off) get it once.
+        if (normalizeMode(settings.modelMode) === MODEL_MOSS) settings.parserNegative = true;
+        if (isPlainObject(settings.modeStore)) {
+            for (const [key, own] of Object.entries(settings.modeStore)) {
+                if (normalizeMode(key.split('@')[0]) === MODEL_MOSS && isPlainObject(own)) own.parserNegative = true;
+            }
+        }
     }
     settings.settingsVersion = SETTINGS_VERSION;
 }

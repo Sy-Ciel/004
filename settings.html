@@ -95,7 +95,7 @@
                 </label>
                 <small class="ctp-hint">「自动」= 让解析模型从 {{user}}、当前角色和所有预设里挑本楼的主角。</small>
                 <label class="checkbox_label"><input type="checkbox" data-ctp="absentFallback"> 画谁不在画面里时，改画画面里的人或场景（关掉 = 这一楼不配图）</label>
-                <small class="ctp-hint">比如主角选了 {{user}}，这一楼却只写了别的人物：解析 AI 改画这一楼的主要人物（有角色预设的用预设的外貌和角色 LoRA，没有的按正文写外貌）；一个人都没有就只画场景。立绘模式不受影响。所有模型模式共用。</small>
+                <small class="ctp-hint">比如主角选了 {{user}}，这一楼却只写了别的人物：解析 AI 改画这一楼的主要人物（有角色预设的用预设的外貌和角色 LoRA，没有的按正文写外貌）；一个人都没有就只画场景。所有模型模式共用。</small>
                 <div class="ctp-row ctp-wrap-row">
                     <div class="menu_button" id="ctp_generate_last">为最新楼层生成</div>
                     <div class="menu_button" id="ctp_debug_chat">查看各楼层提示词</div>
@@ -222,7 +222,7 @@
             <!-- ============ 配图风格（解析预设） ============ -->
             <div class="inline-drawer ctp-sub" data-sub="style">
                 <div class="inline-drawer-toggle inline-drawer-header">
-                    <span><b>配图风格</b> <small>剧情 / 立绘 / 小说插画 / 漫画（MOSS-Image）· 提示词生成方式</small></span>
+                    <span><b>配图风格</b> <small>剧情 / 漫画（MOSS-Image）· 提示词生成方式</small></span>
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
@@ -277,8 +277,12 @@
                             <label>宽 <input type="number" class="text_pole" step="16" min="0" data-pp="width" data-type="int"></label>
                             <label>高 <input type="number" class="text_pole" step="16" min="0" data-pp="height" data-type="int"></label>
                         </div>
-                        <small class="ctp-hint">分辨率填 0 = 用「出图参数」里的分辨率。立绘适合竖图（如 832×1216），小说插画适合横图（如 1216×832），漫画默认 848×1200（约 1 MP，FKEY 漫画 LoRA 训练时最多的尺寸）。</small>
+                        <small class="ctp-hint">分辨率填 0 = 用「出图参数」里的分辨率（漫画模式默认也是 0）。FKEY 漫画 LoRA 训练时最多的尺寸是 848×1200，想用就在这里填上。</small>
                         <h4>解析提示词</h4>
+                        <label>最前面的内容（所有配图风格、所有模型模式共用）
+                            <textarea class="text_pole" rows="4" data-ctp="parser.prelude" placeholder="例如：你是一个专业的插画提示词助手……"></textarea>
+                        </label>
+                        <small class="ctp-hint">每次发给解析 AI 时放在最前面：在下面的 System 提示词前面，和它一起作为 System 消息发送（空着就不加）。可以用酒馆宏（{{user}}、{{char}}）和 User 模板里的变量。🐞「预览解析输入」和「发送前检查解析输入」里能看到。</small>
                         <label>System 提示词 <span class="ctp-muted" data-pp-state="system"></span> <span class="ctp-link" data-pp-reset="system">恢复默认</span>
                             <textarea class="text_pole" rows="14" data-pp="system"></textarea>
                         </label>
@@ -383,7 +387,7 @@
                     <label class="checkbox_label"><input type="checkbox" data-ctp="noBorder"> 防止白边 / 黑边（反向提示词自动加上 <code>letterboxed, pillarboxed, border, white border, black border</code>）</label>
                     <small class="ctp-hint">动漫模型偶尔会把画面画窄，两边或上下留出白边 / 黑边（像把一张 9:16 的图放在 2:3 的画布中间）。这几个 Danbooru 标签就是描述这种图的，放进反向提示词，画面就会铺满整张图。Anima 模式默认打开；要用 CFG 大于 1 才起作用（Turbo LoRA 的 CFG 1 不行）；正向提示词里写了同样的标签时不加。</small>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="parserNegative"> 让解析模型按画面补充反向提示词（加在上面的反向提示词后面）</label>
-                    <small class="ctp-hint">解析模型在同一次请求里多写一个 negative 字段：这张图不该出现、容易画错的东西（只有一个人时的多人标签、没穿戴的衣物配饰、还没发生的动作等）。和上面重复的、和正向提示词里一模一样的标签会自动去掉。Anima 模式默认打开<span class="ctp-mode-only" data-mode="krea2">；Krea 2 的内置工作流（CFG 1）不使用反向提示词，只对会用到反向提示词的自定义工作流有用</span>。</small>
+                    <small class="ctp-hint">解析模型在同一次请求里多写一个 negative 字段：这张图不该出现、容易画错的东西（只有一个人时的多人标签、没穿戴的衣物配饰、还没发生的动作等）。和上面重复的、和正向提示词里一模一样的标签会自动去掉。Anima 和 MOSS-Image 模式默认打开<span class="ctp-mode-only" data-mode="krea2">；Krea 2 的内置工作流（CFG 1）不使用反向提示词，只对会用到反向提示词的自定义工作流有用</span>。</small>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="escapeParens"> 把提示词里的括号转义成 <code>\(</code> <code>\)</code>（Anima 推荐）</label>
                     <small class="ctp-hint">ComfyUI 会把普通括号当成加权并去掉，Danbooru 标签里的括号（如 <code>artoria pendragon (fate)</code>）就丢了；打开后自动转义，写明权重的 <code>(smile:1.2)</code> 不受影响。</small>
                     <details class="ctp-details">

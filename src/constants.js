@@ -421,7 +421,7 @@ export const FKEY_NEGATIVE = `<|texture_and_style_neg|>photorealistic, real huma
 <|universal_anatomy_neg|>blurry, out of focus, lowres, censored, mosaic censoring, bar censor, ugly face, distorted face, overly squished grotesque cheek, worst quality, bad anatomy, fused bodies, fused legs, extra limbs, extra arms, extra legs, extra hands, three hands, extra fingers, mutated hands, fused fingers, six fingers, floating hand, watermark, signature<|/universal_anatomy_neg|>`;
 
 /** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */
-export const SETTINGS_VERSION = 8;
+export const SETTINGS_VERSION = 9;
 
 /** A render profile's LoRA set to this means "no style LoRA", as opposed to empty = use the default. */
 export const LORA_NONE = '__none__';
@@ -511,6 +511,8 @@ export const DEFAULT_SETTINGS = {
         maxScenes: 3,
         /** MOSS-Image: the parser also reads a few sections of Moeblack's MOSS-Image prompt skill (see mossSkill.js). */
         mossSkill: true,
+        /** 最前面的内容: text that opens every parser request, before the parser preset's System prompt. */
+        prelude: '',
         /** Krea 2 「官方模板写法」: the parser follows the official template's prompt rules (KREA2_REFINE_INSTRUCTIONS). */
         kreaRules: false,
         historyFloors: 3,
@@ -647,6 +649,8 @@ function mergeDefaults(base, extra) {
 const MOSS_DEFAULTS = {
     parserPresets: MOSS_PARSER_PRESETS,
     negativePrompt: MOSS_NEGATIVE,
+    // MOSS-Image uses its negative prompt (CFG 2.5 and up): the parser adds this picture's own, as in Anima.
+    parserNegative: true,
     comfy: {
         ...OFFICIAL_MOSS,
         // Portrait 2:3 at 1 MP, like the other modes' portrait default.

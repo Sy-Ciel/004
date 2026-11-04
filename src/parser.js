@@ -471,9 +471,8 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     const scenes = focus || comic ? 0 : sceneLimit(settings.parser);
     // 图片插在正文中间: the parser picks the sentence each picture goes after.
     const place = !focus && !!settings.placeInStory;
-    // 画谁不在画面里: who to draw when the target is not in the scene, instead of skipping (not for sprites,
-    // which always show the target).
-    const absent = settings.absentFallback !== false && preset.id !== 'sprite' ? { auto: !!target.auto } : null;
+    // 画谁不在画面里: who to draw when the target is not in the scene, instead of skipping.
+    const absent = settings.absentFallback !== false ? { auto: !!target.auto } : null;
     // The parser picks the aspect ratio (resolution selector), unless this parser preset sets its own size.
     const aspect = !focus && parserPicksAspect(settings.comfy) && !presetResolution(preset)
         ? { ratios: ASPECT_RATIOS, fallback: parseAspect(settings.comfy.aspectRatio) || '1:1' }
@@ -557,7 +556,8 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     // Anima in natural-language mode: the presets were written for tags, so this rule overrides them.
     const natural = promptStyle() === 'anima-natural';
     return {
-        system: [fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', chinese ? CHINESE_PROMPT_RULE : '', triggerRule, writing?.text].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
+        // 最前面的内容 opens the request, before the preset's System prompt.
+        system: [fillTemplate(String(settings.parser.prelude ?? '').trim(), vars), fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', chinese ? CHINESE_PROMPT_RULE : '', triggerRule, writing?.text].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
         user: [fillTemplate(userTemplate, vars), focus ? focusBlock(focus) : '', comic ? comicReminder(comic.pages) : ''].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
         preset,
         mode,
@@ -567,6 +567,7 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
         notes: [
             `${modeLabel()} 模式 · 解析预设：${preset.name} · ${comic ? `漫画：AI 画整页分镜（最多 ${comic.panels} 格，${comic.dialogue ? '带对白' : '不画文字'}）` : `${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`}`,
             triggerRule ? `触发词：${triggerWordList().join(', ')}` : '',
+            settings.parser.prelude?.trim() ? '「最前面的内容」放在了 System 提示词最前面' : '',
             natural ? '英文自然语言写法' : '',
             chinese ? '中文提示词（角色标签、触发词原样保留）' : '',
             writing?.note ?? '',

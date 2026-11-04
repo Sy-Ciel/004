@@ -36,7 +36,7 @@ let parserReviewer = null;
 const FORCE_NOTE = '\n\n注意：用户手动要求为本楼出图。即使信息不足也不要输出 skip，请根据上下文合理推断。';
 
 /**
- * The parser preset's fixed fields always win over what the model wrote, so e.g. a sprite keeps its pose.
+ * The parser preset's fixed fields always win over what the model wrote, so e.g. a fixed pose stays.
  * @returns {{ parsed: object, forced: string[] }}
  */
 function applyFixedFields(parsed, parserPreset) {

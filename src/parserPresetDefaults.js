@@ -586,66 +586,6 @@ export function isPreviousStorySystem(text, model) {
     return typeof text === 'string' && (PREVIOUS_STORY[model] ?? []).includes(fingerprint(text));
 }
 
-function spriteSystem(model) {
-    const text = modelText(model);
-    return `你是「角色立绘设计师」。你的输出会被拼进${text.model}的提示词里，用来生成同一个角色的一组立绘：姿势、构图、背景都固定不变，只随剧情改变服装、表情和神态。
-
-任务：阅读给出的剧情，判断【目标角色】在【当前楼层】结束时刻穿着什么、是什么表情和神态，输出一个 JSON 对象。
-
-规则：
-1. 画面中只有目标角色一个人，没有任何其他人物。
-2. 姿势、镜头、背景、光线以【固定内容】为准，必须原样使用，不要根据剧情改动。剧情里的动作只体现在表情、神态和手里拿的小物件上。
-3. 你需要根据剧情描写：
-   - outfit：此刻完整的穿着（款式、颜色、材质、配饰），要具体；手里拿的东西写在末尾，例如 "holding a paper lantern"
-   - expression：面部表情（眉眼、嘴角、视线方向）
-   - demeanor：情绪与神态，以及在固定姿势范围内的细微肢体语言（例如微微歪头、手指交握）
-   - 【固定内容】没有给出的其他字段，按「站姿全身立绘、纯色背景」补全
-4. 服装：没有换装情节时，参考【上一次状态】和【之前的配图输出】保持不变。
-5. 【用户画图指令】是用户直接指定的画面内容，优先级最高：必须体现在对应字段里（翻译成英文，可以补全细节）。
-6. ${text.language}；不要比喻、不要出现人名、不要要求画面里出现文字或标志。
-7. 立绘每一层都可以画：只要目标角色在剧情里出现过就不要输出 skip。
-8. 只输出 JSON 本身，不要解释，不要 markdown 代码块。
-
-{{output_rules}}`;
-}
-
-const SPRITE_FIXED_ANIMA = `action: standing, facing viewer, arms at sides, full body
-camera: full body, straight-on, centered, eye level
-scene: simple background, grey background, no other people
-lighting: soft lighting`;
-
-const SPRITE_FIXED = `action: standing upright and facing the viewer, full body visible from head to feet, arms relaxed at the sides
-camera: full body shot, front view, centered composition, eye level
-scene: plain light grey studio background, no props, no other people
-lighting: soft even studio lighting`;
-
-function novelSystem(model) {
-    const text = modelText(model);
-    return `你是「小说插画分镜师」。你的输出会被拼进${text.model}的提示词里，为当前这一层剧情画一张小说插画。
-
-任务：从【当前楼层】里挑出最有画面感、最能代表这段情节的一个瞬间，以【目标角色】为画面中唯一的人物设计一张插画，输出一个 JSON 对象。
-
-规则：
-1. 画面中只有目标角色一个人；其他人物不要出现在画面里，可以用环境、光影、道具或视线方向暗示他们的存在。
-2. 选情节里最关键、最有情绪张力的瞬间，而不是平淡的站立状态。
-3. 你需要描写：
-   - outfit：此刻的穿着（款式、颜色、材质、穿着状态），要具体
-   - action：这个瞬间的动作和姿势，要有动态和叙事感
-   - expression：面部表情（眉眼、嘴角、视线方向）
-   - demeanor：情绪与氛围、肢体语言
-   - scene：具体、有故事感的环境（地点、时间、天气、关键物件）
-   - camera：像电影分镜一样选择景别和机位（远景 / 中景 / 特写，仰拍 / 俯拍 / 侧面），为情绪服务
-   - lighting：有氛围的光线和色调（例如逆光、烛光、雨夜霓虹）
-4. 剧情没写明的部分，参考【上一次状态】和【之前的配图输出】保持人物服装连贯。
-5. 【固定内容】里列出的字段必须原样使用，不要改。
-6. 【用户画图指令】是用户直接指定的画面内容，优先级最高：必须体现在对应字段里（翻译成英文，可以补全细节）。
-7. ${text.language}；不要出现人名，不要要求画面里出现文字或标志。
-8. 如果当前楼层没有任何可以画面化的情节，输出 {"skip": true, "reason": "原因"}；有【用户画图指令】时不要输出 skip。
-9. 只输出 JSON 本身，不要解释，不要 markdown 代码块。
-
-{{output_rules}}`;
-}
-
 /** 漫画模式 (MOSS-Image): the floor as one comic page; the page's rules come with {{output_rules}} (comicRules). */
 function comicSystem() {
     return `你是一名专业的漫画分镜师，也是 AI 绘图提示词工程师，为文生图模型 MOSS-Image 设计漫画页。MOSS-Image 能按 JSON 版面画多格彩色漫画：每一格、每个人物、每个文字框都可以指定位置和英文描述，文字框里的字（中文也可以）会照原样画出来。
@@ -683,16 +623,16 @@ function comicSystem() {
  * @property {boolean} [dialogue] Comic: the story's lines in speech bubbles (off: no text in the picture)
  */
 
+/** Built-in presets that were removed (v1.58): taken out of saved settings by migrateSettings. */
+export const REMOVED_PARSER_PRESETS = ['sprite', 'novel'];
+
 function makeBuiltins(model) {
-    const anima = model === 'anima';
     return [
         { id: 'story', name: '剧情状态（默认）', system: storySystem(model), user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: '', width: 0, height: 0, allowOthers: true },
-        { id: 'sprite', name: '立绘模式', system: spriteSystem(model), user: PARSER_USER_TEMPLATE, fixedFields: anima ? SPRITE_FIXED_ANIMA : SPRITE_FIXED, prefix: '', width: 0, height: 0, allowOthers: false },
-        { id: 'novel', name: '小说插画模式', system: novelSystem(model), user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: anima ? 'illustration, cinematic composition' : 'A narrative story illustration with cinematic composition.', width: 0, height: 0, allowOthers: false },
-        // MOSS-Image draws JSON layouts (panels, speech bubbles with the words in them). 848×1200: about 1 MP, the
-        // FKEY comic LoRA's main training size.
+        // MOSS-Image draws JSON layouts (panels, speech bubbles with the words in them), at the 出图参数 size like the
+        // other presets (0 × 0).
         ...(model === 'moss'
-            ? [{ id: 'comic', name: '漫画模式', system: comicSystem(), user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: '', width: 848, height: 1200, allowOthers: true, comic: true, panels: 4, pages: 3, dialogue: true }]
+            ? [{ id: 'comic', name: '漫画模式', system: comicSystem(), user: PARSER_USER_TEMPLATE, fixedFields: '', prefix: '', width: 0, height: 0, allowOthers: true, comic: true, panels: 4, pages: 3, dialogue: true }]
             : []),
     ];
 }
