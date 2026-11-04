@@ -421,7 +421,7 @@ export const FKEY_NEGATIVE = `<|texture_and_style_neg|>photorealistic, real huma
 <|universal_anatomy_neg|>blurry, out of focus, lowres, censored, mosaic censoring, bar censor, ugly face, distorted face, overly squished grotesque cheek, worst quality, bad anatomy, fused bodies, fused legs, extra limbs, extra arms, extra legs, extra hands, three hands, extra fingers, mutated hands, fused fingers, six fingers, floating hand, watermark, signature<|/universal_anatomy_neg|>`;
 
 /** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */
-export const SETTINGS_VERSION = 9;
+export const SETTINGS_VERSION = 10;
 
 /** A render profile's LoRA set to this means "no style LoRA", as opposed to empty = use the default. */
 export const LORA_NONE = '__none__';
@@ -604,7 +604,7 @@ export const DEFAULT_SETTINGS = {
         extraLoras: [],
         // Let ComfyUI rewrite the prompt first, like the official template's "Refine Prompt?" (built-in workflow only).
         refinePrompt: false,
-        filenamePrefix: 'ST_portrait',
+        filenamePrefix: 'ST_portrait_{{user}}',
         timeoutSec: 300,
         lists: EMPTY_LISTS,
     },
@@ -625,7 +625,7 @@ const ANIMA_DEFAULTS = {
         // Portrait 2:3 at 1 MP, like Krea 2's portrait default.
         width: 832,
         height: 1248,
-        filenamePrefix: 'ST_anima',
+        filenamePrefix: 'ST_anima_{{user}}',
         // Like ComfyUI's usual "Load LoRA" node: Anima LoRAs often train the text encoder too.
         loraClip: true,
         // An anime illustration upscaler; used once 放大 is turned on.
@@ -656,7 +656,7 @@ const MOSS_DEFAULTS = {
         // Portrait 2:3 at 1 MP, like the other modes' portrait default.
         width: 832,
         height: 1248,
-        filenamePrefix: 'ST_moss',
+        filenamePrefix: 'ST_moss_{{user}}',
     },
 };
 

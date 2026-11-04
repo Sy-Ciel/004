@@ -117,6 +117,18 @@ function migrateSettings(settings) {
             }
         }
     }
+    if (version < 10) {
+        // The default 文件名前缀 carries the persona's name now (ST_portrait_{{user}} …): a prefix still at the old
+        // default of its mode follows.
+        const follow = (own, mode) => {
+            const prefix = modeDefaults(mode).comfy.filenamePrefix;
+            if (own?.comfy?.filenamePrefix === prefix.replace('_{{user}}', '')) own.comfy.filenamePrefix = prefix;
+        };
+        follow(settings, normalizeMode(settings.modelMode));
+        if (isPlainObject(settings.modeStore)) {
+            for (const [key, own] of Object.entries(settings.modeStore)) follow(own, normalizeMode(key.split('@')[0]));
+        }
+    }
     settings.settingsVersion = SETTINGS_VERSION;
 }
 
