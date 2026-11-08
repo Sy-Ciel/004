@@ -935,9 +935,13 @@ async function askParser(message, job, data, parserPrompt, target, modelMode) {
         minTokens: parserPrompt.minTokens,
         comic: parserPrompt.comic,
         onReply: reply => {
-            data.parserRaw = truncate(reply.content, 6000);
+            // 用工具调用返回结果: what the debug view shows is the tool call's arguments.
+            data.parserRaw = truncate(`${reply.tool ? '（工具调用 submit_picture 的参数）\n' : ''}${reply.content}`, 6000);
             data.parserReasoning = truncate(reply.reasoning, 4000);
             data.parserFinish = reply.finish || '';
+            if (parserPrompt.notes.some(note => note.startsWith('用工具调用返回结果')) && !reply.tool) {
+                data.debug.notes.push('解析模型没有调用工具，读的是它在正文里写的 JSON');
+            }
             log(`#${mesId} 解析输出`, reply);
         },
         onRetry: (attempt, max, error) => {

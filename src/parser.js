@@ -5,6 +5,7 @@ import { currentIndex } from './markup.js';
 import { chinesePrompt, currentMode, floorMode, imageMode, modeLabel, promptStyle } from './modes.js';
 import { CHINESE_PROMPT_RULE, NATURAL_STYLE_RULE } from './parserPresetDefaults.js';
 import { mossSkillBlock } from './mossSkill.js';
+import { TOOL_NAME, TOOL_REMINDER, TOOL_RULE, toolArguments, toolBody, usesTool } from './parserTool.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
 import { ASPECT_RATIOS, baseSize, parseAspect, parserPicksAspect } from './resolution.js';
 import { describeThinking, profileThinking, thinkingBody, thinkingMaxTokens, thinkingOmits } from './thinking.js';
@@ -547,6 +548,8 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     // 提示词写法: MOSS-Image with Moeblack's prompt skill (downloaded once, see mossSkill.js); Krea 2 with the rules
     // of its official template.
     const chinese = chinesePrompt();
+    // 用工具调用返回结果: the result comes back as a call of the submit_picture tool.
+    const tool = usesTool(settings.parser);
     const writing = promptStyle() === MODEL_MOSS && settings.parser.mossSkill !== false ? await mossSkillBlock({ mode, comic, allowOthers, chinese })
         : promptStyle() === MODEL_KREA2 && settings.parser.kreaRules ? { text: kreaRulesBlock(mode), note: '提示词写法：Krea 2 官方模板（最后加上 Absolutely no text…）' }
             : null;
@@ -557,8 +560,8 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     const natural = promptStyle() === 'anima-natural';
     return {
         // 最前面的内容 opens the request, before the preset's System prompt.
-        system: [fillTemplate(String(settings.parser.prelude ?? '').trim(), vars), fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', chinese ? CHINESE_PROMPT_RULE : '', triggerRule, writing?.text].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
-        user: [fillTemplate(userTemplate, vars), focus ? focusBlock(focus) : '', comic ? comicReminder(comic.pages) : ''].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
+        system: [fillTemplate(String(settings.parser.prelude ?? '').trim(), vars), fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', chinese ? CHINESE_PROMPT_RULE : '', triggerRule, writing?.text, tool ? TOOL_RULE : ''].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
+        user: [fillTemplate(userTemplate, vars), focus ? focusBlock(focus) : '', comic ? comicReminder(comic.pages) : '', tool ? TOOL_REMINDER : ''].filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n'),
         preset,
         mode,
         absent: !!absent,
@@ -568,6 +571,7 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
             `${modeLabel()} 模式 · 解析预设：${preset.name} · ${comic ? `漫画：AI 画整页分镜（最多 ${comic.panels} 格，${comic.dialogue ? '带对白' : '不画文字'}）` : `${mode === 'ai' ? 'AI 写完整提示词' : '固定外貌 + AI 补充'}${allowOthers ? ' · 允许其他人物' : ''}`}`,
             triggerRule ? `触发词：${triggerWordList().join(', ')}` : '',
             settings.parser.prelude?.trim() ? '「最前面的内容」放在了 System 提示词最前面' : '',
+            tool ? `用工具调用返回结果（${TOOL_NAME}，tool_choice=${settings.parser.toolChoice === 'required' ? 'required' : 'auto'}）` : '',
             natural ? '英文自然语言写法' : '',
             chinese ? '中文提示词（角色标签、触发词原样保留）' : '',
             writing?.note ?? '',
@@ -628,11 +632,14 @@ function readCompletion(json) {
         ? message.content.map(part => part?.text ?? '').join('')
         : String(message.content ?? choice.text ?? '');
     const reasoning = String(message.reasoning_content ?? message.reasoning ?? '');
-    return { content, reasoning, finish: choice.finish_reason ?? '' };
+    // 用工具调用返回结果: the tool call's arguments are the result (any text beside it is not).
+    const tool = toolArguments(message);
+    return { content: tool || content, reasoning, finish: choice.finish_reason ?? '', tool: !!tool };
 }
 
 /**
- * @typedef {{ content: string, reasoning: string, finish: string }} ParserReply
+ * @typedef {{ content: string, reasoning: string, finish: string, tool?: boolean }} ParserReply tool: the content is
+ *   the arguments of the submit_picture tool call
  */
 
 /** @returns {Promise<ParserReply>} */
@@ -641,8 +648,8 @@ async function callCustom(system, user, signal, parser = getSettings().parser) {
     const url = parser.customUrl.trim().replace(/\/+$/, '');
     if (!url) throw settingsError('未填写解析模型的 API 地址');
     if (!parser.customModel.trim()) throw settingsError('未填写解析模型名称');
-    // Thinking parameters first, so the user's own 「附加请求参数」 can override them.
-    const extraBody = { ...thinkingBody(parser), ...parseExtraBody() };
+    // Thinking parameters and the tool first, so the user's own 「附加请求参数」 can override them.
+    const extraBody = { ...thinkingBody(parser), ...toolBody(parser), ...parseExtraBody() };
     const maxTokens = thinkingMaxTokens(parser);
     // Fields the thinking parameters do without (no temperature for Claude after 4.5), unless the user sets them.
     const omitted = thinkingOmits(parser).filter(key => !Object.hasOwn(extraBody, key));

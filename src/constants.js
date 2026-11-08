@@ -513,6 +513,10 @@ export const DEFAULT_SETTINGS = {
         mossSkill: true,
         /** 最前面的内容: text that opens every parser request, before the parser preset's System prompt. */
         prelude: '',
+        /** 用工具调用返回结果: the independent API's model calls the submit_picture tool (see parserTool.js). */
+        toolCall: false,
+        /** tool_choice for it: 'auto' (the model decides) or 'required'. */
+        toolChoice: 'auto',
         /** Krea 2 「官方模板写法」: the parser follows the official template's prompt rules (KREA2_REFINE_INSTRUCTIONS). */
         kreaRules: false,
         historyFloors: 3,

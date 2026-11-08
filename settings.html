@@ -697,6 +697,18 @@
                         </select>
                     </label>
                     <small class="ctp-hint" id="ctp_thinking_hint"></small>
+                    <div class="ctp-source" data-source="custom">
+                        <div class="ctp-row">
+                            <label class="checkbox_label flex1"><input type="checkbox" data-ctp="parser.toolCall"> 用工具调用返回结果（function calling）</label>
+                            <label>工具调用
+                                <select class="text_pole" data-ctp="parser.toolChoice">
+                                    <option value="auto">自动（auto）</option>
+                                    <option value="required">必须调用（required）</option>
+                                </select>
+                            </label>
+                        </div>
+                        <small class="ctp-hint">打开后，解析模型通过调用 submit_picture 工具交回结果：画面字段、整段提示词、漫画版面都作为工具的参数，不在正文里写 JSON 或提示词。适合 Gemini 这类擅长工具调用的模型。模型没调用工具、在正文里写了 JSON 时照常读取（🐞 里会注明）。「自动」由模型决定，大多数模型会调用；不调用时改成「必须调用」（Claude 新模型不支持「必须调用」，会报错）。「附加请求参数」里自己写的 tool_choice 优先。只对「独立 API」生效。</small>
+                    </div>
                     <div class="ctp-row">
                         <label>超时(秒) <input type="number" class="text_pole" step="5" min="0" data-ctp="parser.timeoutSec" data-type="int"></label>
                         <label>失败自动重试次数 <input type="number" class="text_pole" min="0" max="5" step="1" data-ctp="parser.retries" data-type="int"></label>
