@@ -29,6 +29,8 @@ export function readInput(element) {
 
 export function writeInput(element, value) {
     if (element.type === 'checkbox') element.checked = !!value;
+    // data-digits: a number shown with that many decimals, the way ComfyUI shows it (0.500)
+    else if (element.dataset.digits && String(value ?? '').trim() !== '' && Number.isFinite(Number(value))) element.value = Number(value).toFixed(Number(element.dataset.digits));
     else element.value = value ?? '';
 }
 

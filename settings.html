@@ -477,7 +477,7 @@
                     <div class="ctp-help">
                         <span class="ctp-mode-only" data-mode="krea2">把工作流、模型、风格 LoRA、分辨率、采样恢复成 ComfyUI 官方模板的默认值，方便和官方模板出的图对比；提示词扩写保持关闭。</span>
                         <span class="ctp-mode-only" data-mode="anima">「恢复为官方 Anima 模板的设置」= 官方模板的默认值：anima-base-v1.0、qwen_3_06b_base、qwen_image_vae、不用风格 LoRA、1024×1024、30 步、CFG 4、euler / simple、官方反向提示词。「Turbo LoRA」= 官方模板打开 turbo_mode 时的设置：风格 LoRA 换成 anima-turbo-lora-v0.2（强度 1）、8 步、CFG 1，快很多；要先把这个 LoRA 放进 models/loras。</span>
-                        <span class="ctp-mode-only" data-mode="moss">「恢复为官方 MOSS-Image 模板的设置」= 官方模板的默认值：moss_image_sft_int8_convrot、qwen3.5_9b_w4a8_gptq、flux2-vae_small、不用风格 LoRA、1024×1024、25 步、CFG 2.5、er_sde / simple、关闭跳层引导（层号 22、开始 0、结束 0.5）、官方推荐的反向提示词。「OpenMOSS 官方推荐」= 50 步、CFG 3、euler / sgm_uniform、打开跳层引导（第 22 层，从头到尾 0 → 1，和 OpenMOSS 自己的界面一样），更接近 OpenMOSS 自己的效果，每张图慢一倍。显存不够可以换更小的分辨率。「FKEY 漫画画风 LoRA」= 社区的 MOSS-Image 画风 LoRA（暖色、柔和日光、低饱和的水粉漫画画风）按它的说明设置：风格 LoRA 换成 fkey-lora-r4-muon-step6840-comfy.safetensors（强度 0.6，0.4–0.8 之间调，超过 0.9 会过头）、25 步、CFG 3、euler / sgm_uniform、关闭跳层引导，触发词加上 <code>&lt;|artist|&gt;fkey&lt;|/artist|&gt;</code>（自动放在提示词第一行），画风前缀和反向提示词换成它推荐的写法。要先把这个 LoRA 下载到 ComfyUI 的 models/loras。配合「配图风格」里的「漫画模式」就是多格彩色漫画，单独用就是这种画风的插画。</span>
+                        <span class="ctp-mode-only" data-mode="moss">「恢复为官方 MOSS-Image 模板的设置」= 官方模板的默认值：moss_image_sft_int8_convrot、qwen3.5_9b_w4a8_gptq、flux2-vae_small、不用风格 LoRA、1024×1024、25 步、CFG 2.5、er_sde / simple、关闭跳层引导（层号 22、开始 0.000、结束 0.500）、官方推荐的反向提示词。「OpenMOSS 官方推荐」= 50 步、CFG 3、euler / sgm_uniform、打开跳层引导（第 22 层，开始 0.000、结束 0.500），更接近 OpenMOSS 自己的效果，每张图慢一倍。显存不够可以换更小的分辨率。「FKEY 漫画画风 LoRA」= 社区的 MOSS-Image 画风 LoRA（暖色、柔和日光、低饱和的水粉漫画画风）按它的说明设置：风格 LoRA 换成 fkey-lora-r4-muon-step6840-comfy.safetensors（强度 0.6，0.4–0.8 之间调，超过 0.9 会过头）、25 步、CFG 3、euler / sgm_uniform、关闭跳层引导，触发词加上 <code>&lt;|artist|&gt;fkey&lt;|/artist|&gt;</code>（自动放在提示词第一行），画风前缀和反向提示词换成它推荐的写法。要先把这个 LoRA 下载到 ComfyUI 的 models/loras。配合「配图风格」里的「漫画模式」就是多格彩色漫画，单独用就是这种画风的插画。</span>
                     </div>
 
                     <h4>模型</h4>
@@ -563,11 +563,11 @@
                     </div>
                     <div class="ctp-mode-only ctp-box" data-mode="moss">
                         <label class="checkbox_label"><input type="checkbox" data-ctp="comfy.slg"><span>跳层引导 SLG（官方模板默认关闭） <i class="ctp-q fa-solid fa-circle-question"></i></span></label>
-                        <div class="ctp-help">跳层引导 = 官方模板里的 SLG 开关：出图时反向（负向）分支跳过指定的层，OpenMOSS 官方推荐打开，细节更好；关掉更写实，但细节可能崩；它可能让动漫画风颜色过重。<br><b>跳过的层</b>：层号从 0 数起，MOSS-Image 共 42 层（0–41）。官方推荐 22，24、26 也有帮助；可以写几个（<code class="ctp-nowrap">22, 24, 26</code>）或一段（<code class="ctp-nowrap">22-26</code>）。空着 = 22。<br><b>开始 / 结束</b>：在采样进度的哪一段跳层，0 = 开头，1 = 结尾。ComfyUI 官方模板是 0 → 0.5（只在前一半），OpenMOSS 自己的界面是 0 → 1（从头到尾）；「结束」要大于「开始」。<br>只对内置工作流（和带 <code>%slg_layers%</code> 占位符的自定义工作流）有效；出图参数预设会一起保存。</div>
+                        <div class="ctp-help">跳层引导 = 官方模板里的 SLG 开关：出图时反向（负向）分支跳过指定的层，OpenMOSS 官方推荐打开，细节更好；关掉更写实，但细节可能崩；它可能让动漫画风颜色过重。<br><b>跳过的层</b>：层号从 0 数起，MOSS-Image 共 42 层（0–41）。官方推荐 22，24、26 也有帮助；可以写几个（<code class="ctp-nowrap">22, 24, 26</code>）或一段（<code class="ctp-nowrap">22-26</code>）。空着 = 22。<br><b>开始 / 结束</b>：就是 ComfyUI 里这个节点的 start_percent 和 end_percent，默认 0.000 和 0.500（只在采样的前一半跳层）。0 = 采样开头，1 = 结尾，可以写到三位小数；「结束」要大于「开始」。<br>只对内置工作流（和带 <code>%slg_layers%</code> 占位符的自定义工作流）有效；出图参数预设会一起保存。</div>
                         <div class="ctp-row" id="ctp_slg_options">
                             <label class="ctp-wide">跳过的层 <input type="text" class="text_pole" data-ctp="comfy.slgLayers" placeholder="22"></label>
-                            <label>开始 <input type="number" class="text_pole" min="0" max="1" step="0.05" data-ctp="comfy.slgStart" data-type="float"></label>
-                            <label>结束 <input type="number" class="text_pole" min="0" max="1" step="0.05" data-ctp="comfy.slgEnd" data-type="float"></label>
+                            <label>开始 <input type="number" class="text_pole" min="0" max="1" step="0.05" data-ctp="comfy.slgStart" data-type="float" data-digits="3"></label>
+                            <label>结束 <input type="number" class="text_pole" min="0" max="1" step="0.05" data-ctp="comfy.slgEnd" data-type="float" data-digits="3"></label>
                         </div>
                         <small class="ctp-hint" id="ctp_slg_state"></small>
                     </div>

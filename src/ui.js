@@ -209,6 +209,8 @@ function bindSettings(root) {
             onSettingChanged(path);
         };
         element.addEventListener(element.tagName === 'SELECT' || element.type === 'checkbox' ? 'change' : 'input', handler);
+        // A number shown with fixed decimals (0.500) goes back to that form once it is typed in.
+        if (element.dataset.digits) element.addEventListener('change', () => writeInput(element, getPath(getSettings(), path)));
     });
 
     root.querySelectorAll('[data-reset]').forEach(link => {
@@ -942,7 +944,7 @@ const OFFICIAL = {
         done: '已恢复为官方 Anima 模板的设置',
     },
     [MODEL_MOSS]: {
-        question: '恢复为 ComfyUI 官方 MOSS-Image 模板的设置？<br>内置工作流、官方模型文件（moss_image_sft_int8_convrot、qwen3.5_9b_w4a8_gptq、flux2-vae_small）、不用风格 LoRA、1024×1024、25 步、CFG 2.5、er_sde / simple、关闭跳层引导（层号、开始、结束也换回官方模板的 22、0、0.5）、随机种子，反向提示词换成官方模板推荐的那一段（以 nsfw 开头）；用过 FKEY 漫画画风 LoRA 的话，它的触发词和画风前缀也去掉。',
+        question: '恢复为 ComfyUI 官方 MOSS-Image 模板的设置？<br>内置工作流、官方模型文件（moss_image_sft_int8_convrot、qwen3.5_9b_w4a8_gptq、flux2-vae_small）、不用风格 LoRA、1024×1024、25 步、CFG 2.5、er_sde / simple、关闭跳层引导（层号、开始、结束也换回默认的 22、0.000、0.500）、随机种子，反向提示词换成官方模板推荐的那一段（以 nsfw 开头）；用过 FKEY 漫画画风 LoRA 的话，它的触发词和画风前缀也去掉。',
         comfy: OFFICIAL_MOSS,
         negative: MOSS_NEGATIVE,
         done: '已恢复为官方 MOSS-Image 模板的设置',
@@ -983,17 +985,17 @@ async function useAnimaTurbo() {
     toastr.success('已改用 Anima Turbo LoRA：8 步、CFG 1');
 }
 
-/** Closer to OpenMOSS's own results: 50 steps, CFG 3, Euler / sgm_uniform and skip layer guidance on layer 22 all the way. */
+/** Closer to OpenMOSS's own results: 50 steps, CFG 3, Euler / sgm_uniform and skip layer guidance on layer 22 (start and end at their defaults). */
 async function useMossQuality() {
     const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
     const confirmed = await callGenericPopup(
-        '改用 OpenMOSS 官方推荐的采样？<br>50 步、CFG 3、euler / sgm_uniform，打开跳层引导（第 22 层，从头到尾：开始 0、结束 1，和 OpenMOSS 自己的界面一样）。ComfyUI 模板为了速度用的是 25 步、CFG 2.5；这一套更接近 OpenMOSS 官方效果，但每张图要多花一倍时间。跳层引导可能让动漫画风颜色过重，不喜欢可以单独关掉，或者把「结束」调小。想换回来点「恢复为官方 MOSS-Image 模板的设置」。',
+        '改用 OpenMOSS 官方推荐的采样？<br>50 步、CFG 3、euler / sgm_uniform，打开跳层引导（第 22 层，开始 0.000、结束 0.500 的默认值）。ComfyUI 模板为了速度用的是 25 步、CFG 2.5；这一套更接近 OpenMOSS 官方效果，但每张图要多花一倍时间。跳层引导可能让动漫画风颜色过重，不喜欢可以单独关掉。想换回来点「恢复为官方 MOSS-Image 模板的设置」。',
         POPUP_TYPE.CONFIRM);
     if (confirmed !== POPUP_RESULT.AFFIRMATIVE || currentMode() !== MODEL_MOSS) return;
     Object.assign(getSettings().comfy, structuredClone(MOSS_QUALITY));
     saveSettings();
     refreshComfyUi();
-    toastr.success('已改用 OpenMOSS 官方推荐：50 步、CFG 3、跳层引导（第 22 层，0 → 1）');
+    toastr.success('已改用 OpenMOSS 官方推荐：50 步、CFG 3、跳层引导（第 22 层）');
 }
 
 /** The trigger words without FKEY's tag (as the user wrote them otherwise). */

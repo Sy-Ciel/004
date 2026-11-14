@@ -1,9 +1,9 @@
 /**
  * MOSS-Image's 跳层引导 (skip layer guidance): the layers the negative branch skips and the part of the sampling it
  * does so in, as ComfyUI's SkipLayerGuidanceDiTSimple node takes them (single_layers, start_percent, end_percent)
- * and as OpenMOSS's own app names them (skip layers, skip start, skip stop). ComfyUI's official template skips
- * layer 22 for the first half (0 → 0.5); OpenMOSS's app skips it all the way (0 → 1) and says 22, 24 and 26 all
- * help. Layers are counted from 0.
+ * and as OpenMOSS's own app names them (skip layers, skip start, skip stop). The defaults are the node's values in
+ * ComfyUI's official template: layer 22, start 0.000, end 0.500 (OpenMOSS says 22, 24 and 26 all help). Layers are
+ * counted from 0.
  */
 
 /** The official ComfyUI template's values. */
@@ -25,10 +25,10 @@ export function slgLayerList(text) {
     return layers;
 }
 
-/** A part of the sampling between 0 and 1; `fallback` for a field left empty. */
+/** A part of the sampling between 0 and 1, to the three decimals ComfyUI's node takes; `fallback` for a field left empty. */
 function part(value, fallback) {
     const number = Number(value);
-    return String(value ?? '').trim() === '' || !Number.isFinite(number) ? fallback : Math.min(1, Math.max(0, number));
+    return String(value ?? '').trim() === '' || !Number.isFinite(number) ? fallback : Math.round(Math.min(1, Math.max(0, number)) * 1000) / 1000;
 }
 
 /**

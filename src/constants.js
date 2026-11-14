@@ -387,8 +387,8 @@ export const OFFICIAL_MOSS = {
 
 /**
  * Closer to OpenMOSS's own settings (the template's note: "for results closer to the official ones, try 50 steps
- * and CFG 3"): Euler / sgm_uniform like their ComfyUI workflow, and skip layer guidance as their app has it by
- * default: layer 22 skipped in the negative branch from start to end (0 → 1). Twice as slow.
+ * and CFG 3"): Euler / sgm_uniform like their ComfyUI workflow, and skip layer guidance on layer 22 with the
+ * default start and end (0 and 0.5, as the ComfyUI template's node has them). Twice as slow.
  */
 export const MOSS_QUALITY = {
     steps: 50,
@@ -398,7 +398,7 @@ export const MOSS_QUALITY = {
     slg: true,
     slgLayers: '22',
     slgStart: 0,
-    slgEnd: 1,
+    slgEnd: 0.5,
 };
 
 /**
