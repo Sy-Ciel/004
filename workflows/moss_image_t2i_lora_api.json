@@ -47,10 +47,10 @@
             "model": ["5", 0],
             "double_layers": "",
             "single_layers": "%slg_layers%",
-            "start_percent": 0,
-            "end_percent": 0.5
+            "start_percent": "%slg_start%",
+            "end_percent": "%slg_end%"
         },
-        "_meta": { "title": "跳层引导 SLG（层号为空 = 关闭，和官方模板默认一样）" }
+        "_meta": { "title": "跳层引导 SLG（层号为空 = 关闭；官方模板是第 22 层、0 到 0.5，默认关闭）" }
     },
     "6": {
         "class_type": "CLIPTextEncode",

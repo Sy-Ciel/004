@@ -9,6 +9,7 @@ import { buildImagePrompt, buildNegativePrompt, finishPrompt } from './prompt.js
 import { modeForRating, readRating } from './rating.js';
 import { baseSize } from './resolution.js';
 import { effectiveComfy, renderProfileFor } from './renderProfiles.js';
+import { slgSettings } from './slg.js';
 import { findPresetById, presetForName, resolveTarget, settleAutoTarget, substituteTarget } from './targets.js';
 import {
     ctx,
@@ -772,6 +773,7 @@ function workflowValues(plan, modelMode, { prompt, negative, width, height, seed
     // A cleared field falls back to the mode's default (Krea 2 Turbo: 8 steps, CFG 1; Anima: 30 steps, CFG 4;
     // MOSS-Image: 25 steps, CFG 2.5).
     const defaults = modeDefaults(modelMode).comfy;
+    const slg = slgSettings(comfy);
     return {
         prompt,
         negative_prompt: negative || '',
@@ -797,9 +799,19 @@ function workflowValues(plan, modelMode, { prompt, negative, width, height, seed
         char_lora_clip_strength: plan.loraClip ? plan.charLoraStrength : 0,
         filename_prefix: filenamePrefix(comfy.filenamePrefix) || filenamePrefix(defaults.filenamePrefix),
         batch_size: 1,
-        // MOSS-Image's skip layer guidance: the layer it skips, '' = off (the node then passes the model on).
-        slg_layers: comfy.slg ? '22' : '',
+        // MOSS-Image's skip layer guidance: the layers it skips, '' = off (the node then passes the model on), and
+        // the part of the sampling it works in.
+        slg_layers: comfy.slg ? slg.layers.join(', ') : '',
+        slg_start: slg.start,
+        slg_end: slg.end,
     };
+}
+
+/** 跳层引导 of a drawing for the debug view ('' when it is off or the workflow has no place for it). */
+function slgSummary(text, values) {
+    if (!values.slg_layers || !text.includes('%slg_layers%')) return '';
+    const ranged = text.includes('%slg_start%') || text.includes('%slg_end%');
+    return `跳过第 ${values.slg_layers} 层${ranged ? `，采样进度 ${values.slg_start} → ${values.slg_end}` : '（开始 / 结束按工作流里写的）'}`;
 }
 
 /**
@@ -862,7 +874,7 @@ function drawingParams(plan, template, values, modelMode) {
         extraLoras: plan.extraLoras.map(lora => `${lora.name} @ ${lora.strength}`).join('、'),
         loraClip: plan.loraClip,
         upscale: plan.upscale ? `${plan.upscale.model} → ×${plan.upscale.factor}（${Math.round(values.width * plan.upscale.factor)}×${Math.round(values.height * plan.upscale.factor)}）` : '',
-        slg: values.slg_layers && String(template.text).includes('%slg_layers%') ? `跳过第 ${values.slg_layers} 层` : '',
+        slg: slgSummary(String(template.text), values),
     };
 }
 

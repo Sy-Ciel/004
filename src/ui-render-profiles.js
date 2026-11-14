@@ -112,7 +112,7 @@ export function initRenderProfileUi({ onChange, validateWorkflow }) {
 
     $('#ctp_rp_validate').on('click', () => {
         const workflow = String(currentProfile()?.workflow ?? '');
-        if (!workflow.trim()) toastr.info('没有填专用工作流，会用 ComfyUI 区的工作流');
+        if (!workflow.trim()) toastr.info('没有填专用工作流，会用「工作流」里选的工作流');
         else validateWorkflow(workflow);
     });
 

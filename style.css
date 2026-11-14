@@ -201,27 +201,59 @@
 }
 
 /* ---------- settings panel ---------- */
-/* Image model mode switch, above everything else */
+/* Lines and card backgrounds are mixed from the text colour, so they show on dark and on light themes. */
+.ctp-settings {
+    --ctp-line: var(--SmartThemeBorderColor);
+    --ctp-fill: var(--black30a);
+    --ctp-caption: 6.6em;
+}
+
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+    .ctp-settings {
+        --ctp-line: color-mix(in srgb, var(--SmartThemeBodyColor) 22%, transparent);
+        --ctp-fill: color-mix(in srgb, var(--SmartThemeBodyColor) 6%, transparent);
+    }
+}
+
+/* Top: the image model mode and its switches in a box, then the everyday switches. Caption left, control right. */
 .ctp-settings .ctp-mode-bar {
     border: 1px solid var(--SmartThemeQuoteColor);
     border-radius: 8px;
-    padding: 6px 8px;
-    margin: 4px 0 8px;
+    padding: 3px 8px;
+    margin: 4px 0 6px;
 }
 
+.ctp-settings .ctp-top {
+    padding: 0 9px;
+    margin-bottom: 4px;
+}
+
+/* On a narrow phone a switch that does not fit beside its caption goes under it. */
 .ctp-settings .ctp-mode-row {
+    flex-wrap: wrap;
     align-items: center;
-    column-gap: 10px;
+    gap: 3px 8px;
+    margin: 5px 0;
 }
 
 .ctp-settings .ctp-mode-caption {
+    flex: 0 0 auto;
+    min-width: var(--ctp-caption);
     font-weight: bold;
+    white-space: nowrap;
+}
+
+.ctp-settings .ctp-mode-row > .text_pole {
+    flex: 1 1 0;
+    min-width: 0;
+    margin: 0;
 }
 
 .ctp-settings .ctp-mode-switch {
     display: inline-flex;
     flex: 1 1 auto;
-    border: 1px solid var(--SmartThemeBorderColor);
+    min-width: 0;
+    border: 1px solid var(--ctp-line);
     border-radius: 999px;
     overflow: hidden;
 }
@@ -229,14 +261,15 @@
 .ctp-settings .ctp-mode-option {
     flex: 1 1 0;
     text-align: center;
-    padding: 4px 12px;
+    padding: 3px 6px;
     cursor: pointer;
     user-select: none;
+    white-space: nowrap;
     opacity: 0.65;
 }
 
 .ctp-settings .ctp-mode-option + .ctp-mode-option {
-    border-left: 1px solid var(--SmartThemeBorderColor);
+    border-left: 1px solid var(--ctp-line);
 }
 
 .ctp-settings .ctp-mode-option.active {
@@ -251,53 +284,154 @@
     outline-offset: -2px;
 }
 
-/* Always-visible header: the switches used most often */
-.ctp-settings .ctp-top {
-    padding-bottom: 4px;
-    margin-bottom: 4px;
+/* MOSS-Image 提示词 skill: its state and the two things to do about it, under its switch */
+.ctp-settings .ctp-skill-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 10px;
+    margin: -1px 0 4px;
+    padding-left: calc(var(--ctp-caption) + 8px);
+    font-size: 0.85em;
+    opacity: 0.8;
 }
 
-.ctp-settings .ctp-top .ctp-row {
+.ctp-settings .ctp-checks {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 12px;
+}
+
+.ctp-settings .ctp-buttons {
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    column-gap: 14px;
+    gap: 6px;
+    margin: 6px 0;
 }
 
-.ctp-settings .ctp-top .ctp-row > label {
-    flex: 0 1 auto;
+.ctp-settings .ctp-buttons > .menu_button {
+    margin: 0;
+    white-space: nowrap;
 }
 
 .ctp-settings .ctp-sub-tools {
     text-align: right;
+    font-size: 0.85em;
+    opacity: 0.85;
+}
+
+/* Captions between the groups of sections */
+.ctp-settings .ctp-group {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 14px 2px 4px;
     font-size: 0.9em;
+    font-weight: bold;
+    letter-spacing: 0.04em;
+    color: var(--SmartThemeQuoteColor);
 }
 
-/* Collapsible groups (SillyTavern inline drawers nested in the extension's drawer) */
+.ctp-settings .ctp-group small {
+    font-weight: normal;
+    letter-spacing: 0;
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.55;
+}
+
+.ctp-settings .ctp-group::after {
+    content: '';
+    flex: 1;
+    align-self: center;
+    height: 1px;
+    background: var(--ctp-line);
+}
+
+/* Sections: SillyTavern inline drawers nested in the extension's drawer, drawn as cards with a plain header */
 .ctp-settings .ctp-sub {
-    border: 1px solid var(--SmartThemeBorderColor);
+    border: 1px solid var(--ctp-line);
     border-radius: 8px;
-    margin: 6px 0;
+    margin: 4px 0;
     padding: 0 8px;
-    background-color: var(--black30a);
+    background-color: var(--ctp-fill);
 }
 
+.ctp-settings .ctp-sub.ctp-open {
+    border-color: var(--SmartThemeQuoteColor);
+}
+
+/* SillyTavern gives every drawer header in the extensions panel a gradient pill; only the extension's own keeps it. */
+#extensions_settings .ctp-settings .ctp-sub > .inline-drawer-header,
+#extensions_settings2 .ctp-settings .ctp-sub > .inline-drawer-header,
 .ctp-settings .ctp-sub > .inline-drawer-header {
+    background-image: none;
+    border: 0;
+    border-radius: 0;
+    margin: 0;
     padding: 6px 0;
 }
 
-.ctp-settings .ctp-sub > .inline-drawer-header small {
-    margin-left: 4px;
+#extensions_settings .ctp-settings .ctp-sub.ctp-open > .inline-drawer-header,
+#extensions_settings2 .ctp-settings .ctp-sub.ctp-open > .inline-drawer-header,
+.ctp-settings .ctp-sub.ctp-open > .inline-drawer-header {
+    border-bottom: 1px solid var(--ctp-line);
+    margin-bottom: 6px;
+}
+
+.ctp-settings .ctp-sub-title {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.ctp-settings .ctp-sub-title > i {
+    align-self: center;
+    color: var(--SmartThemeQuoteColor);
+    opacity: 0.85;
+}
+
+.ctp-settings .ctp-sub-title > b {
+    white-space: nowrap;
+}
+
+.ctp-settings .ctp-sub-title > small {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-weight: normal;
-    opacity: 0.6;
+    opacity: 0.55;
+}
+
+.ctp-settings .ctp-sub > .inline-drawer-header .inline-drawer-icon {
+    flex: 0 0 auto;
+    margin-left: 6px;
+    font-size: 1.1em;
+    opacity: 0.7;
 }
 
 .ctp-settings .ctp-sub > .inline-drawer-content {
     padding-bottom: 8px;
 }
 
-.ctp-settings h4 {
-    margin: 8px 0 4px;
+/* Headings inside a section */
+.ctp-settings .ctp-sub h4 {
+    margin: 14px 0 6px;
+    padding-left: 8px;
+    border-left: 3px solid var(--SmartThemeQuoteColor);
+    font-size: 1em;
+    line-height: 1.3;
 }
 
+.ctp-settings .ctp-sub .inline-drawer-content > h4:first-child {
+    margin-top: 2px;
+}
+
+/* Fields */
 .ctp-settings label {
     display: block;
     margin: 4px 0;
@@ -305,6 +439,18 @@
 
 .ctp-settings label.checkbox_label {
     display: flex;
+    margin: 5px 0;
+}
+
+/* Checkboxes line up with the fields above and below them (SillyTavern indents them in the extensions panel). */
+.ctp-settings label.checkbox_label > input[type="checkbox"] {
+    margin: 0 3px 0 1px;
+}
+
+/* The words of a checkbox are one piece: code, icons and the ⓘ in them flow with the text. */
+.ctp-settings label.checkbox_label > span {
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .ctp-settings .ctp-row {
@@ -315,15 +461,77 @@
 
 .ctp-settings .ctp-row > label {
     flex: 1;
+    min-width: 0;
 }
 
-.ctp-settings .ctp-row .menu_button {
+.ctp-settings .ctp-row > label.ctp-wide {
+    flex: 2;
+}
+
+.ctp-settings .ctp-row > .ctp-narrow {
+    flex: 0 0 6em;
+}
+
+/* A button beside a field with its caption above it sits level with the field. */
+.ctp-settings .ctp-row > .menu_button {
+    flex: 0 0 auto;
     white-space: nowrap;
-    margin-bottom: 4px;
+    margin: 0 0 9px;
 }
 
 .ctp-settings .ctp-wrap-row {
     flex-wrap: wrap;
+}
+
+/* A switch with a small choice beside it: 多张图 + 最多几张 */
+.ctp-settings .ctp-center-row {
+    align-items: center;
+    column-gap: 14px;
+}
+
+.ctp-settings .ctp-center-row > label {
+    flex: 0 1 auto;
+}
+
+.ctp-settings .ctp-center-row > label.checkbox_label {
+    flex: 1 1 15em;
+}
+
+/* A list with its buttons: presets, render profiles, connection profiles */
+.ctp-settings .ctp-tool-row {
+    align-items: center;
+    margin: 5px 0;
+}
+
+.ctp-settings .ctp-tool-row > .text_pole {
+    flex: 1 1 8em;
+    min-width: 0;
+    margin: 0;
+}
+
+.ctp-settings .ctp-tool-row > .menu_button {
+    margin: 0;
+    min-width: 2.1em;
+    min-height: 2.1em;
+}
+
+/* A sentence with a small field in it: 每隔 [1] 楼生成一次 */
+.ctp-settings label.ctp-inline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.ctp-settings label.ctp-inline > .text_pole {
+    flex: 0 0 auto;
+    width: 4.6em;
+    margin: 0;
+}
+
+.ctp-settings label.ctp-inline > select.text_pole {
+    width: auto;
+    min-width: 3.8em;
 }
 
 .ctp-settings textarea {
@@ -331,28 +539,117 @@
     resize: vertical;
 }
 
+.ctp-settings select {
+    width: 100%;
+}
+
 .ctp-settings .ctp-mono {
     font-family: var(--monoFontFamily, monospace);
     font-size: 0.85em;
-}
-
-.ctp-settings .ctp-hint {
-    display: block;
-    opacity: 0.7;
-    margin: 2px 0 4px;
-}
-
-.ctp-settings .ctp-details summary {
-    cursor: pointer;
-    margin: 4px 0;
 }
 
 .ctp-settings .ctp-narrow {
     flex: 0 0 6em;
 }
 
-.ctp-settings select {
-    width: 100%;
+/* A short note that is always there */
+.ctp-settings .ctp-hint {
+    display: block;
+    opacity: 0.7;
+    margin: 2px 0 4px;
+    line-height: 1.45;
+}
+
+/* File names and placeholders in notes and explanations break rather than widen the panel. */
+.ctp-settings .ctp-hint,
+.ctp-settings .ctp-help,
+.ctp-settings .ctp-commands,
+.ctp-settings .ctp-lora-summary {
+    overflow-wrap: anywhere;
+}
+
+.ctp-settings .ctp-nowrap {
+    white-space: nowrap;
+}
+
+.ctp-settings .ctp-hint:empty,
+.ctp-settings .ctp-help:empty {
+    display: none;
+}
+
+/* ⓘ and the explanation it opens (the block after the control it sits in); 「显示全部说明」 opens them all */
+.ctp-settings .ctp-q {
+    /* Padding makes it easier to hit with a finger; the margins take the same space back. */
+    padding: 5px 4px;
+    margin: -5px -4px -5px -1px;
+    cursor: pointer;
+    opacity: 0.45;
+    font-size: 0.92em;
+    font-weight: 900;
+    transition: opacity var(--animation-duration, 125ms);
+}
+
+.ctp-settings .ctp-hint .ctp-q {
+    opacity: 0.6;
+}
+
+.ctp-settings .ctp-q:hover,
+.ctp-settings .ctp-q:focus-visible,
+.ctp-settings .ctp-q.open {
+    opacity: 1;
+    color: var(--SmartThemeQuoteColor);
+}
+
+.ctp-settings .ctp-help {
+    display: none;
+    margin: 2px 0 8px;
+    padding: 5px 9px;
+    border-left: 2px solid var(--SmartThemeQuoteColor);
+    border-radius: 0 6px 6px 0;
+    background-color: var(--ctp-fill);
+    font-size: 0.86em;
+    font-weight: normal;
+    line-height: 1.55;
+    opacity: 0.9;
+}
+
+.ctp-settings .ctp-help.open,
+.ctp-settings.ctp-help-all .ctp-help:not(:empty) {
+    display: block;
+}
+
+.ctp-settings.ctp-help-all .ctp-q {
+    display: none;
+}
+
+/* Folded parts inside a section (templates, slash commands) and boxed groups of fields */
+.ctp-settings .ctp-details,
+.ctp-settings .ctp-box {
+    margin: 8px 0 4px;
+    padding: 0 8px;
+    border: 1px dashed var(--ctp-line);
+    border-radius: 6px;
+}
+
+.ctp-settings .ctp-details > summary {
+    cursor: pointer;
+    padding: 4px 0;
+    font-weight: bold;
+    opacity: 0.85;
+}
+
+.ctp-settings .ctp-details[open],
+.ctp-settings .ctp-box {
+    padding-bottom: 4px;
+}
+
+.ctp-settings .ctp-dim {
+    opacity: 0.5;
+}
+
+.ctp-settings .ctp-commands {
+    font-size: 0.86em;
+    line-height: 1.9;
 }
 
 .ctp-settings #ctp_lists_status {
@@ -362,21 +659,6 @@
 .ctp-settings .ctp-warn {
     color: var(--warning, #e8a33d);
     opacity: 1;
-}
-
-.ctp-settings .ctp-persona-block {
-    margin: 4px 0;
-}
-
-.ctp-settings .ctp-persona-list {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    max-height: 12em;
-    overflow-y: auto;
-    padding: 2px 4px;
-    border: 1px solid var(--SmartThemeBorderColor);
-    border-radius: 6px;
 }
 
 /* ---------- chip shown in the message when the side panel is used ---------- */
@@ -596,24 +878,56 @@
     margin: 6px 0;
 }
 
-/* "更多 LoRA" rows and the LoRA summary in 出图参数 */
+/* "更多 LoRA" in 出图参数: each one a small card, its file name on a line of its own, then strength and who it is for */
 .ctp-settings .ctp-extra-lora {
     align-items: center;
     flex-wrap: wrap;
+    gap: 4px 8px;
+    margin: 4px 0;
+    padding: 5px 6px;
+    border: 1px dashed var(--ctp-line);
+    border-radius: 6px;
 }
 
-.ctp-settings .ctp-extra-lora select[data-list],
-.ctp-settings .ctp-extra-lora .ctp-picker {
-    flex: 2 1 160px;
+.ctp-settings .ctp-extra-lora .text_pole {
+    margin: 0;
 }
 
-.ctp-settings .ctp-extra-lora .ctp-extra-preset {
-    flex: 1 1 110px;
-}
-
-.ctp-settings .ctp-extra-lora input[type="number"] {
-    width: 5em;
+.ctp-settings .ctp-extra-lora > input[type="checkbox"] {
     flex: 0 0 auto;
+    margin: 0;
+}
+
+.ctp-settings .ctp-extra-lora > select[data-list],
+.ctp-settings .ctp-extra-lora > .ctp-picker {
+    flex: 1 1 calc(100% - 2.5em);
+    min-width: 0;
+}
+
+.ctp-settings .ctp-extra-lora > label {
+    flex: 0 0 auto;
+    margin: 0;
+}
+
+/* The second line starts under the file name, past the checkbox. */
+.ctp-settings .ctp-extra-lora > label:first-of-type {
+    margin-left: calc(var(--mainFontSize, 15px) + 8px);
+}
+
+.ctp-settings .ctp-extra-lora > label.ctp-extra-for {
+    flex: 1 1 9em;
+    flex-wrap: nowrap;
+    min-width: 0;
+}
+
+.ctp-settings .ctp-extra-lora > label.ctp-extra-for > select.text_pole {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.ctp-settings .ctp-extra-lora > .menu_button {
+    flex: 0 0 auto;
+    margin: 0;
 }
 
 .ctp-settings .ctp-lora-summary {
@@ -622,39 +936,6 @@
     padding: 4px 8px;
     border-left: 3px solid var(--SmartThemeQuoteColor);
     white-space: pre-wrap;
-}
-
-/* Heading of the API groups at the bottom of the settings */
-.ctp-settings .ctp-api-caption {
-    margin: 14px 0 2px;
-    padding-top: 8px;
-    border-top: 1px dashed var(--SmartThemeBorderColor);
-    font-weight: bold;
-}
-
-.ctp-settings .ctp-api-caption small {
-    font-weight: normal;
-    opacity: 0.6;
-}
-
-/* Anima's prompt style switch sits under the mode switch, as prominent */
-.ctp-settings .ctp-style-switch .ctp-mode-option.active {
-    background-color: var(--SmartThemeQuoteColor);
-}
-
-.ctp-settings .ctp-mode-caption {
-    white-space: nowrap;
-}
-
-.ctp-settings .ctp-style-switch .ctp-mode-option {
-    white-space: nowrap;
-    padding: 4px 6px;
-}
-
-/* 按画面自动切换模型: a switch of the mode bar, so it stands out like the mode switch above it */
-.ctp-settings .ctp-auto-mode {
-    font-weight: bold;
-    margin-top: 6px;
 }
 
 /* 「加画图指令重画」 dialog */

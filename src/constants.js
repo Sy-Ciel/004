@@ -361,7 +361,7 @@ export const MOSS_NEGATIVE = 'nsfw, worst quality, bad anatomy, watermark, jpeg 
 /**
  * Defaults of ComfyUI's official MOSS-Image text-to-image template (templates/image_moss_image_t2i.json), for
  * "恢复为官方 MOSS-Image 模板的设置": the int8 SFT model, 25 steps, CFG 2.5, er_sde / simple, skip layer guidance
- * off (the template's SLG switch), prompt upsampler off.
+ * off (the template's SLG switch; its node skips layer 22 from 0 to 0.5), prompt upsampler off.
  */
 export const OFFICIAL_MOSS = {
     workflowSource: 'builtin',
@@ -380,11 +380,15 @@ export const OFFICIAL_MOSS = {
     seed: -1,
     refinePrompt: false,
     slg: false,
+    slgLayers: '22',
+    slgStart: 0,
+    slgEnd: 0.5,
 };
 
 /**
  * Closer to OpenMOSS's own settings (the template's note: "for results closer to the official ones, try 50 steps
- * and CFG 3"): Euler / sgm_uniform like their ComfyUI workflow, and skip layer guidance on layer 22. Twice as slow.
+ * and CFG 3"): Euler / sgm_uniform like their ComfyUI workflow, and skip layer guidance as their app has it by
+ * default: layer 22 skipped in the negative branch from start to end (0 → 1). Twice as slow.
  */
 export const MOSS_QUALITY = {
     steps: 50,
@@ -392,6 +396,9 @@ export const MOSS_QUALITY = {
     sampler: 'euler',
     scheduler: 'sgm_uniform',
     slg: true,
+    slgLayers: '22',
+    slgStart: 0,
+    slgEnd: 1,
 };
 
 /**
@@ -612,8 +619,12 @@ export const DEFAULT_SETTINGS = {
         upscaleFactor: 2,
         /** 先画完所有图，再统一放大: pictures are shown as drawn and enlarged once no picture waits to be drawn. */
         upscaleLater: true,
-        /** MOSS-Image only: skip layer guidance on layer 22 (the official template's SLG switch, off there). */
+        /** MOSS-Image only: skip layer guidance (the official template's SLG switch, off there). */
         slg: false,
+        /** Its layers ("22", "22, 24, 26", "22-26"; counted from 0) and the part of the sampling it works in (see slg.js). */
+        slgLayers: '22',
+        slgStart: 0,
+        slgEnd: 0.5,
         /** More LoRAs: [{ name, strength, presetId }] — presetId '' = every picture, else only that character's. */
         extraLoras: [],
         // Let ComfyUI rewrite the prompt first, like the official template's "Refine Prompt?" (built-in workflow only).

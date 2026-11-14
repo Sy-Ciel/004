@@ -42,9 +42,10 @@ import { PROVIDERS, nativeProvider, providerOf, providerUrl, switchProvider } fr
 import { cancelAllJobs, enqueue, hasActiveJobs, planLoraLines, renderPlan } from './pipeline.js';
 import { renderAll } from './render.js';
 import { baseSize } from './resolution.js';
+import { describeSlg, slgWarnings } from './slg.js';
 import { GEMINI_ROOM, describeThinking, formatHasEffort, thinkingFormat } from './thinking.js';
 import { currentPersona, findPresetById, findUserPreset, personaList, presetForName, presetName, resolveUserPreset } from './targets.js';
-import { ctx, errorMessage, escapeHtml, getSettings, roundTo16, saveSettings, truncate } from './utils.js';
+import { ctx, errorMessage, escapeHtml, getSettings, isPlainObject, roundTo16, saveSettings, truncate } from './utils.js';
 
 const SETTINGS_URL = new URL('../settings.html', import.meta.url);
 const UI_WORKFLOW_URL = new URL('../workflows/krea2_turbo_t2i_lora_ui.json', import.meta.url);
@@ -56,7 +57,7 @@ const MODE_TEXT = {
         maxMegapixels: 4.2,
         official: '恢复为官方 Krea 2 Turbo 模板的设置',
         negativePlaceholder: '内置 Krea 2 Turbo 工作流用 CFG 1，不使用反向提示词',
-        negativeHint: '',
+        negativeHint: 'Krea 2 的内置工作流（Turbo，CFG 1）不使用反向提示词；这里填的只对会用到反向提示词的自定义工作流有用。',
         triggerPlaceholder: '例：风格 LoRA 的触发词（留空 = 不加）',
     },
     [MODEL_ANIMA]: {
@@ -121,19 +122,37 @@ function updateThinkingHint() {
     const text = parser.thinking === 'default'
         ? `默认：不发送任何思考参数，模型按它自己的默认方式思考或不思考。${vertex ? `Gemini 2.5 Flash / Pro 和 Gemini 3 默认会思考，思考也算在输出里：这时「最大输出」不到 ${GEMINI_ROOM} 的按 ${GEMINI_ROOM} 发送。` : ''}`
         : `${describeThinking(parser)}${noEffort && parser.thinking === 'on' ? '。这种格式只有开 / 关，没有强度' : ''}`;
-    $('#ctp_thinking_hint').text(`${text} 开启思考会更慢，也更占「最大输出」；最低、超高、最大不是每家都支持（例如 OpenAI 的 minimal / xhigh、Claude 的 max），不支持的接口会报错，换回低 / 中 / 高就行；「附加请求参数」里自己写的同名参数优先。`);
+    $('#ctp_thinking_hint').text(text);
 }
 
+/** 附加请求参数: what it is for (behind its ⓘ), and what is wrong with the JSON typed in, if anything. */
 function validateExtraBody() {
-    const hint = $('#ctp_extra_body_hint');
+    $('#ctp_extra_body_help').text(nativeProvider() === 'vertex'
+        ? '会合并进 Gemini 的请求体（generateContent），例如 {"generationConfig": {"topP": 0.9}}。Key 保存在酒馆扩展设置里，由浏览器直接发给 Google。'
+        : '会合并进请求体。思考模型（GLM、DeepSeek-R1 等）容易把输出额度用在思考上导致返回空内容，可以在这里关闭思考。Key 保存在酒馆扩展设置里，经酒馆后端转发。');
+    let problem = '';
     try {
         parseExtraBody();
-        hint.removeClass('ctp-warn').text(nativeProvider() === 'vertex'
-            ? '会合并进 Gemini 的请求体（generateContent），例如 {"generationConfig": {"topP": 0.9}}。Key 保存在酒馆扩展设置里，由浏览器直接发给 Google。'
-            : '会合并进请求体。思考模型（GLM、DeepSeek-R1 等）容易把输出额度用在思考上导致返回空内容，可以在这里关闭思考。Key 保存在酒馆扩展设置里，经酒馆后端转发。');
     } catch (error) {
-        hint.addClass('ctp-warn').text(error.message);
+        problem = error.message;
     }
+    $('#ctp_extra_body_hint').text(problem);
+}
+
+/**
+ * 跳层引导 (MOSS-Image): what the layers and the start / end do as they are set, and what is off about them. The
+ * fields stay in view while it is switched off, dimmed.
+ */
+function updateSlgUi() {
+    const { comfy } = getSettings();
+    const warnings = comfy.slg ? slgWarnings(comfy) : [];
+    const custom = comfy.workflowSource === 'custom' ? String(comfy.workflow ?? '').trim() : '';
+    if (comfy.slg && custom && !custom.includes('%slg_layers%')) warnings.push('自定义工作流里没有 %slg_layers% 占位符，跳层引导不起作用');
+    else if (comfy.slg && custom && !custom.includes('%slg_start%') && !custom.includes('%slg_end%')) warnings.push('自定义工作流里没有 %slg_start% / %slg_end%，开始和结束按工作流里写的');
+    $('#ctp_slg_options').toggleClass('ctp-dim', !comfy.slg);
+    $('#ctp_slg_state')
+        .text(`${comfy.slg ? '' : '现在关着。打开后：'}${describeSlg(comfy)}${warnings.length ? `。${warnings.join('；')}` : ''}`)
+        .toggleClass('ctp-warn', warnings.length > 0);
 }
 
 function onSettingChanged(path) {
@@ -161,7 +180,9 @@ function onSettingChanged(path) {
     }
     if (path === 'parser.extraBody') validateExtraBody();
     if (path === 'comfy.workflowSource') updateWorkflowVisibility();
+    if (path.startsWith('comfy.slg') || path.startsWith('comfy.workflow')) updateSlgUi();
     if (path === 'enabled' || path === 'autoModelByRating') updateRatingPrompt();
+    if (path === 'autoModelByRating') updateProfileLabel();
     if (path === 'enabled' || path.startsWith('statusBar.')) {
         updateStatusPrompt();
         updateStatusVisibility();
@@ -417,13 +438,13 @@ function renderExtraLoras() {
     if (!container) return;
     container.innerHTML = settings.comfy.extraLoras.map((lora, index) => `
         <div class="ctp-row ctp-extra-lora" data-index="${index}">
-            <input type="checkbox" data-extra="enabled" title="使用" ${lora.enabled !== false ? 'checked' : ''}>
+            <input type="checkbox" data-extra="enabled" title="使用这个 LoRA" ${lora.enabled !== false ? 'checked' : ''}>
             <select class="text_pole" data-picker="comfy.extraLoras.${index}.name" data-list="lora"></select>
-            <input type="number" class="text_pole" step="0.05" data-extra="strength" title="强度" value="${escapeHtml(String(lora.strength ?? 1))}">
-            <select class="text_pole ctp-extra-preset" data-extra="presetId" title="用于">
+            <label class="ctp-inline">强度 <input type="number" class="text_pole" step="0.05" data-extra="strength" value="${escapeHtml(String(lora.strength ?? 1))}"></label>
+            <label class="ctp-inline ctp-extra-for">用于 <select class="text_pole ctp-extra-preset" data-extra="presetId">
                 ${[['', '所有图'], ...presets.map(preset => [preset.id, `只画${displayName(preset)}时`])]
                     .map(([id, label]) => `<option value="${escapeHtml(id)}" ${id === (lora.presetId || '') ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
-            </select>
+            </select></label>
             <div class="menu_button fa-solid fa-trash-can" data-extra-remove title="删除"></div>
         </div>`).join('');
     bindPickers(container);
@@ -513,7 +534,7 @@ function initLoraEditor() {
 /** Options of the preset editor's render profile select (default + every profile). */
 function renderPresetRenderOptions() {
     const preset = currentPreset();
-    const options = [['', '默认（ComfyUI 区的设置）'], ...getSettings().renderProfiles.map(profile => [profile.id, profile.name])];
+    const options = [['', '默认（用「出图参数」里的设置）'], ...getSettings().renderProfiles.map(profile => [profile.id, profile.name])];
     $('#ctp_preset_render')
         .html(options.map(([id, name]) => `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`).join(''))
         .val(renderProfileFor(preset)?.id ?? '');
@@ -583,9 +604,12 @@ export function syncPersonaProfile() {
     return true;
 }
 
+/** Whose profile the settings are, in 模式与档案 — and in its header with the automatic switch, to see while it is folded. */
 function updateProfileLabel() {
     const settings = getSettings();
-    $('#ctp_profile_label').text(settings.perPersonaProfiles && settings.profilePersona ? `当前档案：人设「${personaName(settings.profilePersona)}」` : '所有人设共用一套设置');
+    const profile = settings.perPersonaProfiles && settings.profilePersona ? `当前档案：人设「${personaName(settings.profilePersona)}」` : '所有人设共用一套设置';
+    $('#ctp_profile_label').text(profile);
+    $('#ctp_modes_state').text(`按画面自动切换模型：${settings.autoModelByRating ? '开' : '关'} · ${profile}`);
 }
 
 /** Called after a persona switch: show the new persona's preset and say what {{user}} now uses. */
@@ -885,7 +909,7 @@ function validateWorkflow(text = getSettings().comfy.workflow) {
             prompt: 'test', negative_prompt: '', width: 1024, height: 1024, seed: 1, steps: 8, cfg: 1, scale: 1,
             sampler: 'euler', scheduler: 'simple', denoise: 1, unet: 'a', model: 'a', clip: 'b', vae: 'c',
             lora: '', lora_strength: 0, lora_clip_strength: 0, char_lora: '', char_lora_strength: 0, char_lora_clip_strength: 0, filename_prefix: 'x', batch_size: 1,
-            slg_layers: '',
+            slg_layers: '', slg_start: 0, slg_end: 0.5,
         });
         const placeholders = [...new Set(text.match(/%\w+%/g) || [])];
         toastr.success(`${placeholders.length ? `占位符：${placeholders.join(' ')}` : '无占位符，将使用自动注入'}${notes.length ? `\n${notes.join('\n')}` : ''}`, '工作流可用', { timeOut: 8000 });
@@ -901,6 +925,7 @@ function refreshComfyUi() {
     syncResolutionSelect();
     updateMegapixels();
     updateWorkflowVisibility();
+    updateSlgUi();
 }
 
 /** What "恢复为官方模板的设置" asks and sets in each mode. */
@@ -917,7 +942,7 @@ const OFFICIAL = {
         done: '已恢复为官方 Anima 模板的设置',
     },
     [MODEL_MOSS]: {
-        question: '恢复为 ComfyUI 官方 MOSS-Image 模板的设置？<br>内置工作流、官方模型文件（moss_image_sft_int8_convrot、qwen3.5_9b_w4a8_gptq、flux2-vae_small）、不用风格 LoRA、1024×1024、25 步、CFG 2.5、er_sde / simple、关闭跳层引导、随机种子，反向提示词换成官方模板推荐的那一段（以 nsfw 开头）；用过 FKEY 漫画画风 LoRA 的话，它的触发词和画风前缀也去掉。',
+        question: '恢复为 ComfyUI 官方 MOSS-Image 模板的设置？<br>内置工作流、官方模型文件（moss_image_sft_int8_convrot、qwen3.5_9b_w4a8_gptq、flux2-vae_small）、不用风格 LoRA、1024×1024、25 步、CFG 2.5、er_sde / simple、关闭跳层引导（层号、开始、结束也换回官方模板的 22、0、0.5）、随机种子，反向提示词换成官方模板推荐的那一段（以 nsfw 开头）；用过 FKEY 漫画画风 LoRA 的话，它的触发词和画风前缀也去掉。',
         comfy: OFFICIAL_MOSS,
         negative: MOSS_NEGATIVE,
         done: '已恢复为官方 MOSS-Image 模板的设置',
@@ -958,17 +983,17 @@ async function useAnimaTurbo() {
     toastr.success('已改用 Anima Turbo LoRA：8 步、CFG 1');
 }
 
-/** Closer to OpenMOSS's own results: 50 steps, CFG 3, Euler / sgm_uniform and skip layer guidance on layer 22. */
+/** Closer to OpenMOSS's own results: 50 steps, CFG 3, Euler / sgm_uniform and skip layer guidance on layer 22 all the way. */
 async function useMossQuality() {
     const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
     const confirmed = await callGenericPopup(
-        '改用 OpenMOSS 官方推荐的采样？<br>50 步、CFG 3、euler / sgm_uniform，打开跳层引导（第 22 层）。ComfyUI 模板为了速度用的是 25 步、CFG 2.5；这一套更接近 OpenMOSS 官方效果，但每张图要多花一倍时间。跳层引导可能让动漫画风颜色过重，不喜欢可以单独关掉。想换回来点「恢复为官方 MOSS-Image 模板的设置」。',
+        '改用 OpenMOSS 官方推荐的采样？<br>50 步、CFG 3、euler / sgm_uniform，打开跳层引导（第 22 层，从头到尾：开始 0、结束 1，和 OpenMOSS 自己的界面一样）。ComfyUI 模板为了速度用的是 25 步、CFG 2.5；这一套更接近 OpenMOSS 官方效果，但每张图要多花一倍时间。跳层引导可能让动漫画风颜色过重，不喜欢可以单独关掉，或者把「结束」调小。想换回来点「恢复为官方 MOSS-Image 模板的设置」。',
         POPUP_TYPE.CONFIRM);
     if (confirmed !== POPUP_RESULT.AFFIRMATIVE || currentMode() !== MODEL_MOSS) return;
     Object.assign(getSettings().comfy, structuredClone(MOSS_QUALITY));
     saveSettings();
     refreshComfyUi();
-    toastr.success('已改用 OpenMOSS 官方推荐：50 步、CFG 3、跳层引导');
+    toastr.success('已改用 OpenMOSS 官方推荐：50 步、CFG 3、跳层引导（第 22 层，0 → 1）');
 }
 
 /** The trigger words without FKEY's tag (as the user wrote them otherwise). */
@@ -982,7 +1007,11 @@ function withoutFkeyTrigger(text) {
  */
 /** MOSS-Image 提示词 skill: download it again, or take the file the user downloaded (see mossSkill.js). */
 function initMossSkillUi() {
-    const showState = () => $('#ctp_moss_skill_state').text(mossSkillStatus());
+    const showState = () => {
+        const state = mossSkillStatus();
+        $('#ctp_moss_skill_state').text(state);
+        $('#ctp_moss_skill_download').text(state.startsWith('已下载') ? '重新下载' : '下载');
+    };
     $('#ctp_moss_skill_download').on('click', async () => {
         $('#ctp_moss_skill_state').text('下载中…');
         try {
@@ -1156,12 +1185,14 @@ function applyModeChrome() {
         this.setAttribute('aria-checked', String(active));
     });
     $('.ctp-settings .ctp-mode-only').each(function () {
-        $(this).toggle(this.dataset.mode === mode);
+        $(this).toggle(String(this.dataset.mode).split(' ').includes(mode));
     });
+    // The skill's download state only matters while the parser is told to follow it.
+    $('#ctp_moss_skill_tools').toggle(mossSkill);
     $('#ctp_workflow_builtin_option').text(builtinWorkflowName(mode).replace(/^内置\s*/, '内置：'));
     $('#ctp_reset_official').text(text.official);
     $('#ctp_negative').attr('placeholder', text.negativePlaceholder);
-    $('#ctp_negative_hint').text(text.negativeHint).toggle(!!text.negativeHint);
+    $('#ctp_negative_hint').text(text.negativeHint);
     $('#ctp_trigger_words').attr('placeholder', text.triggerPlaceholder);
     // Anima's prompt style switch (tags / English sentences)
     const natural = !!getSettings().naturalLanguage;
@@ -1244,6 +1275,7 @@ function refreshAllSettingsUi() {
     updateSideOptionsVisibility();
     validateExtraBody();
     updateThinkingHint();
+    updateSlgUi();
     $('#ctp_lists_status').text(listsSummary());
     // A persona switch is noticed against the new mode's {{user}} preset.
     lastUserKey = `${currentPersona()}|${findUserPreset()?.id ?? ''}`;
@@ -1330,6 +1362,7 @@ function setSubOpen(sub, open) {
     icon?.classList.toggle('fa-circle-chevron-down', !open);
     const content = sub.querySelector(':scope > .inline-drawer-content');
     if (content) content.style.display = open ? 'block' : 'none';
+    sub.classList.toggle('ctp-open', open);
 }
 
 /** Remembers which groups are open in this browser only (a viewing preference, not a setting). */
@@ -1356,7 +1389,9 @@ function initSubSections(root) {
         if (Array.isArray(open) && open.includes(sub.dataset.sub)) setSubOpen(sub, true);
         // SillyTavern's drawer handler flips the icon, then fires this (jQuery) event.
         $(sub).on('inline-drawer-toggle', event => {
-            if (event.target === sub) saveOpenSections(root);
+            if (event.target !== sub) return;
+            sub.classList.toggle('ctp-open', !!subIcon(sub)?.classList.contains('up'));
+            saveOpenSections(root);
         });
     }
     const setAll = value => {
@@ -1365,6 +1400,92 @@ function initSubSections(root) {
     };
     $('#ctp_expand_all').on('click', () => setAll(true));
     $('#ctp_collapse_all').on('click', () => setAll(false));
+}
+
+/* ---------------- 说明 (ⓘ) and folded parts ---------------- */
+
+const HELP_ALL_KEY = 'ctp_help_all';
+const FOLDS_KEY = 'ctp_folds';
+
+/** The explanation a ⓘ opens: the .ctp-help block right after the control (label, row, heading) it sits in. */
+function helpOf(button) {
+    for (let node = button; node && !node.classList.contains('ctp-settings'); node = node.parentElement) {
+        if (node.nextElementSibling?.classList.contains('ctp-help')) return node.nextElementSibling;
+    }
+    return null;
+}
+
+/**
+ * Explanations stay out of the way until asked for: a ⓘ opens the one of its control, 「显示全部说明」 opens them
+ * all (remembered in this browser, like the open sections).
+ */
+function initHelp(root) {
+    const toggle = button => {
+        const help = helpOf(button);
+        if (!help) return;
+        const open = help.classList.toggle('open');
+        button.classList.toggle('open', open);
+        button.setAttribute('aria-expanded', String(open));
+    };
+    root.querySelectorAll('.ctp-q').forEach(button => {
+        button.setAttribute('role', 'button');
+        button.setAttribute('tabindex', '0');
+        button.setAttribute('aria-expanded', 'false');
+        button.title = '说明';
+    });
+    // A ⓘ inside a label must not tick its checkbox or move the cursor into its field.
+    $(root).on('click', '.ctp-q', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggle(event.currentTarget);
+    });
+    $(root).on('keydown', '.ctp-q', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        toggle(event.currentTarget);
+    });
+
+    const showAll = on => {
+        root.classList.toggle('ctp-help-all', on);
+        $('#ctp_help_all > span').text(on ? '隐藏说明' : '显示全部说明');
+    };
+    let all = false;
+    try {
+        all = localStorage.getItem(HELP_ALL_KEY) === '1';
+    } catch {
+        all = false;
+    }
+    showAll(all);
+    $('#ctp_help_all').on('click', () => {
+        all = !all;
+        showAll(all);
+        try {
+            localStorage.setItem(HELP_ALL_KEY, all ? '1' : '0');
+        } catch {
+            // Not remembered (storage unavailable): explanations start hidden next time.
+        }
+    });
+}
+
+/** Folded parts inside a section (details[data-fold]): open or closed as they were left, in this browser. */
+function initFolds(root) {
+    let saved = null;
+    try {
+        saved = JSON.parse(localStorage.getItem(FOLDS_KEY) || 'null');
+    } catch {
+        saved = null;
+    }
+    const folds = [...root.querySelectorAll('details[data-fold]')];
+    for (const fold of folds) {
+        if (isPlainObject(saved) && typeof saved[fold.dataset.fold] === 'boolean') fold.open = saved[fold.dataset.fold];
+        fold.addEventListener('toggle', () => {
+            try {
+                localStorage.setItem(FOLDS_KEY, JSON.stringify(Object.fromEntries(folds.map(item => [item.dataset.fold, item.open]))));
+            } catch {
+                // Not remembered.
+            }
+        });
+    }
 }
 
 /* ---------------- debug / maintenance ---------------- */
@@ -1401,12 +1522,15 @@ export async function initSettingsUi() {
     bindPickers(root);
     initModeSwitch();
     initSubSections(root);
+    initHelp(root);
+    initFolds(root);
     initParserPresetUi();
     initResolution();
     updateSizeVisibility();
     updateMegapixels();
     validateExtraBody();
     updateThinkingHint();
+    updateSlgUi();
     $('#ctp_lists_status').text(listsSummary());
     initPresets();
     initLoraEditor();
