@@ -3,6 +3,7 @@
  * format the provider understands. Providers disagree on the parameter, so the format is picked from the API
  * address and model name (or chosen by hand). Nothing is sent in "default", so the model behaves as before.
  */
+import { nativeProvider } from './providers.js';
 import { getSettings } from './utils.js';
 
 export const THINKING_FORMATS = {
@@ -18,6 +19,9 @@ export const THINKING_EFFORTS = { minimal: '最低', low: '低', medium: '中', 
 
 /** Thinking budget (tokens) of each effort, for providers that take a budget instead of an effort. */
 const BUDGET = { minimal: 512, low: 1024, medium: 4096, high: 16384, xhigh: 24576, max: 32768 };
+
+/** The output limit a Gemini that thinks by default gets at least on Vertex AI (thinking and answer together). */
+export const GEMINI_ROOM = 8192;
 
 /** The efforts of SillyTavern's own setting (min, low, medium, high, max), which it turns into each provider's. */
 const SILLYTAVERN_EFFORT = { minimal: 'min', xhigh: 'max' };
@@ -46,6 +50,8 @@ export function thinkingFormat(parser = getSettings().parser) {
     const url = String(parser.customUrl || '').toLowerCase();
     const model = String(parser.customModel || '').toLowerCase();
     if (url.includes('openrouter.ai')) return 'openrouter';
+    // 硅基流动 switches thinking with enable_thinking for every model it hosts (DeepSeek and GLM included).
+    if (url.includes('siliconflow')) return 'qwen';
     if (url.includes('anthropic.com') || model.includes('claude')) return 'claude';
     if (url.includes('dashscope') || model.includes('qwen') || model.includes('qwq')) return 'qwen';
     if (url.includes('bigmodel.cn') || url.includes('z.ai') || url.includes('volces.com') || url.includes('deepseek.com')
@@ -56,6 +62,45 @@ export function thinkingFormat(parser = getSettings().parser) {
 /** Whether the format can take an effort (the thinking.type format only switches thinking on or off). */
 export function formatHasEffort(format) {
     return format !== 'type';
+}
+
+/** A Gemini model name as Vertex AI's own API takes it: gemini-2.5-flash, without google/ or models/ in front. */
+export function geminiModel(name) {
+    return String(name ?? '').trim().replace(/^(?:publishers\/google\/)?(?:models\/)?/, '').replace(/^google\//, '');
+}
+
+/** Gemini models that think unless told not to (2.5 Flash and Pro, 3 and later); the thinking counts as output. */
+function geminiThinks(model) {
+    return /gemini-2\.5-(?:flash(?!-lite)|pro)|gemini-[3-9]/.test(model);
+}
+
+/**
+ * Google Vertex AI (the vertex provider, Gemini's own API): generationConfig.thinkingConfig for the 思考模式, or null
+ * to leave it to the model ("default", and models without a thinking setting). By model family, as Gemini wants it:
+ * - Gemini 3: a level. Pro has low and high only and cannot stop thinking; Flash has minimal to high (3.7 Flash
+ *   starts at low).
+ * - Gemini 2.5: a token budget. 0 switches thinking off, except for Pro (128 at least).
+ * With thinking on, the thoughts' summary is asked for too (shown in the debug view).
+ */
+export function vertexThinking(parser = getSettings().parser) {
+    const mode = parser.thinking;
+    if (mode !== 'on' && mode !== 'off') return null;
+    const on = mode === 'on';
+    const effort = effortOf(parser);
+    const model = geminiModel(parser.customModel).toLowerCase();
+    if (/gemini-3[.\d]*-pro/.test(model)) {
+        return { includeThoughts: on, thinkingLevel: on && ['high', 'xhigh', 'max'].includes(effort) ? 'high' : 'low' };
+    }
+    if (/gemini-3[.\d]*-flash/.test(model)) {
+        const lowest = /gemini-3\.7-flash/.test(model) ? 'low' : 'minimal';
+        return { includeThoughts: on, thinkingLevel: !on ? lowest : { minimal: lowest, low: 'low', medium: 'medium' }[effort] ?? 'high' };
+    }
+    const range = /gemini-2\.5-flash-lite/.test(model) ? [512, 24576]
+        : /gemini-2\.5-flash/.test(model) ? [1, 24576]
+            : /gemini-2\.5-pro/.test(model) ? [128, 32768] : null;
+    if (!range) return null;
+    if (!on) return { thinkingBudget: /pro/.test(model) ? 128 : 0 };
+    return { includeThoughts: true, thinkingBudget: Math.min(range[1], Math.max(range[0], BUDGET[effort])) };
 }
 
 /**
@@ -95,6 +140,11 @@ export function thinkingBody(parser = getSettings().parser) {
  */
 export function thinkingMaxTokens(parser = getSettings().parser) {
     const limit = Number(parser.maxTokens) || 2048;
+    if (nativeProvider(parser) === 'vertex') {
+        if (parser.thinking === 'on') return Math.max(limit, BUDGET[effortOf(parser)] + 2048);
+        // Left to itself ("default"), a Gemini that thinks can spend the whole limit on thinking.
+        return parser.thinking !== 'off' && geminiThinks(geminiModel(parser.customModel).toLowerCase()) ? Math.max(limit, GEMINI_ROOM) : limit;
+    }
     if (parser.thinking !== 'on' || !['qwen', 'claude'].includes(thinkingFormat(parser))) return limit;
     return Math.max(limit, BUDGET[effortOf(parser)] + 2048);
 }
@@ -127,6 +177,10 @@ export function describeThinking(parser = getSettings().parser) {
         const payload = profileThinking(parser);
         const rounded = parser.thinking === 'on' && effortOf(parser) === 'xhigh' ? '（酒馆没有「超高」，按「最大」发送）' : '';
         return `思考模式：${label} · 连接配置${Object.keys(payload).length ? `：发送 ${JSON.stringify(payload)}${rounded}，由酒馆按服务商转换` : '：关闭时沿用连接配置自己的设置'}`;
+    }
+    if (nativeProvider(parser) === 'vertex') {
+        const config = vertexThinking(parser);
+        return `思考模式：${label} · Vertex AI（Gemini 原生参数）：${config ? `发送 thinkingConfig ${JSON.stringify(config)}` : '这个模型没有可调的思考参数，不发送'}`;
     }
     const auto = THINKING_FORMATS[parser.thinkingFormat] ? '' : '（自动判断）';
     const omitted = thinkingOmits(parser).length ? `，不发送 ${thinkingOmits(parser).join('、')}` : '';

@@ -637,14 +637,25 @@
                 <div class="inline-drawer-content">
                     <label>来源
                         <select class="text_pole" data-ctp="parser.source" id="ctp_parser_source">
-                            <option value="custom">独立 API（OpenAI 兼容，经酒馆后端转发）</option>
+                            <option value="custom">独立 API（选供应商：OpenRouter、硅基流动、Vertex AI，或自己填 OpenAI 兼容的地址）</option>
                             <option value="profile">酒馆连接配置（Connection Profile）</option>
                             <option value="main">酒馆当前 API（和正文共用）</option>
                         </select>
                     </label>
                     <div class="ctp-source" data-source="custom">
-                        <label>API 地址（到 /v1 为止）<input type="text" class="text_pole" data-ctp="parser.customUrl" placeholder="https://api.deepseek.com/v1"></label>
-                        <label>API Key <input type="password" class="text_pole" data-ctp="parser.customKey" autocomplete="off"></label>
+                        <label>供应商（各存各的 Key，切换时自动换）
+                            <select class="text_pole" id="ctp_parser_provider"></select>
+                        </label>
+                        <small class="ctp-hint" id="ctp_provider_hint"></small>
+                        <label class="ctp-provider" data-provider="custom">API 地址（到 /v1 为止）<input type="text" class="text_pole" data-ctp="parser.customUrl" placeholder="https://api.deepseek.com/v1"></label>
+                        <label><span id="ctp_key_label">API Key</span> <input type="password" class="text_pole" data-ctp="parser.customKey" autocomplete="off"></label>
+                        <div class="ctp-provider" data-provider="vertex">
+                            <div class="ctp-row">
+                                <label class="flex1">区域（location）<input type="text" class="text_pole" data-ctp="parser.vertexRegion" placeholder="global"></label>
+                                <label class="flex1">项目 ID（可选）<input type="text" class="text_pole" data-ctp="parser.vertexProject" placeholder="不填：快速模式不用，服务账号用 JSON 里的"></label>
+                            </div>
+                            <small class="ctp-hint">区域一般填 global；要指定地区就填 us-central1 这样的区域名。项目 ID：快速模式的 Key 不用填；服务账号用 JSON 文件里的 project_id，想用别的项目才填。</small>
+                        </div>
                         <div class="ctp-row">
                             <label class="flex1">模型 <select class="text_pole" data-picker="parser.customModel" data-list="parserModels"></select></label>
                             <div class="menu_button" id="ctp_parser_models">获取模型</div>
@@ -686,7 +697,8 @@
                             </select>
                         </label>
                     </div>
-                    <label class="ctp-source" data-source="custom">思考参数格式
+                    <div class="ctp-source" data-source="custom">
+                    <label class="ctp-provider" data-not-provider="vertex">思考参数格式
                         <select class="text_pole" data-ctp="parser.thinkingFormat">
                             <option value="auto">自动（按 API 地址和模型名判断）</option>
                             <option value="openai">OpenAI 格式 reasoning_effort（OpenAI、Gemini、Grok 等）</option>
@@ -696,6 +708,7 @@
                             <option value="claude">Claude 格式 thinking + effort（Claude 4.5 及更早用 budget_tokens）</option>
                         </select>
                     </label>
+                    </div>
                     <small class="ctp-hint" id="ctp_thinking_hint"></small>
                     <div class="ctp-source" data-source="custom">
                         <div class="ctp-row">

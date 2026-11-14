@@ -11,6 +11,7 @@
 - **两种提示词生成方式**：固定外貌 + AI 补充，或者把人设交给 AI 让它写完整提示词
 - **画图指令**：在消息里写 `[[...]]` 或 `【【...】】`，括号里的内容只给配图解析模型，正文 AI 看不到
 - **正文状态栏**：让写正文的 AI 在每次回复末尾写一个可折叠的状态栏（穿着、动作、状态、心情），正文 AI 和解析模型都能看到，解析模型重点参考它
+- **解析模型的供应商**：OpenRouter、硅基流动、Google Vertex AI（快速模式 Key 或服务账号 JSON）直接选，或者自己填任何 OpenAI 兼容的地址；每个供应商各存各的 Key，切换时自动换（见「解析模型的供应商」）
 - 解析模型可以参考**之前几次配图的输出**（解析结果 + 最终提示词），也可以选择读取**当前世界书**
 - **每个用户人设一个档案**：切换酒馆的用户人设时，角色预设、LoRA、提示词、模型模式等整套设置自动换成那个人设的
 - **出图参数预设**：调好的模型、LoRA、采样存成预设，换角色卡时一键套用，也可以绑定到角色卡自动套用（见「出图参数预设」）
@@ -220,7 +221,7 @@ MOSS-Image 模式的默认值：
 
 1. **ComfyUI 连接**（设置面板最下面的 API 设置里）：填地址（默认 `http://127.0.0.1:8188`），点「测试连接」。连接方式默认「酒馆后端代理」，不需要给 ComfyUI 开 CORS
 2. **解析模型**（同样在最下面的 API 设置里，三选一）
-   - 独立 API：任意 OpenAI 兼容接口（DeepSeek、智谱 GLM、OpenRouter、本地 LM Studio / Ollama 的 `/v1`……），填地址、Key，点「获取模型」后在下拉框里选模型。请求经酒馆后端转发。
+   - 独立 API：先选「供应商」——OpenRouter、硅基流动、Google Vertex AI 只要填 Key；「自定义」是任意 OpenAI 兼容接口（DeepSeek、智谱 GLM、本地 LM Studio / Ollama 的 `/v1`……），填地址和 Key。点「获取模型」后在下拉框里选模型。每个供应商各存各的 Key，切换时自动换（见「解析模型的供应商」）。
      「附加请求参数」里的 JSON 会合并进请求体，例如 GLM 关闭思考：`{"thinking": {"type": "disabled"}}`
    - 酒馆连接配置：在酒馆的 Connection Manager 里建一个配置，这里选它
    - 酒馆当前 API：和正文共用
@@ -471,13 +472,42 @@ MOSS-Image 的文本编码器（Qwen3.5）中英文都能理解。MOSS-Image 模
 - 如果你更想用世界书：可以不打开这个开关，把「预览」里的说明复制进一个常驻的世界书条目，只要格式一样，解析模型照样会重点参考
 - 酒馆「用户设置」里的「在响应中显示标签」（Show <tags> in responses）打开时，HTML 会原样显示成文字，状态栏就不会折叠；默认是关的
 
+## 解析模型的供应商（OpenRouter / 硅基流动 / Google Vertex AI）
+
+「解析模型」来源选「独立 API」时，下面有一个 **供应商** 下拉框：
+
+| 供应商 | 要填什么 | 说明 |
+|---|---|---|
+| 自定义（OpenAI 兼容） | API 地址（到 `/v1` 为止）、Key | 和以前一样，任何 OpenAI 兼容的接口 |
+| OpenRouter | Key | 地址固定 `https://openrouter.ai/api/v1`；模型名是「厂商/模型」；思考参数自动用 `reasoning` 格式 |
+| 硅基流动 SiliconFlow（国内站） | Key | 地址固定 `https://api.siliconflow.cn/v1`；「获取模型」只列对话模型；思考参数自动用 `enable_thinking` + `thinking_budget`（只有能开关思考的模型认，别的模型把「思考模式」留在默认） |
+| SiliconFlow（国际站） | Key | 地址固定 `https://api.siliconflow.com/v1`，Key 和国内站不通用 |
+| Google Vertex AI | Key、区域、项目 ID（可选） | Gemini 模型，见下 |
+
+- **每个供应商各自保存** Key、模型、模型列表、思考参数格式和附加请求参数。切换供应商时，当前的收起来，换成那个供应商自己保存的——不用每次重新粘贴 Key。温度、最大输出、思考模式、工具调用这些是所有供应商共用的
+- 以前在「自定义」里手填过 OpenRouter / 硅基流动地址的：第一次切到对应的供应商时，会把原来的 Key 和模型带过去
+- Key 保存在酒馆的扩展设置里（和以前一样）；所有模型模式、所有人设共用
+
+**Google Vertex AI**：
+
+- 用 Gemini 的原生接口（`generateContent`），**由浏览器直接连接 Google**（`aiplatform.googleapis.com`），不经过酒馆后端：打开酒馆的这台设备要能访问 Google。连不上的话，可以在酒馆的「API 连接」里配好 Vertex AI，建一个连接配置，解析模型的来源改选「酒馆连接配置」，由酒馆后端去连
+- **Key** 填两种之一：
+  - 快速模式（Express Mode）的 API Key：直接粘贴
+  - 服务账号的 JSON 密钥文件：把整个文件的内容粘贴进 Key 框。浏览器要给它签名换访问令牌，所以要用 `https` 或 `http://127.0.0.1` / `localhost` 打开酒馆（用局域网 IP 的 http 地址打开时做不了，会提示）。它和别的 Key 一样明文保存在酒馆的扩展设置里，而服务账号的权限比 API Key 大：建议专门建一个只有 Vertex AI 权限（Vertex AI User）的服务账号
+- **区域**一般填 `global`；要指定地区就填 `us-central1` 这样的区域名。**项目 ID**：快速模式的 Key 不用填；服务账号默认用 JSON 里的 `project_id`
+- **模型**填 `gemini-2.5-flash` 这样的名字（不带 `google/`）。Vertex 的模型列表读不到，「获取模型」会列出常用的 Gemini 模型，别的在下拉框里选「手动输入」
+- 思考模式按 Gemini 自己的参数发（`thinkingConfig`）：Gemini 3 用思考等级（Pro 只有 low / high，关不掉；Flash 是 minimal / low / medium / high），Gemini 2.5 用思考预算（关闭 = 0，Pro 最少 128）。设置下面会显示实际发送的参数
+- Gemini 2.5 Flash / Pro 和 Gemini 3 默认就会思考，思考也算在输出里：「思考模式」是默认时，「最大输出」不到 8192 的按 8192 发送，免得还没写 JSON 就被截断
+- 「用工具调用返回结果」照常能用（按 Gemini 的函数调用格式发）；安全过滤全部关掉（和酒馆自己调 Vertex 时一样），剧情不会被当成违规内容拦下
+- 「附加请求参数」合并进 Gemini 的请求体，例如 `{"generationConfig": {"topP": 0.9}}`
+
 ## 解析模型的思考模式
 
 「解析模型」里的 **思考模式** 和 **思考强度**：
 
 - 默认：不发送任何思考参数（和以前一样）；关闭思考：更快、不占输出额度；开启思考：先思考再写，可以选强度 **最低 / 低 / 中 / 高 / 超高 / 最大**（minimal / low / medium / high / xhigh / max）
 - 最低、超高、最大不是每家都支持：OpenAI 新模型有 minimal 和 xhigh，Claude 有 xhigh 和 max；接口不认识的强度会报错，换回 低 / 中 / 高 就行。超高、最大会想很久，记得把「最大输出」调大
-- 各家接口的思考参数不一样，「思考参数格式」默认按 API 地址和模型名自动判断，也可以手动选：
+- 各家接口的思考参数不一样，「思考参数格式」默认按 API 地址和模型名自动判断（OpenRouter 用它自己的格式，硅基流动用通义千问格式；Vertex AI 用 Gemini 自己的参数，没有这个选项），也可以手动选：
   - OpenAI 格式 `reasoning_effort`（OpenAI、Gemini、Grok 等；强度原样发送，关闭 = `none`）
   - OpenRouter 格式 `reasoning: {enabled, effort}`（强度原样发送）
   - `thinking.type` 格式（智谱 GLM、豆包、DeepSeek；只有开 / 关，没有强度）
@@ -495,6 +525,7 @@ MOSS-Image 的文本编码器（Qwen3.5）中英文都能理解。MOSS-Image 模
 - 请求里带上一个 `submit_picture` 工具，要求解析模型调用它交回结果：画面字段（服装、动作、表情……）、「AI 写完整提示词」的整段 prompt、插图位置、多张图的每一段、漫画的 JSON 版面都作为工具的参数，**不在正文里写出 JSON 或提示词**。适合 Gemini 这类擅长工具调用的模型
 - 工具调用的参数就按原来的 JSON 读取，后面的流程完全一样；模型没调用工具、照旧在正文里写了 JSON 时也能读（🐞 里会注明「没有调用工具」），🐞 的「解析模型原始输出」显示工具调用的参数
 - 「工具调用」：**自动**（`tool_choice: "auto"`，默认，由模型决定，大多数模型会调用）/ **必须调用**（`"required"`，模型不调用时用；Claude 的新模型不支持强制调用，会报错）。「附加请求参数」里自己写的 `tools` / `tool_choice` 优先
+- 供应商选 Google Vertex AI 时按 Gemini 的函数调用格式发（`functionDeclarations`，自动 = `AUTO`，必须调用 = `ANY`）
 - 「酒馆连接配置」和「酒馆当前 API」不支持（请求不是扩展自己发的）
 
 ## 解析模型能看到什么

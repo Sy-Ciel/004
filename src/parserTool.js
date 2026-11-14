@@ -1,8 +1,8 @@
 /**
  * 用工具调用返回结果: the parser model hands its result over by calling a tool (submit_picture) instead of writing
  * the JSON in its reply, for models that do better with tools (Gemini, for one). Independent API only: the tool goes
- * into the request body like the thinking parameters, and the call's arguments are read as the parser's JSON (a
- * reply that writes the JSON in the text instead is still read).
+ * into the request body like the thinking parameters (in Gemini's own format for Vertex AI, see vertex.js), and the
+ * call's arguments are read as the parser's JSON (a reply that writes the JSON in the text instead is still read).
  */
 import { getSettings } from './utils.js';
 
@@ -96,6 +96,14 @@ export function usesTool(parser = getSettings().parser) {
 export function toolBody(parser = getSettings().parser) {
     if (!usesTool(parser)) return {};
     return { tools: [TOOL], tool_choice: parser.toolChoice === 'required' ? 'required' : 'auto' };
+}
+
+/**
+ * The tool for an API with a format of its own (Gemini on Vertex AI): its declaration (name, description,
+ * parameters) and whether calling it is required; null when it is not used.
+ */
+export function toolDeclaration(parser = getSettings().parser) {
+    return usesTool(parser) ? { declaration: structuredClone(TOOL.function), required: parser.toolChoice === 'required' } : null;
 }
 
 /** Added to the System prompt: hand the result over with the tool, not as text. */

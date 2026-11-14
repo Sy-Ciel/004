@@ -218,6 +218,13 @@ export function isAbortError(error) {
     return error?.name === 'AbortError';
 }
 
+/** A mistake in the settings (no key, no model, bad JSON …): asking again cannot fix it, so it is not retried. */
+export function settingsError(message) {
+    const error = new Error(message);
+    error.noRetry = true;
+    return error;
+}
+
 export function errorMessage(error) {
     if (!error) return '未知错误';
     const parts = [error.message || String(error)];

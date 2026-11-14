@@ -38,10 +38,11 @@ import { renderProfileFor, sanitizeRenderProfile } from './renderProfiles.js';
 import { buildStatusInstruction, updateStatusPrompt } from './statusBar.js';
 import { updateRatingPrompt } from './rating.js';
 import { callParser, parseExtraBody } from './parser.js';
+import { PROVIDERS, nativeProvider, providerOf, providerUrl, switchProvider } from './providers.js';
 import { cancelAllJobs, enqueue, hasActiveJobs, planLoraLines, renderPlan } from './pipeline.js';
 import { renderAll } from './render.js';
 import { baseSize } from './resolution.js';
-import { describeThinking, formatHasEffort, thinkingFormat } from './thinking.js';
+import { GEMINI_ROOM, describeThinking, formatHasEffort, thinkingFormat } from './thinking.js';
 import { currentPersona, findPresetById, findUserPreset, personaList, presetForName, presetName, resolveUserPreset } from './targets.js';
 import { ctx, errorMessage, escapeHtml, getSettings, roundTo16, saveSettings, truncate } from './utils.js';
 
@@ -112,11 +113,14 @@ function updateMegapixels() {
 function updateThinkingHint() {
     const { parser } = getSettings();
     const format = thinkingFormat(parser);
-    const effortUsed = parser.thinking === 'on' && (parser.source !== 'custom' || formatHasEffort(format)) && parser.source !== 'main';
+    const vertex = nativeProvider(parser) === 'vertex';
+    // Only the thinking.type format of the OpenAI-compatible providers has no effort.
+    const noEffort = parser.source === 'custom' && !vertex && !formatHasEffort(format);
+    const effortUsed = parser.thinking === 'on' && !noEffort && parser.source !== 'main';
     $('#ctp_thinking_effort').prop('disabled', !effortUsed);
     const text = parser.thinking === 'default'
-        ? '默认：不发送任何思考参数，模型按它自己的默认方式思考或不思考。'
-        : `${describeThinking(parser)}${parser.source === 'custom' && !formatHasEffort(format) && parser.thinking === 'on' ? '。这种格式只有开 / 关，没有强度' : ''}`;
+        ? `默认：不发送任何思考参数，模型按它自己的默认方式思考或不思考。${vertex ? `Gemini 2.5 Flash / Pro 和 Gemini 3 默认会思考，思考也算在输出里：这时「最大输出」不到 ${GEMINI_ROOM} 的按 ${GEMINI_ROOM} 发送。` : ''}`
+        : `${describeThinking(parser)}${noEffort && parser.thinking === 'on' ? '。这种格式只有开 / 关，没有强度' : ''}`;
     $('#ctp_thinking_hint').text(`${text} 开启思考会更慢，也更占「最大输出」；最低、超高、最大不是每家都支持（例如 OpenAI 的 minimal / xhigh、Claude 的 max），不支持的接口会报错，换回低 / 中 / 高就行；「附加请求参数」里自己写的同名参数优先。`);
 }
 
@@ -124,7 +128,9 @@ function validateExtraBody() {
     const hint = $('#ctp_extra_body_hint');
     try {
         parseExtraBody();
-        hint.removeClass('ctp-warn').text('会合并进请求体。思考模型（GLM、DeepSeek-R1 等）容易把输出额度用在思考上导致返回空内容，可以在这里关闭思考。');
+        hint.removeClass('ctp-warn').text(nativeProvider() === 'vertex'
+            ? '会合并进 Gemini 的请求体（generateContent），例如 {"generationConfig": {"topP": 0.9}}。Key 保存在酒馆扩展设置里，由浏览器直接发给 Google。'
+            : '会合并进请求体。思考模型（GLM、DeepSeek-R1 等）容易把输出额度用在思考上导致返回空内容，可以在这里关闭思考。Key 保存在酒馆扩展设置里，经酒馆后端转发。');
     } catch (error) {
         hint.addClass('ctp-warn').text(error.message);
     }
@@ -231,6 +237,37 @@ function updateSourceVisibility() {
         $(this).toggle(this.dataset.source === source);
     });
     if (source === 'profile') refreshProfiles();
+    updateProviderUi();
+}
+
+/** 供应商 of the independent API: the choice, what it says about itself, and the fields only some providers have. */
+function updateProviderUi() {
+    const provider = providerOf();
+    const select = $('#ctp_parser_provider');
+    if (!select.children().length) {
+        select.html(Object.entries(PROVIDERS).map(([id, item]) => `<option value="${escapeHtml(id)}">${escapeHtml(item.label)}</option>`).join(''));
+    }
+    select.val(provider);
+    $('#ctp_provider_hint').text(`${PROVIDERS[provider].hint} 每个供应商各自保存 Key、模型、模型列表、思考参数格式和附加请求参数，切换供应商时自动换成它自己的。`);
+    $('#ctp_key_label').text(provider === 'vertex' ? 'Key（快速模式 API Key，或服务账号 JSON 的全部内容）' : 'API Key');
+    $('#ctp_extra_body').attr('placeholder', provider === 'vertex' ? '例：{"generationConfig": {"topP": 0.9}}' : '例：GLM 关闭思考 {"thinking": {"type": "disabled"}}');
+    $('.ctp-settings .ctp-provider').each(function () {
+        const { provider: only, notProvider: not } = this.dataset;
+        $(this).toggle(only ? only.split(' ').includes(provider) : !String(not ?? '').split(' ').includes(provider));
+    });
+}
+
+/** Another provider: its own key, model and the rest are put in place (see switchProvider). */
+function onProviderChange() {
+    const next = String($('#ctp_parser_provider').val());
+    if (!switchProvider(next)) return;
+    saveSettings();
+    syncSettingsUi();
+    updateProviderUi();
+    updateThinkingHint();
+    validateExtraBody();
+    const { parser } = getSettings();
+    toastr.info(parser.customKey ? `已换成 ${PROVIDERS[next].label} 保存的 Key${parser.customModel ? `和模型（${parser.customModel}）` : ''}` : `${PROVIDERS[next].label} 还没有保存 Key，填上就会记住`, 'ComfyUI 角色配图', { timeOut: 3000 });
 }
 
 function updateSideOptionsVisibility() {
@@ -732,7 +769,16 @@ function refreshProfiles() {
 
 async function fetchParserModels() {
     const { parser } = getSettings();
-    const url = parser.customUrl.trim().replace(/\/+$/, '');
+    const provider = PROVIDERS[providerOf(parser)];
+    // Vertex AI has no list an API key can read: the Gemini models known here, any other name typed in.
+    if (provider.native === 'vertex') {
+        parser.models = [...new Set([...provider.models, ...(parser.models || [])])];
+        saveSettings();
+        renderPickers();
+        toastr.info(`Vertex AI 的模型列表读不到，已列出常用的 ${provider.models.length} 个 Gemini 模型；别的模型在下拉框里选「手动输入」填名字`);
+        return;
+    }
+    const url = providerUrl(parser);
     if (!url) {
         toastr.warning('先填写 API 地址');
         return;
@@ -741,31 +787,35 @@ async function fetchParserModels() {
         const list = Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : Array.isArray(json?.data?.data) ? json.data.data : [];
         return list.map(item => (typeof item === 'string' ? item : item?.id)).filter(Boolean);
     };
-    let ids = [];
-    try {
-        const response = await fetch('/api/backends/chat-completions/status', {
-            method: 'POST',
-            headers: ctx().getRequestHeaders(),
-            body: JSON.stringify({
-                chat_completion_source: 'custom',
-                custom_url: url,
-                custom_include_headers: parser.customKey ? JSON.stringify({ Authorization: `Bearer ${parser.customKey.trim()}` }) : '',
-            }),
-        });
-        if (response.ok) ids = toIds(await response.json());
-    } catch {
-        // fall back to a direct request
-    }
+    const headers = parser.customKey ? { Authorization: `Bearer ${parser.customKey.trim()}` } : {};
+    const direct = async query => {
+        try {
+            const response = await fetch(`${url}/models${query ? `?${query}` : ''}`, { headers, signal: AbortSignal.timeout(15000) });
+            return response.ok ? toIds(await response.json()) : [];
+        } catch {
+            return [];
+        }
+    };
+    // A provider that lists picture, voice and embedding models too is asked for its chat models first (the
+    // SillyTavern server cannot pass the filter on).
+    let ids = provider.chat ? await direct(provider.chat) : [];
     if (!ids.length) {
         try {
-            const response = await fetch(`${url}/models`, {
-                headers: parser.customKey ? { Authorization: `Bearer ${parser.customKey.trim()}` } : {},
+            const response = await fetch('/api/backends/chat-completions/status', {
+                method: 'POST',
+                headers: ctx().getRequestHeaders(),
+                body: JSON.stringify({
+                    chat_completion_source: 'custom',
+                    custom_url: url,
+                    custom_include_headers: parser.customKey ? JSON.stringify(headers) : '',
+                }),
             });
             if (response.ok) ids = toIds(await response.json());
         } catch {
-            // ignore
+            // fall back to a direct request
         }
     }
+    if (!ids.length) ids = await direct('');
     if (ids.length) {
         getSettings().parser.models = [...new Set(ids)].sort();
         saveSettings();
@@ -1386,6 +1436,7 @@ export async function initSettingsUi() {
     });
     $('#ctp_profile_refresh').on('click', refreshProfiles);
     $('#ctp_parser_models').on('click', fetchParserModels);
+    $('#ctp_parser_provider').on('change', onProviderChange);
     $('#ctp_parser_test').on('click', testParser);
     $('#ctp_comfy_test').on('click', testComfy);
     $('#ctp_comfy_models').on('click', () => loadComfyLists());

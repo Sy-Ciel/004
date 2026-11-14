@@ -5,7 +5,9 @@ import { currentIndex } from './markup.js';
 import { chinesePrompt, currentMode, floorMode, imageMode, modeLabel, promptStyle } from './modes.js';
 import { CHINESE_PROMPT_RULE, NATURAL_STYLE_RULE } from './parserPresetDefaults.js';
 import { mossSkillBlock } from './mossSkill.js';
-import { TOOL_NAME, TOOL_REMINDER, TOOL_RULE, toolArguments, toolBody, usesTool } from './parserTool.js';
+import { TOOL_NAME, TOOL_REMINDER, TOOL_RULE, toolArguments, toolBody, toolDeclaration, usesTool } from './parserTool.js';
+import { PROVIDERS, nativeProvider, providerOf, providerUrl } from './providers.js';
+import { callVertex } from './vertex.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
 import { ASPECT_RATIOS, baseSize, parseAspect, parserPicksAspect } from './resolution.js';
 import { describeThinking, profileThinking, thinkingBody, thinkingMaxTokens, thinkingOmits } from './thinking.js';
@@ -21,6 +23,7 @@ import {
     isAbortError,
     plainText,
     resolveMacros,
+    settingsError,
     sleep,
     truncate,
     warn,
@@ -597,13 +600,6 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     };
 }
 
-/** A mistake in the settings: retrying the request cannot fix it. */
-function settingsError(message) {
-    const error = new Error(message);
-    error.noRetry = true;
-    return error;
-}
-
 function authHeaders(key) {
     return key ? JSON.stringify({ Authorization: `Bearer ${key}` }) : undefined;
 }
@@ -644,10 +640,15 @@ function readCompletion(json) {
 
 /** @returns {Promise<ParserReply>} */
 async function callCustom(system, user, signal, parser = getSettings().parser) {
+    // Google Vertex AI speaks Gemini's own API (see vertex.js); the other providers are OpenAI-compatible.
+    if (nativeProvider(parser) === 'vertex') {
+        return await callVertex(system, user, signal, parser, { tool: toolDeclaration(parser), extraBody: parseExtraBody() });
+    }
     const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
-    const url = parser.customUrl.trim().replace(/\/+$/, '');
+    const url = providerUrl(parser);
     if (!url) throw settingsError('未填写解析模型的 API 地址');
     if (!parser.customModel.trim()) throw settingsError('未填写解析模型名称');
+    if (PROVIDERS[providerOf(parser)].url && !parser.customKey.trim()) throw settingsError(`未填写 ${PROVIDERS[providerOf(parser)].label} 的 API Key`);
     // Thinking parameters and the tool first, so the user's own 「附加请求参数」 can override them.
     const extraBody = { ...thinkingBody(parser), ...toolBody(parser), ...parseExtraBody() };
     const maxTokens = thinkingMaxTokens(parser);
@@ -737,8 +738,10 @@ export function parserLabel() {
         }
         case 'main':
             return '酒馆当前 API';
-        default:
-            return `独立 API: ${parser.customModel}`;
+        default: {
+            const provider = providerOf(parser);
+            return `${provider === 'custom' ? '独立 API' : PROVIDERS[provider].label}: ${parser.customModel}`;
+        }
     }
 }
 

@@ -489,6 +489,16 @@ export const DEFAULT_SETTINGS = {
 
     parser: {
         source: 'custom',
+        /**
+         * 供应商 of the independent API: 'custom' (an address of one's own) | 'openrouter' | 'siliconflow' |
+         * 'siliconflow-global' | 'vertex' (see providers.js). customUrl, customKey, customModel, models, thinkingFormat
+         * and extraBody below are the chosen provider's; the others' are kept in providerStore until they are chosen.
+         */
+        provider: 'custom',
+        providerStore: {},
+        /** Google Vertex AI: the location (global, or a region such as us-central1) and, when it is needed, the project. */
+        vertexRegion: 'global',
+        vertexProject: '',
         customUrl: 'https://api.deepseek.com/v1',
         customKey: '',
         customModel: 'deepseek-chat',
