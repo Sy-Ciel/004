@@ -39,6 +39,7 @@ import { buildStatusInstruction, updateStatusPrompt } from './statusBar.js';
 import { updateRatingPrompt } from './rating.js';
 import { callParser, parseExtraBody } from './parser.js';
 import { PROVIDERS, nativeProvider, providerOf, providerUrl, switchProvider } from './providers.js';
+import { listVertexModels } from './vertex.js';
 import { cancelAllJobs, enqueue, hasActiveJobs, planLoraLines, renderPlan } from './pipeline.js';
 import { renderAll } from './render.js';
 import { baseSize } from './resolution.js';
@@ -796,12 +797,22 @@ function refreshProfiles() {
 async function fetchParserModels() {
     const { parser } = getSettings();
     const provider = PROVIDERS[providerOf(parser)];
-    // Vertex AI has no list an API key can read: the Gemini models known here, any other name typed in.
+    // Vertex AI: its own list of Gemini models; when Google refuses the list to this credential, the ones known here.
     if (provider.native === 'vertex') {
-        parser.models = [...new Set([...provider.models, ...(parser.models || [])])];
-        saveSettings();
-        renderPickers();
-        toastr.info(`Vertex AI 的模型列表读不到，已列出常用的 ${provider.models.length} 个 Gemini 模型；别的模型在下拉框里选「手动输入」填名字`);
+        toastr.info('正在向 Vertex AI 读取模型列表…', 'ComfyUI 角色配图', { timeOut: 2500 });
+        try {
+            const models = await listVertexModels(parser, AbortSignal.timeout(30000));
+            if (!models.length) throw new Error('列表里没有 Gemini 模型');
+            parser.models = models;
+            saveSettings();
+            renderPickers();
+            toastr.success(`读取到 ${models.length} 个 Gemini 模型，在「模型」下拉框里选择`);
+        } catch (error) {
+            parser.models = [...new Set([...provider.models, ...(parser.models || [])])];
+            saveSettings();
+            renderPickers();
+            toastr.warning(`Vertex AI 没有给出模型列表（${error?.name === 'TimeoutError' ? '30 秒没有回应' : errorMessage(error)}）。已列出内置的 ${provider.models.length} 个 Gemini 模型；别的模型在下拉框里选「手动输入」填名字`, '没有读取到模型列表', { timeOut: 12000 });
+        }
         return;
     }
     const url = providerUrl(parser);

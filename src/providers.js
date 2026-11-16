@@ -10,7 +10,7 @@ import { getSettings, isPlainObject } from './utils.js';
  * url: the provider's own address (OpenAI-compatible, up to /v1); without one the user fills it in.
  * native: not OpenAI-compatible, called in its own way ('vertex', see vertex.js).
  * chat: the query that leaves only chat models in its model list.
- * models: suggestions for a provider whose models cannot be listed.
+ * models: suggestions for a provider whose list may be refused (Vertex AI, to some keys).
  */
 export const PROVIDERS = {
     custom: {
@@ -37,13 +37,13 @@ export const PROVIDERS = {
     vertex: {
         label: 'Google Vertex AI',
         native: 'vertex',
-        // The Gemini text models SillyTavern lists for Vertex AI; any other name can be typed in.
+        // The Gemini text models SillyTavern lists for Vertex AI, until 获取模型 reads Vertex AI's own list; any other name can be typed in.
         models: [
             'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-pro-preview',
             'gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite',
             'gemini-2.0-flash',
         ],
-        hint: 'Vertex AI 上的 Gemini 模型，用 Gemini 原生接口，由浏览器直接连接 Google（这台设备要能访问 aiplatform.googleapis.com，不经过酒馆后端）。Key 填快速模式（Express Mode）的 API Key；或者把服务账号 JSON 密钥文件的全部内容粘贴进来（要用 https 或 127.0.0.1 / localhost 打开酒馆，浏览器才能给它签名；它和别的 Key 一样明文存在酒馆的扩展设置里，建议这个服务账号只给 Vertex AI 的权限）。模型填 gemini-2.5-flash 这样的名字（不带 google/）。',
+        hint: 'Vertex AI 上的 Gemini 模型，用 Gemini 原生接口，由浏览器直接连接 Google（这台设备要能访问 aiplatform.googleapis.com，不经过酒馆后端）。Key 填快速模式（Express Mode）的 API Key；或者把服务账号 JSON 密钥文件的全部内容粘贴进来（要用 https 或 127.0.0.1 / localhost 打开酒馆，浏览器才能给它签名；它和别的 Key 一样明文存在酒馆的扩展设置里，建议这个服务账号只给 Vertex AI 的权限）。模型点「获取模型」向 Vertex AI 读取（读不到时用内置的列表），或者手动填 gemini-2.5-flash 这样的名字（不带 google/）。',
     },
 };
 

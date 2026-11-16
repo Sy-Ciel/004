@@ -172,6 +172,48 @@ export function readVertexReply(json) {
     };
 }
 
+/** Models of the list that are not for writing text: embeddings, pictures, speech, live audio and the like. */
+const NOT_TEXT = /embedding|image|imagen|tts|live|audio|robotics|computer-use|veo|lyria/;
+
+/**
+ * The Gemini models Vertex AI lists for this credential (publishers.models.list, v1beta1), newest names first.
+ * Throws with Google's own words when the list is refused (some API keys may only generate).
+ * @returns {Promise<string[]>}
+ */
+export async function listVertexModels(parser, signal) {
+    const credential = vertexCredential(parser.customKey);
+    if (!credential) throw settingsError('未填写 Vertex AI 的 Key（快速模式的 API Key，或服务账号 JSON）');
+    const region = String(parser.vertexRegion ?? '').trim().toLowerCase() || 'global';
+    if (!/^[a-z0-9-]+$/.test(region)) throw settingsError(`Vertex AI 的区域「${region}」不对：填 global，或 us-central1 这样的区域名`);
+    const host = region === 'global' ? 'aiplatform.googleapis.com' : `${region}-aiplatform.googleapis.com`;
+    const headers = credential.key ? { 'x-goog-api-key': credential.key } : { Authorization: `Bearer ${await accessToken(credential.account, signal)}` };
+    const names = new Set();
+    let pageToken = '';
+    // The list holds every publisher model, a page at a time; twenty pages are more than it has.
+    for (let page = 0; page < 20; page++) {
+        const query = new URLSearchParams({ pageSize: '100', ...(pageToken ? { pageToken } : {}) });
+        const response = await request(`https://${host}/v1beta1/publishers/google/models?${query}`, { headers, signal }, host);
+        const text = await response.text().catch(() => '');
+        let json = null;
+        try {
+            json = JSON.parse(text);
+        } catch {
+            // not JSON: reported below as it is
+        }
+        if (!response.ok) {
+            if (response.status === 401 && credential.account) tokens.delete(credential.account.client_email);
+            throw new Error(`${response.status}：${truncate(json?.error?.message || text || '没有说明', 300)}`);
+        }
+        for (const model of json?.publisherModels ?? []) {
+            const name = geminiModel(String(model?.name ?? ''));
+            if (name.startsWith('gemini-') && !NOT_TEXT.test(name)) names.add(name);
+        }
+        pageToken = String(json?.nextPageToken ?? '');
+        if (!pageToken) break;
+    }
+    return [...names].sort((a, b) => b.localeCompare(a, 'en', { numeric: true }));
+}
+
 /**
  * One parser request to Vertex AI.
  * @param {{ tool?: { declaration: object, required: boolean } | null, extraBody?: object | null }} [options]

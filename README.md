@@ -510,7 +510,7 @@ MOSS-Image 的文本编码器（Qwen3.5）中英文都能理解。MOSS-Image 模
   - 快速模式（Express Mode）的 API Key：直接粘贴
   - 服务账号的 JSON 密钥文件：把整个文件的内容粘贴进 Key 框。浏览器要给它签名换访问令牌，所以要用 `https` 或 `http://127.0.0.1` / `localhost` 打开酒馆（用局域网 IP 的 http 地址打开时做不了，会提示）。它和别的 Key 一样明文保存在酒馆的扩展设置里，而服务账号的权限比 API Key 大：建议专门建一个只有 Vertex AI 权限（Vertex AI User）的服务账号
 - **区域**一般填 `global`；要指定地区就填 `us-central1` 这样的区域名。**项目 ID**：快速模式的 Key 不用填；服务账号默认用 JSON 里的 `project_id`
-- **模型**填 `gemini-2.5-flash` 这样的名字（不带 `google/`）。Vertex 的模型列表读不到，「获取模型」会列出常用的 Gemini 模型，别的在下拉框里选「手动输入」
+- **模型**填 `gemini-2.5-flash` 这样的名字（不带 `google/`）。点「获取模型」会向 Vertex AI 读取它的 Gemini 模型列表（只留写文字的模型，新的排在前面）；Google 不给这个 Key 列表、或者连不上时，会说明原因并列出内置的常用 Gemini 模型，别的在下拉框里选「手动输入」
 - 思考模式按 Gemini 自己的参数发（`thinkingConfig`）：Gemini 3 用思考等级（Pro 只有 low / high，关不掉；Flash 是 minimal / low / medium / high），Gemini 2.5 用思考预算（关闭 = 0，Pro 最少 128）。设置下面会显示实际发送的参数
 - Gemini 2.5 Flash / Pro 和 Gemini 3 默认就会思考，思考也算在输出里：「思考模式」是默认时，「最大输出」不到 8192 的按 8192 发送，免得还没写 JSON 就被截断
 - 「用工具调用返回结果」照常能用（按 Gemini 的函数调用格式发）；安全过滤全部关掉（和酒馆自己调 Vertex 时一样），剧情不会被当成违规内容拦下
