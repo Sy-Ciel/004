@@ -801,17 +801,23 @@ async function fetchParserModels() {
     if (provider.native === 'vertex') {
         toastr.info('正在向 Vertex AI 读取模型列表…', 'ComfyUI 角色配图', { timeOut: 2500 });
         try {
-            const models = await listVertexModels(parser, AbortSignal.timeout(30000));
-            if (!models.length) throw new Error('列表里没有 Gemini 模型');
+            // What an API key is tried with when Google gives it no list: the names known here, SillyTavern's own
+            // Vertex AI list (it grows with SillyTavern), and the ones in the picker already.
+            const known = [...document.querySelectorAll('#model_vertexai_select option')].map(option => option.value);
+            const candidates = [...provider.models, ...known, ...(parser.models || []), parser.customModel];
+            const { models, tried } = await listVertexModels(parser, AbortSignal.timeout(45000), candidates);
+            if (!models.length) throw new Error(tried ? `试了 ${tried} 个 Gemini 模型，这个 Key 一个都用不了` : '列表里没有 Gemini 模型');
             parser.models = models;
             saveSettings();
             renderPickers();
-            toastr.success(`读取到 ${models.length} 个 Gemini 模型，在「模型」下拉框里选择`);
+            toastr.success(tried
+                ? `这个 Key 能用的 Gemini 模型有 ${models.length} 个（快速模式的 Key 读不了模型列表，所以把已知的 ${tried} 个逐个试了一遍）。在「模型」下拉框里选择；更新的模型选「手动输入」填名字`
+                : `读取到 ${models.length} 个 Gemini 模型，在「模型」下拉框里选择`, '', { timeOut: 8000 });
         } catch (error) {
             parser.models = [...new Set([...provider.models, ...(parser.models || [])])];
             saveSettings();
             renderPickers();
-            toastr.warning(`Vertex AI 没有给出模型列表（${error?.name === 'TimeoutError' ? '30 秒没有回应' : errorMessage(error)}）。已列出内置的 ${provider.models.length} 个 Gemini 模型；别的模型在下拉框里选「手动输入」填名字`, '没有读取到模型列表', { timeOut: 12000 });
+            toastr.warning(`Vertex AI 没有给出模型列表（${error?.name === 'TimeoutError' ? '45 秒没有回应' : errorMessage(error)}）。已列出内置的 ${provider.models.length} 个 Gemini 模型；别的模型在下拉框里选「手动输入」填名字`, '没有读取到模型列表', { timeOut: 12000 });
         }
         return;
     }

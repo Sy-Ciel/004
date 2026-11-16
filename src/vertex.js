@@ -172,46 +172,113 @@ export function readVertexReply(json) {
     };
 }
 
-/** Models of the list that are not for writing text: embeddings, pictures, speech, live audio and the like. */
+/** Models that are not for writing text: embeddings, pictures, speech, live audio and the like. */
 const NOT_TEXT = /embedding|image|imagen|tts|live|audio|robotics|computer-use|veo|lyria/;
 
-/**
- * The Gemini models Vertex AI lists for this credential (publishers.models.list, v1beta1), newest names first.
- * Throws with Google's own words when the list is refused (some API keys may only generate).
- * @returns {Promise<string[]>}
- */
-export async function listVertexModels(parser, signal) {
-    const credential = vertexCredential(parser.customKey);
-    if (!credential) throw settingsError('未填写 Vertex AI 的 Key（快速模式的 API Key，或服务账号 JSON）');
-    const region = String(parser.vertexRegion ?? '').trim().toLowerCase() || 'global';
-    if (!/^[a-z0-9-]+$/.test(region)) throw settingsError(`Vertex AI 的区域「${region}」不对：填 global，或 us-central1 这样的区域名`);
-    const host = region === 'global' ? 'aiplatform.googleapis.com' : `${region}-aiplatform.googleapis.com`;
-    const headers = credential.key ? { 'x-goog-api-key': credential.key } : { Authorization: `Bearer ${await accessToken(credential.account, signal)}` };
+/** Whether a model name is a Gemini model that writes text (what the parser can use). */
+export function isGeminiTextModel(name) {
+    const model = geminiModel(String(name ?? ''));
+    return model.startsWith('gemini-') && !NOT_TEXT.test(model);
+}
+
+const newestFirst = (a, b) => b.localeCompare(a, 'en', { numeric: true });
+
+/** A refused request in Google's own words: 「401：API keys are not supported by this API.」 */
+async function refusal(response) {
+    const text = await response.text().catch(() => '');
+    let message = text;
+    try {
+        message = JSON.parse(text)?.error?.message || text;
+    } catch {
+        // not JSON: the text as it is
+    }
+    return `${response.status}：${truncate(message || '没有说明', 300)}`;
+}
+
+/** Vertex AI's own list of publisher models (publishers.models.list, v1beta1), every page: the Gemini text models. */
+async function listedModels(host, headers, signal) {
     const names = new Set();
     let pageToken = '';
     // The list holds every publisher model, a page at a time; twenty pages are more than it has.
     for (let page = 0; page < 20; page++) {
         const query = new URLSearchParams({ pageSize: '100', ...(pageToken ? { pageToken } : {}) });
         const response = await request(`https://${host}/v1beta1/publishers/google/models?${query}`, { headers, signal }, host);
-        const text = await response.text().catch(() => '');
-        let json = null;
-        try {
-            json = JSON.parse(text);
-        } catch {
-            // not JSON: reported below as it is
-        }
         if (!response.ok) {
-            if (response.status === 401 && credential.account) tokens.delete(credential.account.client_email);
-            throw new Error(`${response.status}：${truncate(json?.error?.message || text || '没有说明', 300)}`);
+            const error = new Error(await refusal(response));
+            error.status = response.status;
+            throw error;
         }
+        const json = await response.json().catch(() => null);
         for (const model of json?.publisherModels ?? []) {
-            const name = geminiModel(String(model?.name ?? ''));
-            if (name.startsWith('gemini-') && !NOT_TEXT.test(name)) names.add(name);
+            if (isGeminiTextModel(model?.name)) names.add(geminiModel(String(model.name)));
         }
         pageToken = String(json?.nextPageToken ?? '');
         if (!pageToken) break;
     }
-    return [...names].sort((a, b) => b.localeCompare(a, 'en', { numeric: true }));
+    return [...names].sort(newestFirst);
+}
+
+/**
+ * Which of `candidates` this API key can use, found by asking each to count the tokens of one word (countTokens is
+ * free and is one of the three calls an express mode key may make; listing models is not). A model that answers
+ * is usable; one Google does not know or does not allow is left out; one that could not be asked (rate limit,
+ * server error) stays. Throws with Google's words when the key is refused for every one of them.
+ */
+async function probedModels(parser, credential, candidates, signal) {
+    const names = [...new Set(candidates.map(name => geminiModel(String(name ?? ''))).filter(isGeminiTextModel))];
+    const usable = new Set();
+    let refused = '';
+    const ask = async name => {
+        const { host, url } = vertexEndpoint({ ...parser, customModel: name }, credential);
+        const response = await request(url.replace(/:generateContent$/, ':countTokens'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': credential.key },
+            body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'hi' }] }] }),
+            signal,
+        }, host);
+        if (response.ok || response.status === 429 || response.status >= 500) usable.add(name);
+        else if (response.status === 401 || response.status === 403) refused ||= await refusal(response);
+    };
+    // A few at a time: an express mode key has a low rate limit.
+    const queue = [...names];
+    await Promise.all(Array.from({ length: 4 }, async () => {
+        while (queue.length) await ask(queue.shift());
+    }));
+    if (!usable.size && refused) throw new Error(refused);
+    return names.filter(name => usable.has(name)).sort(newestFirst);
+}
+
+/**
+ * The Gemini models this credential can use, newest names first.
+ * - A service account: Vertex AI's own list.
+ * - An API key: the list when Google gives it; an express mode key may only generate and count tokens, so the
+ *   `candidates` (the names known here and in SillyTavern) are tried one by one instead.
+ * @param {string[]} [candidates] names to try with an API key
+ * @returns {Promise<{ models: string[], tried: number }>} tried: how many names were tried one by one (0 = listed)
+ */
+export async function listVertexModels(parser, signal, candidates = []) {
+    const credential = vertexCredential(parser.customKey);
+    if (!credential) throw settingsError('未填写 Vertex AI 的 Key（快速模式的 API Key，或服务账号 JSON）');
+    const region = String(parser.vertexRegion ?? '').trim().toLowerCase() || 'global';
+    if (!/^[a-z0-9-]+$/.test(region)) throw settingsError(`Vertex AI 的区域「${region}」不对：填 global，或 us-central1 这样的区域名`);
+    const host = region === 'global' ? 'aiplatform.googleapis.com' : `${region}-aiplatform.googleapis.com`;
+    if (credential.account) {
+        try {
+            return { models: await listedModels(host, { Authorization: `Bearer ${await accessToken(credential.account, signal)}` }, signal), tried: 0 };
+        } catch (error) {
+            // An access token Google no longer takes: the next try signs a new one.
+            if (error.status === 401) tokens.delete(credential.account.client_email);
+            throw error;
+        }
+    }
+    try {
+        return { models: await listedModels(host, { 'x-goog-api-key': credential.key }, signal), tried: 0 };
+    } catch (error) {
+        // Refused to this key (express mode): try the known names. Anything else (no connection, timeout) is the answer.
+        if (error.status !== 401 && error.status !== 403) throw error;
+    }
+    const names = [...new Set(candidates.map(name => geminiModel(String(name ?? ''))).filter(isGeminiTextModel))];
+    return { models: await probedModels(parser, credential, names, signal), tried: names.length };
 }
 
 /**
