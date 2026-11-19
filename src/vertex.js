@@ -219,32 +219,42 @@ async function listedModels(host, headers, signal) {
 }
 
 /**
- * Which of `candidates` this API key can use, found by asking each to count the tokens of one word (countTokens is
- * free and is one of the three calls an express mode key may make; listing models is not). A model that answers
- * is usable; one Google does not know or does not allow is left out; one that could not be asked (rate limit,
+ * Which of `candidates` this API key can use, found by asking each one. First to count the tokens of one word
+ * (free); a key that may not count tokens either is asked the way a parse asks, the call SillyTavern's own Vertex
+ * AI connection makes with the same key: generateContent, here for one word with a single token of output. A model
+ * that answers is usable; one Google does not know (404) is left out; one that could not be asked (rate limit,
  * server error) stays. Throws with Google's words when the key is refused for every one of them.
  */
 async function probedModels(parser, credential, candidates, signal) {
     const names = [...new Set(candidates.map(name => geminiModel(String(name ?? ''))).filter(isGeminiTextModel))];
     const usable = new Set();
+    const contents = [{ role: 'user', parts: [{ text: 'hi' }] }];
+    let countRefused = false;
     let refused = '';
+    const post = (url, host, body) => request(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': credential.key },
+        body: JSON.stringify(body),
+        signal,
+    }, host);
+    const denied = response => response.status === 401 || response.status === 403;
     const ask = async name => {
         const { host, url } = vertexEndpoint({ ...parser, customModel: name }, credential);
-        const response = await request(url.replace(/:generateContent$/, ':countTokens'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': credential.key },
-            body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'hi' }] }] }),
-            signal,
-        }, host);
-        if (response.ok || response.status === 429 || response.status >= 500) usable.add(name);
-        else if (response.status === 401 || response.status === 403) refused ||= await refusal(response);
+        let response = countRefused ? null : await post(url.replace(/:generateContent$/, ':countTokens'), host, { contents });
+        if (!response || denied(response)) {
+            countRefused = true;
+            response = await post(url, host, { contents, generationConfig: { maxOutputTokens: 1 } });
+        }
+        // 400: Google knows the model and only minds the request.
+        if (response.ok || response.status === 400 || response.status === 429 || response.status >= 500) usable.add(name);
+        else if (denied(response)) refused ||= await refusal(response);
     };
     // A few at a time: an express mode key has a low rate limit.
     const queue = [...names];
     await Promise.all(Array.from({ length: 4 }, async () => {
         while (queue.length) await ask(queue.shift());
     }));
-    if (!usable.size && refused) throw new Error(refused);
+    if (!usable.size && refused) throw new Error(`读模型列表被拒绝，把已知的 ${names.length} 个模型逐个试了一遍也都被拒绝——${refused}`);
     return names.filter(name => usable.has(name)).sort(newestFirst);
 }
 

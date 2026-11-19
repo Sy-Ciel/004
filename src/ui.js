@@ -794,6 +794,20 @@ function refreshProfiles() {
     select.val(current);
 }
 
+/**
+ * Where the Vertex AI settings here differ from SillyTavern's own Vertex AI connection (which works for the user):
+ * a key bound to a project is refused without that project, and a region can matter. '' when they agree.
+ */
+function vertexDifference(parser) {
+    const own = ctx().chatCompletionSettings ?? {};
+    const project = String(own.vertexai_express_project_id ?? '').trim();
+    const region = String(own.vertexai_region ?? '').trim();
+    const notes = [];
+    if (project && project !== String(parser.vertexProject ?? '').trim()) notes.push(`「项目 ID」填「${project}」`);
+    if (region && region !== (String(parser.vertexRegion ?? '').trim() || 'global')) notes.push(`「区域」填「${region}」`);
+    return notes.length ? `酒馆自带的 Vertex AI 连接用的设置和这里不一样：把上面的${notes.join('、')}再试。` : '';
+}
+
 async function fetchParserModels() {
     const { parser } = getSettings();
     const provider = PROVIDERS[providerOf(parser)];
@@ -817,7 +831,7 @@ async function fetchParserModels() {
             parser.models = [...new Set([...provider.models, ...(parser.models || [])])];
             saveSettings();
             renderPickers();
-            toastr.warning(`Vertex AI 没有给出模型列表（${error?.name === 'TimeoutError' ? '45 秒没有回应' : errorMessage(error)}）。已列出内置的 ${provider.models.length} 个 Gemini 模型；别的模型在下拉框里选「手动输入」填名字`, '没有读取到模型列表', { timeOut: 12000 });
+            toastr.warning(`Vertex AI 没有给出模型列表（${error?.name === 'TimeoutError' ? '45 秒没有回应' : errorMessage(error)}）。${vertexDifference(parser)}已列出内置的 ${provider.models.length} 个 Gemini 模型；别的模型在下拉框里选「手动输入」填名字`, '没有读取到模型列表', { timeOut: 15000 });
         }
         return;
     }
