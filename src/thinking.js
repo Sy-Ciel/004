@@ -77,8 +77,8 @@ function geminiThinks(model) {
 /**
  * Google Vertex AI (the vertex provider, Gemini's own API): generationConfig.thinkingConfig for the 思考模式, or null
  * to leave it to the model ("default", and models without a thinking setting). By model family, as Gemini wants it:
- * - Gemini 3: a level. Pro has low and high only and cannot stop thinking; Flash has minimal to high (3.7 Flash
- *   starts at low).
+ * - Gemini 3: a level. Pro has low and high only and cannot stop thinking; Flash has minimal to high (3.7 and 3.8
+ *   Flash start at low).
  * - Gemini 2.5: a token budget. 0 switches thinking off, except for Pro (128 at least).
  * With thinking on, the thoughts' summary is asked for too (shown in the debug view).
  */
@@ -92,7 +92,7 @@ export function vertexThinking(parser = getSettings().parser) {
         return { includeThoughts: on, thinkingLevel: on && ['high', 'xhigh', 'max'].includes(effort) ? 'high' : 'low' };
     }
     if (/gemini-3[.\d]*-flash/.test(model)) {
-        const lowest = /gemini-3\.7-flash/.test(model) ? 'low' : 'minimal';
+        const lowest = /gemini-3\.[78]-flash/.test(model) ? 'low' : 'minimal';
         return { includeThoughts: on, thinkingLevel: !on ? lowest : { minimal: lowest, low: 'low', medium: 'medium' }[effort] ?? 'high' };
     }
     const range = /gemini-2\.5-flash-lite/.test(model) ? [512, 24576]

@@ -7,6 +7,8 @@ import {
     LOG_PREFIX,
     MODULE,
     SETTINGS_VERSION,
+    VERTEX_MODELS,
+    VERTEX_RETIRED,
     V3_PARSER_SYSTEM,
     V3_PARSER_USER,
     MODEL_ANIMA,
@@ -127,6 +129,16 @@ function migrateSettings(settings) {
         follow(settings, normalizeMode(settings.modelMode));
         if (isPlainObject(settings.modeStore)) {
             for (const [key, own] of Object.entries(settings.modeStore)) follow(own, normalizeMode(key.split('@')[0]));
+        }
+    }
+    if (version < 11 && isPlainObject(settings.parser)) {
+        // Vertex AI's list of suggestions: the models Google has shut down go (one that is still chosen stays), the
+        // new ones come first. Where it is kept depends on whether Vertex AI is the provider in use.
+        const parser = settings.parser;
+        const own = parser.provider === 'vertex' ? parser : parser.providerStore?.vertex;
+        if (isPlainObject(own) && Array.isArray(own.models)) {
+            const kept = own.models.filter(name => !VERTEX_RETIRED.includes(name) || name === own.customModel);
+            own.models = [...VERTEX_MODELS, ...kept.filter(name => !VERTEX_MODELS.includes(name))];
         }
     }
     settings.settingsVersion = SETTINGS_VERSION;

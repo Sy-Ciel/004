@@ -428,7 +428,20 @@ export const FKEY_NEGATIVE = `<|texture_and_style_neg|>photorealistic, real huma
 <|universal_anatomy_neg|>blurry, out of focus, lowres, censored, mosaic censoring, bar censor, ugly face, distorted face, overly squished grotesque cheek, worst quality, bad anatomy, fused bodies, fused legs, extra limbs, extra arms, extra legs, extra hands, three hands, extra fingers, mutated hands, fused fingers, six fingers, floating hand, watermark, signature<|/universal_anatomy_neg|>`;
 
 /** Bump when a stored setting needs a one-time migration (see migrateSettings in utils.js). */
-export const SETTINGS_VERSION = 10;
+export const SETTINGS_VERSION = 11;
+
+/**
+ * The Gemini text models on Vertex AI offered before 获取模型 has read or tried them (November 2026, from Google's
+ * model pages and SillyTavern's own Vertex AI list), newest first; any other name can be typed in.
+ */
+export const VERTEX_MODELS = [
+    'gemini-4-argon', 'gemini-4-carbon', 'gemini-4-hydrogen', 'gemini-4-neon',
+    'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite',
+    'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview',
+];
+
+/** Models of the earlier list that Google has shut down since (Gemini 2.0 in June, 2.5 in October, 3.6 Flash in November 2026). */
+export const VERTEX_RETIRED = ['gemini-3.6-flash', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
 
 /** A render profile's LoRA set to this means "no style LoRA", as opposed to empty = use the default. */
 export const LORA_NONE = '__none__';
@@ -503,6 +516,11 @@ export const DEFAULT_SETTINGS = {
          */
         provider: 'custom',
         providerStore: {},
+        /**
+         * Flex 模式 (OpenRouter, Google Vertex AI): the cheaper, slower service tier, when the model has one. Kept
+         * per provider, like the key.
+         */
+        flex: false,
         /** Google Vertex AI: the location (global, or a region such as us-central1) and, when it is needed, the project. */
         vertexRegion: 'global',
         vertexProject: '',

@@ -6,7 +6,7 @@ import { chinesePrompt, currentMode, floorMode, imageMode, modeLabel, promptStyl
 import { CHINESE_PROMPT_RULE, NATURAL_STYLE_RULE } from './parserPresetDefaults.js';
 import { mossSkillBlock } from './mossSkill.js';
 import { TOOL_NAME, TOOL_REMINDER, TOOL_RULE, toolArguments, toolBody, toolDeclaration, usesTool } from './parserTool.js';
-import { PROVIDERS, nativeProvider, providerOf, providerUrl } from './providers.js';
+import { PROVIDERS, nativeProvider, providerOf, providerUrl, usesFlex } from './providers.js';
 import { callVertex } from './vertex.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
 import { ASPECT_RATIOS, baseSize, parseAspect, parserPicksAspect } from './resolution.js';
@@ -591,6 +591,7 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
             absent ? '画谁不在画面里时，改画在场的人或场景' : '',
             focus ? `只重新解析「${focus.label}」这一张` : '',
             describeThinking(settings.parser),
+            usesFlex(settings.parser) ? `Flex 模式：向 ${PROVIDERS[providerOf(settings.parser)].label} 要便宜的 Flex 档（更慢，可能排队）` : '',
             worldInfo.note,
             records.length ? `参考了之前 ${records.length} 次配图输出` : '',
             hints.length ? `用户画图指令 ${hints.reduce((sum, item) => sum + item.hints.length, 0)} 条` : '',
@@ -630,7 +631,8 @@ function readCompletion(json) {
     const reasoning = String(message.reasoning_content ?? message.reasoning ?? '');
     // 用工具调用返回结果: the tool call's arguments are the result (any text beside it is not).
     const tool = toolArguments(message);
-    return { content: tool || content, reasoning, finish: choice.finish_reason ?? '', tool: !!tool };
+    // service_tier: the tier the request was served at, where the provider says (OpenRouter: flex, default …).
+    return { content: tool || content, reasoning, finish: choice.finish_reason ?? '', tool: !!tool, tier: String(json?.service_tier ?? '') };
 }
 
 /**
@@ -642,7 +644,7 @@ function readCompletion(json) {
 async function callCustom(system, user, signal, parser = getSettings().parser) {
     // Google Vertex AI speaks Gemini's own API (see vertex.js); the other providers are OpenAI-compatible.
     if (nativeProvider(parser) === 'vertex') {
-        return await callVertex(system, user, signal, parser, { tool: toolDeclaration(parser), extraBody: parseExtraBody() });
+        return await callVertex(system, user, signal, parser, { tool: toolDeclaration(parser), extraBody: parseExtraBody(), flex: usesFlex(parser) });
     }
     const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
     const url = providerUrl(parser);
@@ -650,7 +652,9 @@ async function callCustom(system, user, signal, parser = getSettings().parser) {
     if (!parser.customModel.trim()) throw settingsError('未填写解析模型名称');
     if (PROVIDERS[providerOf(parser)].url && !parser.customKey.trim()) throw settingsError(`未填写 ${PROVIDERS[providerOf(parser)].label} 的 API Key`);
     // Thinking parameters and the tool first, so the user's own 「附加请求参数」 can override them.
-    const extraBody = { ...thinkingBody(parser), ...toolBody(parser), ...parseExtraBody() };
+    // Flex 模式 on OpenRouter: service_tier asks for the model's flex endpoints (Google's and OpenAI's models have
+    // them); a model without one is routed as usual.
+    const extraBody = { ...thinkingBody(parser), ...toolBody(parser), ...(usesFlex(parser) ? { service_tier: 'flex' } : {}), ...parseExtraBody() };
     const maxTokens = thinkingMaxTokens(parser);
     // Fields the thinking parameters do without (no temperature for Claude after 4.5), unless the user sets them.
     const omitted = thinkingOmits(parser).filter(key => !Object.hasOwn(extraBody, key));

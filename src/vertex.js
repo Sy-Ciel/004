@@ -21,7 +21,7 @@ const SAFETY = [
 ];
 
 /** Gemini models that take no sampling settings (temperature …), as SillyTavern lists them. */
-const NO_SAMPLING = /gemini-3\.[67]-flash|gemini-3\.5-flash-lite/;
+const NO_SAMPLING = /gemini-3\.[678]-flash|gemini-3\.5-flash-lite/;
 
 /** Why Gemini stopped without an answer, when it was not the output limit. */
 const BLOCKED = new Set(['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII', 'RECITATION', 'IMAGE_SAFETY']);
@@ -126,10 +126,12 @@ function merge(body, extra) {
 
 /**
  * The generateContent request of a parse: the System prompt as the system instruction, the User message, safety
- * filters off, the output limit and temperature, the thinking setting, and the submit_picture tool when it is used.
- * @param {{ tool?: { declaration: object, required: boolean } | null, extraBody?: object | null }} [options]
+ * filters off, the output limit and temperature, the thinking setting, the submit_picture tool when it is used, and
+ * the Flex tier when it is asked for (serviceTier in the body, as Google's own SDK sends it: a browser may not send
+ * the X-Vertex-AI-LLM-* request headers).
+ * @param {{ tool?: { declaration: object, required: boolean } | null, extraBody?: object | null, flex?: boolean }} [options]
  */
-export function vertexBody(system, user, parser, { tool = null, extraBody = null } = {}) {
+export function vertexBody(system, user, parser, { tool = null, extraBody = null, flex = false } = {}) {
     const generationConfig = { candidateCount: 1, maxOutputTokens: thinkingMaxTokens(parser) };
     const temperature = Number(parser.temperature);
     if (NO_SAMPLING.test(geminiModel(parser.customModel).toLowerCase())) delete generationConfig.candidateCount;
@@ -146,6 +148,7 @@ export function vertexBody(system, user, parser, { tool = null, extraBody = null
         body.tools = [{ functionDeclarations: [tool.declaration] }];
         body.toolConfig = { functionCallingConfig: { mode: tool.required ? 'ANY' : 'AUTO' } };
     }
+    if (flex) body.serviceTier = 'flex';
     return merge(body, extraBody);
 }
 
@@ -169,6 +172,8 @@ export function readVertexReply(json) {
         reasoning: text(true),
         finish: { STOP: 'stop', MAX_TOKENS: 'length' }[reason] ?? reason.toLowerCase(),
         tool: !!call,
+        // How Google served it: ON_DEMAND (standard), ON_DEMAND_FLEX, PROVISIONED_THROUGHPUT …
+        tier: String(json?.usageMetadata?.trafficType ?? ''),
     };
 }
 
@@ -291,20 +296,28 @@ export async function listVertexModels(parser, signal, candidates = []) {
     return { models: await probedModels(parser, credential, names, signal), tried: names.length };
 }
 
+/** Models Google refused the Flex tier for in this page load: they are asked the standard way from then on. */
+const noFlex = new Set();
+
 /**
  * One parser request to Vertex AI.
- * @param {{ tool?: { declaration: object, required: boolean } | null, extraBody?: object | null }} [options]
- * @returns {Promise<{ content: string, reasoning: string, finish: string, tool: boolean }>}
+ * Flex 模式 (options.flex): the request asks for the Flex tier and goes to the global endpoint, the only one that has
+ * it. A model Google does not offer Flex for (a 400 that says so) is asked again the standard way, and the reply
+ * says so in `note`.
+ * @param {{ tool?: { declaration: object, required: boolean } | null, extraBody?: object | null, flex?: boolean }} [options]
+ * @returns {Promise<{ content: string, reasoning: string, finish: string, tool: boolean, tier: string, note?: string }>}
  */
 export async function callVertex(system, user, signal, parser, options = {}) {
     const credential = vertexCredential(parser.customKey);
     if (!credential) throw settingsError('未填写 Vertex AI 的 Key（快速模式的 API Key，或服务账号 JSON）');
-    const { host, url } = vertexEndpoint(parser, credential);
+    const model = geminiModel(parser.customModel).toLowerCase();
     const headers = { 'Content-Type': 'application/json' };
     if (credential.key) headers['x-goog-api-key'] = credential.key;
     else headers.Authorization = `Bearer ${await accessToken(credential.account, signal)}`;
-    const response = await request(url, { method: 'POST', headers, body: JSON.stringify(vertexBody(system, user, parser, options)), signal }, host);
-    if (!response.ok) {
+    const send = async flex => {
+        const { host, url } = vertexEndpoint(flex ? { ...parser, vertexRegion: 'global' } : parser, credential);
+        const response = await request(url, { method: 'POST', headers, body: JSON.stringify(vertexBody(system, user, parser, { ...options, flex })), signal }, host);
+        if (response.ok) return { reply: readVertexReply(await response.json()) };
         const text = await response.text().catch(() => '');
         let message = truncate(text, 500);
         try {
@@ -312,12 +325,23 @@ export async function callVertex(system, user, signal, parser, options = {}) {
         } catch {
             // not JSON: the text as it is
         }
+        return { status: response.status, message: truncate(message, 500) };
+    };
+    const flex = !!options.flex && !noFlex.has(model);
+    let result = await send(flex);
+    let note = '';
+    if (flex && result.status === 400 && /flex|service.?tier/i.test(result.message)) {
+        noFlex.add(model);
+        note = `Flex 模式：Google 不给 ${model} 提供 Flex（${truncate(result.message, 160)}），这次按标准发送`;
+        result = await send(false);
+    }
+    if (!result.reply) {
         // An access token Google no longer takes: the next try signs a new one.
-        if (response.status === 401 && credential.account) tokens.delete(credential.account.client_email);
-        const error = new Error(`Vertex AI 返回 ${response.status}：${truncate(message, 500)}`);
+        if (result.status === 401 && credential.account) tokens.delete(credential.account.client_email);
+        const error = new Error(`Vertex AI 返回 ${result.status}：${result.message}`);
         // The key, the model name or the request itself is wrong: asking again gives the same answer.
-        error.noRetry = [400, 403, 404].includes(response.status) || (response.status === 401 && !!credential.key);
+        error.noRetry = [400, 403, 404].includes(result.status) || (result.status === 401 && !!credential.key);
         throw error;
     }
-    return readVertexReply(await response.json());
+    return { ...result.reply, ...(note ? { note } : {}) };
 }

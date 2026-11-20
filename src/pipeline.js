@@ -954,6 +954,9 @@ async function askParser(message, job, data, parserPrompt, target, modelMode) {
             if (parserPrompt.notes.some(note => note.startsWith('用工具调用返回结果')) && !reply.tool) {
                 data.debug.notes.push('解析模型没有调用工具，读的是它在正文里写的 JSON');
             }
+            // Flex 模式: what the provider says it served the request at, and a model it has no Flex for.
+            if (reply.note) data.debug.notes.push(reply.note);
+            if (reply.tier && parserPrompt.notes.some(note => note.startsWith('Flex 模式'))) data.debug.notes.push(`这次解析实际的服务档：${reply.tier}`);
             log(`#${mesId} 解析输出`, reply);
         },
         onRetry: (attempt, max, error) => {

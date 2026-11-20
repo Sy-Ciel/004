@@ -510,11 +510,21 @@ MOSS-Image 的文本编码器（Qwen3.5）中英文都能理解。MOSS-Image 模
   - 快速模式（Express Mode）的 API Key：直接粘贴
   - 服务账号的 JSON 密钥文件：把整个文件的内容粘贴进 Key 框。浏览器要给它签名换访问令牌，所以要用 `https` 或 `http://127.0.0.1` / `localhost` 打开酒馆（用局域网 IP 的 http 地址打开时做不了，会提示）。它和别的 Key 一样明文保存在酒馆的扩展设置里，而服务账号的权限比 API Key 大：建议专门建一个只有 Vertex AI 权限（Vertex AI User）的服务账号
 - **区域**一般填 `global`；要指定地区就填 `us-central1` 这样的区域名。**项目 ID**：快速模式的 Key 不用填；服务账号默认用 JSON 里的 `project_id`
-- **模型**填 `gemini-2.5-flash` 这样的名字（不带 `google/`）。点「获取模型」：服务账号会读取 Vertex AI 自己的 Gemini 模型列表；快速模式的 API Key 按 Google 的规定不能读列表（只能生成和数 token），所以扩展把已知的 Gemini 模型（内置的和酒馆自带的 Vertex AI 列表）逐个试一遍，只留下这个 Key 真能用的（先用免费的 countTokens；这个 Key 连 countTokens 也不许用时，改成和酒馆自带的 Vertex AI 连接一样的 generateContent，每个模型只发一个词、只要 1 个 token 的输出）。读不到时，如果酒馆自带的 Vertex AI 连接里填的项目 ID 或区域和这里不一样，提示里会写出来。只留写文字的模型，新的排在前面；更新的模型在下拉框里选「手动输入」。连不上或 Key 被拒绝时会说明原因并列出内置的常用模型
+- **模型**填 `gemini-3.8-flash` 这样的名字（不带 `google/`）。内置的名单是 2026 年 11 月还在的 Gemini 文字模型（Gemini 4 的 Argon / Carbon / Hydrogen / Neon，3.8 / 3.7 / 3.5 Flash，3.5 / 3.1 Flash-Lite，3.1 Pro 预览，3 Flash 预览）；已经下线的 2.0、2.5 和 3.6 Flash 升级时从列表里去掉（正选着的那个留着）。点「获取模型」：服务账号会读取 Vertex AI 自己的 Gemini 模型列表；快速模式的 API Key 按 Google 的规定不能读列表（只能生成和数 token），所以扩展把已知的 Gemini 模型（内置的和酒馆自带的 Vertex AI 列表）逐个试一遍，只留下这个 Key 真能用的（先用免费的 countTokens；这个 Key 连 countTokens 也不许用时，改成和酒馆自带的 Vertex AI 连接一样的 generateContent，每个模型只发一个词、只要 1 个 token 的输出）。读不到时，如果酒馆自带的 Vertex AI 连接里填的项目 ID 或区域和这里不一样，提示里会写出来。只留写文字的模型，新的排在前面；更新的模型在下拉框里选「手动输入」。连不上或 Key 被拒绝时会说明原因并列出内置的常用模型
 - 思考模式按 Gemini 自己的参数发（`thinkingConfig`）：Gemini 3 用思考等级（Pro 只有 low / high，关不掉；Flash 是 minimal / low / medium / high），Gemini 2.5 用思考预算（关闭 = 0，Pro 最少 128）。设置下面会显示实际发送的参数
 - Gemini 2.5 Flash / Pro 和 Gemini 3 默认就会思考，思考也算在输出里：「思考模式」是默认时，「最大输出」不到 8192 的按 8192 发送，免得还没写 JSON 就被截断
 - 「用工具调用返回结果」照常能用（按 Gemini 的函数调用格式发）；安全过滤全部关掉（和酒馆自己调 Vertex 时一样），剧情不会被当成违规内容拦下
 - 「附加请求参数」合并进 Gemini 的请求体，例如 `{"generationConfig": {"topP": 0.9}}`
+
+### Flex 模式（OpenRouter、Google Vertex AI）
+
+供应商选 OpenRouter 或 Google Vertex AI 时，「模型」下面有「**Flex 模式**（价格约一半，更慢）」开关（默认关，每个供应商各记各的）：
+
+- **Google Vertex AI**：Google 的 Flex PayGo。请求带上 `serviceTier: flex`（和 Google 自己的 SDK 一样写在请求体里；文档里的 `X-Vertex-AI-LLM-Shared-Request-Type` 请求头浏览器发不了），并且发到 **global** 端点（Flex 只在 global 有，你填的区域这时不用）。Google 目前给 Gemini 3.8 Flash 及更早的型号提供 Flex，Gemini 4 系列还没有：遇到不提供的模型（Google 回 400），这次自动按标准价重发，🐞 里注明，之后这个模型不再试 Flex（刷新页面后重新试）
+- **OpenRouter**：请求带上 `service_tier: "flex"`，优先走这个模型的 flex 端点。Google 的 Gemini（AI Studio 和 Vertex 的 flex 端点）和 OpenAI 的模型有；模型没有 flex 端点时照平常的线路和价格
+- Flex 的请求排在后面：可能要等几十秒到几分钟，忙的时候会被拒绝（429 / 503，按「失败自动重试次数」重试）。**把「超时」调到 300 秒以上**（低于 180 秒时开关下面会提示）
+- 实际按哪一档算的：🐞 调试信息里的「这次解析实际的服务档」（Vertex AI：`ON_DEMAND_FLEX` = Flex，`ON_DEMAND` = 标准；OpenRouter：`flex` / `default`）
+- 「附加请求参数」里自己写的 `serviceTier` / `service_tier` 优先
 
 ## 解析模型的思考模式
 

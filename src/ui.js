@@ -38,7 +38,7 @@ import { renderProfileFor, sanitizeRenderProfile } from './renderProfiles.js';
 import { buildStatusInstruction, updateStatusPrompt } from './statusBar.js';
 import { updateRatingPrompt } from './rating.js';
 import { callParser, parseExtraBody } from './parser.js';
-import { PROVIDERS, nativeProvider, providerOf, providerUrl, switchProvider } from './providers.js';
+import { PROVIDERS, nativeProvider, providerOf, providerUrl, switchProvider, usesFlex } from './providers.js';
 import { listVertexModels } from './vertex.js';
 import { cancelAllJobs, enqueue, hasActiveJobs, planLoraLines, renderPlan } from './pipeline.js';
 import { renderAll } from './render.js';
@@ -121,7 +121,7 @@ function updateThinkingHint() {
     const effortUsed = parser.thinking === 'on' && !noEffort && parser.source !== 'main';
     $('#ctp_thinking_effort').prop('disabled', !effortUsed);
     const text = parser.thinking === 'default'
-        ? `默认：不发送任何思考参数，模型按它自己的默认方式思考或不思考。${vertex ? `Gemini 2.5 Flash / Pro 和 Gemini 3 默认会思考，思考也算在输出里：这时「最大输出」不到 ${GEMINI_ROOM} 的按 ${GEMINI_ROOM} 发送。` : ''}`
+        ? `默认：不发送任何思考参数，模型按它自己的默认方式思考或不思考。${vertex ? `Gemini 3 及之后的模型默认会思考，思考也算在输出里：这时「最大输出」不到 ${GEMINI_ROOM} 的按 ${GEMINI_ROOM} 发送。` : ''}`
         : `${describeThinking(parser)}${noEffort && parser.thinking === 'on' ? '。这种格式只有开 / 关，没有强度' : ''}`;
     $('#ctp_thinking_hint').text(text);
 }
@@ -168,7 +168,10 @@ function onSettingChanged(path) {
     // Off stops pictures in the making too, as the 🖼 switch by the chat input does.
     if (path === 'enabled' && applyEnabled()) toastr.info('配图已关闭，正在进行的配图已取消', 'ComfyUI 角色配图');
     if (path === 'parser.source') updateSourceVisibility();
-    if (path.startsWith('parser.')) updateThinkingHint();
+    if (path.startsWith('parser.')) {
+        updateThinkingHint();
+        updateFlexUi();
+    }
     if (path === 'perPersonaProfiles') {
         // Turning profiles on makes the current settings this persona's; off keeps them for everyone.
         if (getSettings().perPersonaProfiles) {
@@ -279,6 +282,31 @@ function updateProviderUi() {
         const { provider: only, notProvider: not } = this.dataset;
         $(this).toggle(only ? only.split(' ').includes(provider) : !String(not ?? '').split(' ').includes(provider));
     });
+    updateFlexUi();
+}
+
+/** What Flex 模式 does with each provider that has it (behind the switch's ⓘ). */
+const FLEX_HELP = {
+    vertex: 'Google 的 Flex PayGo：输入和输出大约半价，但请求排在后面，可能要等几十秒到几分钟，忙的时候会被拒绝（429 / 503，按下面的「失败自动重试次数」重试）。打开后请求带上 serviceTier: flex，并且发到 global 端点（Flex 只在 global 有，你填的区域这时不用）。Google 目前给 Gemini 3.8 Flash 及更早的型号提供 Flex，Gemini 4 系列还没有：遇到不提供的模型，这次自动按标准价发送，🐞 里会注明。实际按哪一档算的看 🐞 里的「这次解析实际的服务档」（ON_DEMAND_FLEX = Flex，ON_DEMAND = 标准）。每个供应商各记各的开关。',
+    openrouter: 'OpenRouter 的 service_tier: flex：优先走这个模型的 flex 端点，价格大约一半，更慢，忙的时候可能排队或被拒绝（按下面的「失败自动重试次数」重试）。Google 的 Gemini（AI Studio 和 Vertex 的 flex 端点）和 OpenAI 的模型有 flex 端点；模型没有 flex 端点时照平常的线路和价格。实际走的哪一档看 🐞 里的「这次解析实际的服务档」。每个供应商各记各的开关。',
+};
+
+/** Flex 模式: its explanation for the provider in use, and what to mind while it is on. */
+function updateFlexUi() {
+    const { parser } = getSettings();
+    const provider = providerOf(parser);
+    $('#ctp_flex_help').text(FLEX_HELP[provider] ?? '');
+    const notes = [];
+    if (usesFlex(parser)) {
+        const timeout = Number(parser.timeoutSec) || 0;
+        if (timeout > 0 && timeout < 180) notes.push(`Flex 可能要等几分钟：下面的「超时」现在是 ${timeout} 秒，建议调到 300 以上`);
+        if (provider === 'vertex') {
+            const region = String(parser.vertexRegion ?? '').trim().toLowerCase() || 'global';
+            if (region !== 'global') notes.push(`开着 Flex 时请求发到 global 端点，不用区域「${region}」`);
+            if (/^gemini-4/.test(String(parser.customModel ?? '').trim().toLowerCase())) notes.push('Google 还没有给 Gemini 4 系列提供 Flex：被拒绝时这次自动按标准价发送');
+        }
+    }
+    $('#ctp_flex_state').text(notes.join('；'));
 }
 
 /** Another provider: its own key, model and the rest are put in place (see switchProvider). */
@@ -1571,7 +1599,10 @@ export async function initSettingsUi() {
     // Any change in the panel can change which LoRAs are used.
     $(root).on('input change', updateLoraSummary);
     // The model picker changes the guessed thinking format without going through onSettingChanged.
-    $(root).on('change', '[data-picker="parser.customModel"]', updateThinkingHint);
+    $(root).on('change', '[data-picker="parser.customModel"]', () => {
+        updateThinkingHint();
+        updateFlexUi();
+    });
     initRenderProfileUi({ onChange: renderPresetRenderOptions, validateWorkflow });
     initParamPresetUi({
         onApply() {
