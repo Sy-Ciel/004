@@ -132,14 +132,70 @@ function placementSource(message) {
     return withoutStatusBar(message?.mes, status);
 }
 
+/** HTML elements that make a page or a panel, not running text: a block of one inside the story is front-end code. */
+const FRONTEND_TAGS = 'html|head|body|style|script|div|table|details|section|article|aside|header|footer|nav|main|form|fieldset|svg|iframe|canvas|template|dialog|button|select|textarea';
+const FRONTEND_OPEN = new RegExp(`\`\`\`|<!doctype\\b[^>]*>|<(${FRONTEND_TAGS})\\b[^>]*>`, 'gi');
+
+/**
+ * A story text split into the story itself and the front-end code in it: ``` code blocks and whole HTML blocks
+ * (<div>…</div>, <table>, <style>, <details> … with what is nested in them; one never closed runs to the end, as
+ * a reply cut off inside its panel does). Such code gets into the story when the story tag is closed after it, is
+ * never closed, or is missing. Pictures do not go into it. A story that is nothing but such blocks (every paragraph
+ * wrapped in a <div>, say) is left whole.
+ * @returns {{ story: string, code: string }}
+ */
+export function splitFrontend(text) {
+    const source = String(text ?? '');
+    const kept = [];
+    const code = [];
+    let from = 0;
+    FRONTEND_OPEN.lastIndex = 0;
+    for (let open = FRONTEND_OPEN.exec(source); open; open = FRONTEND_OPEN.exec(source)) {
+        let end = source.length;
+        if (open[0] === '```') {
+            const close = source.indexOf('```', open.index + 3);
+            if (close >= 0) end = close + 3;
+        } else if (open[1]) {
+            // The matching close tag, counting the same tag opened again inside.
+            const tag = new RegExp(`<(/?)${open[1]}\\b[^>]*>`, 'gi');
+            tag.lastIndex = open.index + open[0].length;
+            let depth = 1;
+            for (let next = tag.exec(source); next; next = tag.exec(source)) {
+                depth += next[1] ? -1 : 1;
+                if (depth === 0) {
+                    end = next.index + next[0].length;
+                    break;
+                }
+            }
+        } else {
+            // <!DOCTYPE …>: a whole page follows.
+            end = source.length;
+        }
+        kept.push(source.slice(from, open.index));
+        code.push(source.slice(open.index, end));
+        from = end;
+        FRONTEND_OPEN.lastIndex = end;
+    }
+    kept.push(source.slice(from));
+    const story = kept.join('\n');
+    if (!code.length || !paragraphsOf(plainText(story)).some(paragraph => paragraph.replace(/[^\p{L}\p{N}]/gu, '').length >= 4)) return { story: source, code: '' };
+    return { story, code: code.join('\n') };
+}
+
+/** The story of a floor for placing pictures, and the front-end code that was inside it (see splitFrontend). */
+function placementStory(message) {
+    return splitFrontend(storyPart(placementSource(message), getSettings().parser));
+}
+
 /**
  * The story paragraphs of a floor, where its pictures may go (图片插在正文中间, 多张图): what is inside
  * <game>…</game> when the message has that tag, whether or not 「只读取标签里的正文」 is on (pictures go into the
- * story, never into the panels or code pages around it); else the message minus ``` code blocks. Not cut to the
- * per-floor limit, so the story's end is its real end (the parser's numbers are the same, see floorParagraphs).
+ * story, never into the panels or code pages around it); else the message minus ``` code blocks. Front-end code
+ * inside the story (see splitFrontend) is not part of it either. Not cut to the per-floor limit, so the story's end
+ * is its real end (the parser's numbers are the same, see floorParagraphs).
  */
 export function storyParagraphs(message) {
-    return paragraphsOf(plainText(storyPart(placementSource(message), getSettings().parser)));
+    return paragraphsOf(plainText(placementStory(message).story));
 }
 
 /**
@@ -149,7 +205,7 @@ export function storyParagraphs(message) {
 export function floorParagraphs(message) {
     const settings = getSettings();
     const maxChars = Number(settings.parser.maxCharsPerMessage) || 0;
-    return paragraphsOf(truncate(plainText(storyPart(placementSource(message), settings.parser)), maxChars));
+    return paragraphsOf(truncate(plainText(placementStory(message).story), maxChars));
 }
 
 /**
@@ -159,8 +215,11 @@ export function floorParagraphs(message) {
 function numberedFloor(message, maxChars) {
     const settings = getSettings();
     const lines = floorParagraphs(message).map((paragraph, index) => `[${index + 1}] ${paragraph}`);
-    const outside = settings.parser.storyTagOnly ? '' : plainText(outsideStory(placementSource(message), settings.parser));
-    const note = hasStoryTag(message?.mes, settings.parser) ? ` <${storyTagName(settings.parser)}> 标签外面的内容` : '代码块里的内容';
+    // Front-end code that sat inside the story (a panel, a code page) is read, but pictures cannot go into it.
+    const inside = plainText(placementStory(message).code);
+    const around = settings.parser.storyTagOnly ? '' : plainText(outsideStory(placementSource(message), settings.parser));
+    const outside = [inside, around].filter(Boolean).join('\n');
+    const note = [inside ? '正文里的面板 / 代码' : '', around ? (hasStoryTag(message?.mes, settings.parser) ? ` <${storyTagName(settings.parser)}> 标签外面的内容` : '代码块里的内容') : ''].filter(Boolean).join('和');
     return `${speakerLabel(message)}:\n${lines.join('\n')}${outside ? `\n\n（下面是这一楼${note}，没有编号，只作参考，图片不能插在这里）\n${truncate(outside, maxChars)}` : ''}`;
 }
 

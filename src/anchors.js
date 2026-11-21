@@ -43,7 +43,7 @@ export function findQuote(text, quote, from = 0) {
  * Where the closing words of `quote` end in comparable text, at or after `from` (the index of their last
  * character), or -1.
  */
-function findQuoteEnd(text, quote, from = 0) {
+function findQuoteEnd(text, quote, from = 0, limit = Infinity) {
     const wanted = comparable(quote);
     if (wanted.length < 4) return -1;
     // The closing words first; then a little before them, for an ending the shown text changed.
@@ -54,7 +54,7 @@ function findQuoteEnd(text, quote, from = 0) {
         for (let length = part.length; length >= Math.min(QUOTE_MIN, part.length); length--) {
             const piece = part.slice(part.length - length);
             const index = text.indexOf(piece, from);
-            if (index >= 0) return index + piece.length - 1;
+            if (index >= 0 && index + piece.length - 1 <= limit) return index + piece.length - 1;
         }
     }
     return -1;
@@ -116,11 +116,16 @@ function locateParagraphs(text, paragraphs) {
     return starts;
 }
 
-/** The last character of a paragraph found at `start`: its closing words, else its length, never past `limit`. */
+/**
+ * The last character of a paragraph found at `start`: its closing words, else its length, never past `limit`. The
+ * closing words are only looked for about as far as the paragraph is long: the same few words further down (in a
+ * panel or a code page after the story's last paragraph) are not its end.
+ */
 function paragraphEnd(text, paragraph, start, limit) {
-    const end = findQuoteEnd(text, paragraph, start);
-    if (end >= start && end <= limit) return end;
-    return Math.max(start, Math.min(limit, start + comparable(paragraph).length - 1));
+    const size = comparable(paragraph).length;
+    const end = findQuoteEnd(text, paragraph, start, Math.min(limit, start + Math.ceil(size * 1.5) + 40));
+    if (end >= start) return end;
+    return Math.max(start, Math.min(limit, start + size - 1));
 }
 
 /**
@@ -164,22 +169,42 @@ export function locateQuotes(text, quotes) {
 /** Inside these the text is not the story (code pages, the status bar) or is ours. */
 const SKIP = 'pre, code, script, style, iframe, details, .ctp-inserted, .ctp-wrap';
 const BLOCKS = new Set(['P', 'DIV', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TABLE', 'PRE', 'HR', 'SECTION', 'ARTICLE', 'DETAILS', 'FIGURE', 'DL', 'CENTER']);
+/** Elements that are part of a line of running text. Anything else (a block, a panel, a custom element, a page) ends the line. */
+const INLINE = new Set(['A', 'ABBR', 'B', 'BDI', 'BDO', 'BIG', 'CITE', 'CODE', 'DEL', 'DFN', 'EM', 'FONT', 'I', 'IMG', 'INS', 'KBD', 'MARK', 'Q', 'RP', 'RT', 'RUBY', 'S', 'SAMP', 'SMALL', 'SPAN', 'STRIKE', 'STRONG', 'SUB', 'SUP', 'TT', 'U', 'VAR', 'WBR']);
+/** Whether a node ends the line it follows or precedes: an element that is not running text. */
+const endsLine = node => node.nodeType === Node.ELEMENT_NODE && node.nodeName !== 'BR' && !INLINE.has(node.nodeName);
 
-/** The shown text of an element as comparable characters, with the text node and offset each one comes from. */
+/**
+ * The shown text of an element as comparable characters, with the text node and offset each one comes from and the
+ * line it is on (`line`: a new one after every line break and inside every element that is not running text).
+ */
 function textMap(root) {
     let text = '';
     const positions = [];
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let line = 0;
+    let container = null;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            if (node.nodeName === 'BR' || endsLine(node)) line++;
+            continue;
+        }
         const skipped = node.parentElement?.closest(SKIP);
         if (skipped && skipped !== root && root.contains(skipped)) continue;
+        // Text after the end of a block is not on the block's last line: the element it sits in is another one.
+        let parent = node.parentElement;
+        while (parent && parent !== root && !endsLine(parent)) parent = parent.parentElement;
+        if (parent !== container) {
+            container = parent;
+            line++;
+        }
         let offset = 0;
         for (const char of node.nodeValue) {
             if (/[\p{L}\p{N}]/u.test(char)) {
                 const lower = char.toLowerCase();
                 text += lower;
                 // One entry per UTF-16 unit, so indexes into `text` index `positions` too.
-                for (let unit = 0; unit < lower.length; unit++) positions.push({ node, offset });
+                for (let unit = 0; unit < lower.length; unit++) positions.push({ node, offset, line });
             }
             offset += char.length;
         }
@@ -248,7 +273,12 @@ function placeInStory(text, positions, anchors, paragraphs, ending = '') {
     const end = comparable(ending);
     const original = end.length >= 4 ? found.filter(index => comparable(paragraphs[index]).endsWith(end)).at(-1) : undefined;
     const lastIndex = original ?? found.at(-1);
-    const last = paragraphEnd(text, paragraphs[lastIndex], starts[lastIndex], positions.length - 1);
+    // The story's last paragraph is one line of the text: it ends where that line ends at the latest. Nothing after
+    // it bounds it, so its closing words (or its length, when the shown paragraph is shorter than the written one)
+    // must not be taken from a panel or a code page that follows.
+    let lineEnd = starts[lastIndex];
+    while (lineEnd + 1 < positions.length && positions[lineEnd + 1].line === positions[starts[lastIndex]].line) lineEnd++;
+    const last = paragraphEnd(text, paragraphs[lastIndex], starts[lastIndex], lineEnd);
     // The end of a paragraph: before the next one found, else at the end of the story.
     const endOf = index => {
         const next = found.find(other => other > index);
@@ -287,7 +317,7 @@ function insertAtLine(root, node, figure) {
         walker.currentNode = node;
         for (let previous = walker.previousNode(); previous; previous = walker.previousNode()) {
             if (previous.contains(node)) continue;
-            if (previous.nodeName === 'BR' || (previous.nodeType === Node.ELEMENT_NODE && BLOCKS.has(previous.nodeName))) {
+            if (previous.nodeName === 'BR' || endsLine(previous)) {
                 previous.after(figure);
                 return true;
             }
@@ -299,7 +329,7 @@ function insertAtLine(root, node, figure) {
     }
     // Text or an inline element straight in the message: the line starts after the last break or block before it.
     let previous = top.previousSibling;
-    while (previous && previous.nodeName !== 'BR' && !(previous.nodeType === Node.ELEMENT_NODE && BLOCKS.has(previous.nodeName))) {
+    while (previous && previous.nodeName !== 'BR' && !endsLine(previous)) {
         previous = previous.previousSibling;
     }
     if (previous) previous.after(figure);
@@ -307,7 +337,11 @@ function insertAtLine(root, node, figure) {
     return true;
 }
 
-/** Puts `element` right after the line `node` is on: after the line break that ends it, else after its block. */
+/**
+ * Puts `element` right after the line `node` is on: after the line break that ends it, else after its block. The
+ * line also ends before anything that is not running text, so the search for its end never goes into a panel or a
+ * code page that follows the story's last line.
+ */
 function insertAtLineEnd(root, node, element) {
     let top = node;
     while (top.parentNode && top.parentNode !== root) top = top.parentNode;
@@ -320,7 +354,7 @@ function insertAtLineEnd(root, node, element) {
                 next.after(element);
                 return true;
             }
-            if (next.nodeType === Node.ELEMENT_NODE && BLOCKS.has(next.nodeName)) {
+            if (endsLine(next)) {
                 next.before(element);
                 return true;
             }
@@ -332,7 +366,7 @@ function insertAtLineEnd(root, node, element) {
     }
     // Text or an inline element straight in the message: the line ends at the next break or block.
     let next = top.nextSibling;
-    while (next && next.nodeName !== 'BR' && !(next.nodeType === Node.ELEMENT_NODE && BLOCKS.has(next.nodeName))) {
+    while (next && next.nodeName !== 'BR' && !endsLine(next)) {
         next = next.nextSibling;
     }
     if (!next) root.append(element);
