@@ -41,8 +41,40 @@ export function versionPictures(image) {
             src: scene.src, label: scene.label || `第 ${index + 1} 段`, scene: index,
             start: scene.start || '', place: scene.place || '', startAt: scene.startAt, placeAt: scene.placeAt,
         })),
-        { src: image?.src, label: scenes.length ? '结束时' : '', scene: -1, start: image?.start || '', place: image?.place || '', startAt: image?.startAt, placeAt: image?.placeAt },
+        { src: image?.src, label: image?.label || (scenes.length ? '结束时' : ''), scene: -1, start: image?.start || '', place: image?.place || '', startAt: image?.startAt, placeAt: image?.placeAt },
     ];
+}
+
+/** What one picture of a version carries; the rest of a version is about the floor (its story, mode, time). */
+const PICTURE_KEYS = ['src', 'path', 'upscale', 'seed', 'width', 'height', 'prompt', 'negative', 'refined', 'place', 'placeAt', 'presetId', 'target'];
+
+/**
+ * 多张图: takes one picture out of a version, the others stay (scene = its index in image.scenes, -1 = the end of
+ * the floor). The version's own picture is the end of the floor: when that one goes, the part before it takes its
+ * place (with its label; `promoted` says the version's own picture is not the end of the floor any more). With one
+ * picture left the version is a plain one. Only the version changes: what the floor was parsed into, and so what
+ * 🎲 / 🔄 on the whole floor draw, stays.
+ * @returns {object} the picture taken out (its path is the file to delete)
+ */
+export function removePicture(image, scene) {
+    const scenes = image.scenes ?? [];
+    let removed;
+    if (scene >= 0) {
+        [removed] = scenes.splice(scene, 1);
+    } else {
+        removed = Object.fromEntries(PICTURE_KEYS.filter(key => key in image).map(key => [key, image[key]]));
+        const last = scenes.pop();
+        for (const key of PICTURE_KEYS) delete image[key];
+        for (const key of PICTURE_KEYS) if (last[key] !== undefined) image[key] = last[key];
+        Object.assign(image, { label: last.label || '', start: last.start || '', startAt: last.startAt, promoted: true });
+    }
+    if (!scenes.length) {
+        // One picture left: nothing to split the story at.
+        delete image.scenes;
+        delete image.start;
+        delete image.startAt;
+    }
+    return removed;
 }
 
 /**
@@ -54,7 +86,8 @@ export function pictureHtml(picture, several, { imgClass = 'ctp-img', style = ''
     const own = tools === 'all'
         ? `<i class="fa-solid fa-dice ctp-act" data-act="picture-reroll" data-scene="${picture.scene}" title="只换种子重画这一张（其他几张不变）"></i>
             <i class="fa-solid fa-rotate ctp-act" data-act="picture-reparse" data-scene="${picture.scene}" title="只重新解析这一张：解析模型重写这一段的画面，只重画这一张（其他几张不变）"></i>
-            <i class="fa-solid fa-pen-to-square ctp-act" data-act="picture-edit" data-scene="${picture.scene}" title="编辑这一张的提示词后只重画这一张"></i>`
+            <i class="fa-solid fa-pen-to-square ctp-act" data-act="picture-edit" data-scene="${picture.scene}" title="编辑这一张的提示词后只重画这一张"></i>
+            <i class="fa-solid fa-trash-can ctp-act" data-act="picture-delete" data-scene="${picture.scene}" title="只删除这一张（其他几张不变）"></i>`
         : '';
     const buttons = several && tools !== 'none'
         ? `<span class="ctp-picture-tools">
@@ -79,20 +112,25 @@ export function toolbarHtml(data, debug, { panelButton = false, scene = null } =
            <span class="ctp-count">${index + 1}/${data.images.length}</span>
            <i class="fa-solid fa-chevron-right ctp-act" data-act="next" title="下一张"></i>`
         : '';
+    // The picture 🎲 / 🔄 / ✏️ act on: the one above the toolbar, or the only one left of a set whose end-of-floor
+    // picture was deleted (it is an earlier part: the whole floor's buttons would draw the end again).
+    const own = Number.isInteger(scene) ? scene : image?.promoted && !image?.scenes?.length ? -1 : null;
     const meta = debug
         ? `<span class="ctp-meta">${escapeHtml(data.target || '')} · seed ${escapeHtml(image.seed ?? '')} · ${image.width}×${image.height}</span>`
         : '';
     return `<div class="ctp-toolbar">
         ${nav}
-        ${Number.isInteger(scene) ? `<i class="fa-solid fa-dice ctp-act" data-act="picture-reroll" data-scene="${scene}" title="只换种子重画上面这一张（其他几张不变）"></i>
-        <i class="fa-solid fa-rotate ctp-act" data-act="picture-reparse" data-scene="${scene}" title="只重新解析上面这一张（其他几张不变；全部重新解析点图上方的「全部重新解析」）"></i>
-        <i class="fa-solid fa-pen-to-square ctp-act" data-act="picture-edit" data-scene="${scene}" title="编辑上面这一张的提示词后只重画这一张"></i>` : `<i class="fa-solid fa-dice ctp-act" data-act="reroll" title="${image?.scenes?.length ? '全部换种子重画（每张图上的 🎲 只重画那一张）' : '同一提示词换种子重画'}"></i>
+        ${Number.isInteger(own) ? `<i class="fa-solid fa-dice ctp-act" data-act="picture-reroll" data-scene="${own}" title="只换种子重画上面这一张（其他几张不变）"></i>
+        <i class="fa-solid fa-rotate ctp-act" data-act="picture-reparse" data-scene="${own}" title="只重新解析上面这一张（其他几张不变；全部重新解析点图上方的「全部重新解析」）"></i>
+        <i class="fa-solid fa-pen-to-square ctp-act" data-act="picture-edit" data-scene="${own}" title="编辑上面这一张的提示词后只重画这一张"></i>` : `<i class="fa-solid fa-dice ctp-act" data-act="reroll" title="${image?.scenes?.length ? '全部换种子重画（每张图上的 🎲 只重画那一张）' : '同一提示词换种子重画'}"></i>
         <i class="fa-solid fa-rotate ctp-act" data-act="reparse" title="${image?.scenes?.length ? '全部重新解析：重新分段，几张图都重画（每张图上的 🔄 只重新解析那一张）' : '重新解析状态并生成'}"></i>
         <i class="fa-solid fa-pen-to-square ctp-act" data-act="edit" title="${image?.scenes?.length ? '编辑「结束时」这一张的提示词后重画（其他几张不变）' : '编辑提示词后生成'}"></i>`}
         <i class="fa-solid fa-comment-dots ctp-act" data-act="hint" title="加画图指令重画（不改正文）"></i>
         ${panelButton ? '<i class="fa-solid fa-table-columns ctp-act" data-act="panel" title="在侧边面板中显示这一楼的图"></i>' : ''}
         ${debug ? '<i class="fa-solid fa-bug ctp-act" data-act="debug" title="调试信息"></i>' : ''}
-        <i class="fa-solid fa-trash-can ctp-act" data-act="delete" title="删除这张图"></i>
+        ${Number.isInteger(scene)
+        ? `<i class="fa-solid fa-trash-can ctp-act" data-act="picture-delete" data-scene="${scene}" title="只删除上面这一张（其他几张不变）"></i>`
+        : `<i class="fa-solid fa-trash-can ctp-act" data-act="delete" title="${image?.scenes?.length ? `删除这一版的全部 ${image.scenes.length + 1} 张图（只删一张：点那张图上方的 🗑）` : '删除这张图'}"></i>`}
         ${meta}
     </div>`;
 }

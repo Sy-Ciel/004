@@ -5,7 +5,7 @@ import { captureHints, hintsEnabled, openHintDialog, pendingHints, removeHint, s
 import { injectMessageButtons } from './src/messageButtons.js';
 import { resetPanelForChat, showInPanel } from './src/panel.js';
 import { cancelAllJobs, cancelJob, cancelUpscales, dropUpscales, enqueue, getJob, resumeUpscales, retryUpscales, setImageAddedHandler, setModeSwitcher, setParserReviewer, setRenderer } from './src/pipeline.js';
-import { currentIndex } from './src/markup.js';
+import { currentIndex, removePicture } from './src/markup.js';
 import { onLayoutChange, renderAll, renderMessage } from './src/render.js';
 import { updateRatingPrompt } from './src/rating.js';
 import { replyProblem } from './src/replyCheck.js';
@@ -90,22 +90,42 @@ async function maybeAutoGenerate(mesId, type) {
 
 /* ---------------- per-floor actions ---------------- */
 
-async function deleteImage(mesId) {
+/**
+ * 🗑: deletes the shown version. 多张图: `scene` names one picture of it (its index in image.scenes, -1 = the end
+ * of the floor) and only that picture goes, the others stay where they are; the toolbar under a whole set deletes
+ * the set, after asking.
+ */
+async function deleteImage(mesId, scene = null) {
     const message = ctx().chat[mesId];
     const data = getMessageData(message);
-    if (!data) return;
+    if (!data?.images?.length) return;
     const swipeId = message.swipe_id ?? 0;
     const index = Math.min(Math.max(0, data.index ?? 0), data.images.length - 1);
-    const [removed] = data.images.splice(index, 1);
-    data.index = Math.max(0, Math.min(index, data.images.length - 1));
+    const shown = data.images[index];
+    const count = (shown.scenes?.length ?? 0) + 1;
+    let removed;
+    if (count > 1 && Number.isInteger(scene) && (scene < 0 || shown.scenes[scene])) {
+        removed = [removePicture(shown, scene)];
+    } else {
+        if (count > 1) {
+            const { callGenericPopup, POPUP_TYPE, POPUP_RESULT } = ctx();
+            const answer = await callGenericPopup(`删除这一版的全部 ${count} 张图？<br>只想删其中一张，点那张图上方的 🗑。`, POPUP_TYPE.CONFIRM);
+            if (answer !== POPUP_RESULT.AFFIRMATIVE) return;
+            // The popup can stay open while the floor changes: only delete the version it was asked about.
+            if (getMessageData(ctx().chat[mesId]) !== data || data.images[index] !== shown) return;
+        }
+        data.images.splice(index, 1);
+        data.index = Math.max(0, Math.min(index, data.images.length - 1));
+        removed = [shown, ...(shown.scenes ?? [])];
+    }
     setMessageData(message, swipeId, data.images.length || data.error || data.skipped ? data : null);
     await ctx().saveChat();
     renderMessage(mesId);
-    // 多张图: the earlier parts of the floor go with their version, except files another version still shows
-    // (redrawing one picture copies the others into the new version).
-    const paths = image => [image?.path, ...(image?.scenes ?? []).map(scene => scene.path)].filter(Boolean);
+    // A picture's file goes with it, except one another version still shows (redrawing one picture copies the
+    // others into the new version).
+    const paths = image => [image?.path, ...(image?.scenes ?? []).map(part => part.path)].filter(Boolean);
     const kept = new Set(data.images.flatMap(paths));
-    for (const path of paths(removed)) {
+    for (const path of removed.map(picture => picture?.path).filter(Boolean)) {
         if (kept.has(path)) continue;
         fetch('/api/images/delete', {
             method: 'POST',
@@ -202,6 +222,7 @@ function onAction(event) {
         case 'picture-reroll': redrawPicture(mesId, Number(button.dataset.scene)); break;
         case 'picture-reparse': redrawPicture(mesId, Number(button.dataset.scene), 'reparse'); break;
         case 'picture-edit': openEditDialog(mesId, Number(button.dataset.scene)); break;
+        case 'picture-delete': deleteImage(mesId, Number(button.dataset.scene)); break;
         case 'hint': redrawWithHints(mesId); break;
         // 先画完所有图，再统一放大
         case 'upscale-retry': retryUpscales(mesId); break;

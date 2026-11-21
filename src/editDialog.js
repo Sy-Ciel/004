@@ -36,7 +36,7 @@ export async function openEditDialog(mesId, sceneArg) {
         toastr.info('没有找到这一张图');
         return;
     }
-    const pictureLabel = scene === null ? '' : scene >= 0 ? picture.label || `第 ${scene + 1} 段` : '结束时';
+    const pictureLabel = scene === null ? '' : scene >= 0 ? picture.label || `第 ${scene + 1} 段` : picture.label || '结束时';
     // Edit choices of the other mode (its sizes, LoRA switches) do not carry over.
     const previous = data && floorMode(data) === currentMode() ? data.editOverrides ?? {} : {};
     // What would be used without any override, to describe the choices.

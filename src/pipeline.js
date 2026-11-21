@@ -981,7 +981,7 @@ async function parsePicture(message, job, data, base, scene, label, modelMode) {
     const mesId = ctx().chat.indexOf(message);
     const picture = scene >= 0 ? base.scenes[scene] : base;
     const count = (base.scenes?.length ?? 0) + 1;
-    const focus = { label, start: picture.start || '', place: picture.place || '', index: scene >= 0 ? scene : count - 1, count, end: scene < 0 };
+    const focus = { label, start: picture.start || '', place: picture.place || '', index: scene >= 0 ? scene : count - 1, count, end: scene < 0 && !base.promoted };
     // The floor's target as set (not who the last parse drew instead).
     const chosen = resolveTarget(message);
     setStage(job, message, 'parsing', `正在重新解析「${label}」…`);
@@ -1011,7 +1011,8 @@ async function redrawPicture(message, job, data, options, modelMode, otherMode) 
     const scene = options.scene;
     const picture = scene >= 0 ? base.scenes?.[scene] : base;
     if (!picture) throw new Error('没有找到要重画的这一张');
-    const label = scene >= 0 ? picture.label || `第 ${scene + 1} 段` : base.scenes?.length ? '结束时' : '这一张';
+    // A version whose end-of-floor picture was deleted shows an earlier part as its own picture (promoted).
+    const label = scene >= 0 ? picture.label || `第 ${scene + 1} 段` : base.label || (base.scenes?.length ? '结束时' : '这一张');
     const edit = options.mode === 'edit';
     // 🔄 on the picture: the parser writes this part again; 🎲 / ✏️ keep (or take) a prompt.
     const reparse = !edit && options.mode !== 'reroll';
@@ -1023,7 +1024,7 @@ async function redrawPicture(message, job, data, options, modelMode, otherMode) 
     // Whose character LoRA: a part showing someone else than the floor's subject keeps that person's.
     const who = fresh
         ? { presetId: fresh.subject.preset?.id ?? null, target: fresh.subject.name }
-        : scene >= 0 && 'presetId' in picture ? { presetId: picture.presetId, target: picture.target } : null;
+        : 'presetId' in picture ? { presetId: picture.presetId, target: picture.target } : null;
     const own = !!who && who.presetId !== (data.presetId ?? null);
     const plan = renderPlan(own ? { ...data, ...who } : data, overrides);
     const width = overrides?.width ? plan.width : picture.width || plan.width;
@@ -1064,7 +1065,9 @@ async function redrawPicture(message, job, data, options, modelMode, otherMode) 
     if (fresh && !otherMode) {
         const subject = fresh.subject;
         const subjectState = subject.nobody ? 'nobody' : subject.substitute ? 'substitute' : undefined;
-        if (scene < 0) {
+        if (scene < 0 && base.promoted) {
+            // Not the end of the floor: what the floor ended in stays as it was parsed.
+        } else if (scene < 0) {
             Object.assign(data, { parsed: fresh.parsed, prompt, negative, target: subject.auto ? '' : subject.name, presetId: subject.preset?.id ?? null });
             data.fixed = {
                 appearance: resolveMacros(subject.preset?.appearance || subject.looks || ''),
@@ -1081,12 +1084,14 @@ async function redrawPicture(message, job, data, options, modelMode, otherMode) 
     }
     // An edited prompt is also what 🎲 on the whole set draws next time (when the floor's state is this mode's).
     if (edit && !otherMode) {
-        if (scene < 0) {
+        if (scene < 0 && base.promoted) {
+            // Not the end of the floor (see above).
+        } else if (scene < 0) {
             data.prompt = prompt;
             data.negative = negative;
             data.promptEdited = true;
             data.editOverrides = overrides ?? undefined;
-        } else if (data.scenes?.[scene]) {
+        } else if (data.scenes?.[scene] && data.scenes[scene].label === picture.label) {
             data.scenes[scene].prompt = prompt;
             data.scenes[scene].negative = negative;
         }
