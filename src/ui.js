@@ -34,6 +34,7 @@ import { bindPickers, getPath, readInput, registerPickerOwner, renderPicker, ren
 import { initParserPresetUi, refreshParserPresetUi } from './ui-parser-presets.js';
 import { applyCardParamPreset, initParamPresetUi, refreshParamPresetUi } from './ui-param-presets.js';
 import { initRenderProfileUi, refreshRenderProfileUi, refreshRenderProfileUsage, resetRenderProfileSelection } from './ui-render-profiles.js';
+import { initSnapshotUi, refreshSnapshotUi } from './ui-snapshots.js';
 import { renderProfileFor, sanitizeRenderProfile } from './renderProfiles.js';
 import { buildStatusInstruction, updateStatusPrompt } from './statusBar.js';
 import { updateRatingPrompt } from './rating.js';
@@ -1206,6 +1207,9 @@ async function resetAllSettings() {
             if (keep('presets') && saved && typeof saved === 'object') store[key] = keptPresets(saved, other);
         }
     }
+    // 设置预设 are a library of their own: resetting the settings keeps them.
+    fresh.snapshots = settings.snapshots;
+    fresh.snapshotId = '';
     fresh.modeStore = store;
     // Profiles stay as they are: this resets the current persona's profile only.
     fresh.perPersonaProfiles = settings.perPersonaProfiles;
@@ -1344,6 +1348,7 @@ function refreshAllSettingsUi() {
     updateLoraSummary();
     updateQuickToggle();
     refreshParamPresetUi();
+    refreshSnapshotUi();
     renderAll();
 }
 
@@ -1609,6 +1614,18 @@ export async function initSettingsUi() {
             refreshComfyUi();
             renderExtraLoras();
             updateLoraSummary();
+        },
+    });
+    // 设置预设: a whole setup put in place, like a mode switch for everything.
+    initSnapshotUi({
+        beforeApply() {
+            cancelAllJobs();
+            resetPanelForMode();
+        },
+        afterApply() {
+            refreshAllSettingsUi();
+            applyEnabled();
+            updateRatingPrompt();
         },
     });
     refreshPresetSelect();

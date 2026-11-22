@@ -6,6 +6,20 @@
         </div>
         <div class="inline-drawer-content">
 
+            <!-- ============ 设置预设：整套设置存取（最上面） ============ -->
+            <div class="ctp-row ctp-tool-row ctp-wrap-row ctp-snapshots">
+                <select class="text_pole flex1" id="ctp_snap_select" title="设置预设：选一个就把整套设置换成它"></select>
+                <div class="menu_button fa-solid fa-plus" id="ctp_snap_new" title="把现在的全部设置存成新的设置预设"></div>
+                <div class="menu_button fa-solid fa-floppy-disk" id="ctp_snap_save" title="用现在的全部设置覆盖选中的设置预设"></div>
+                <div class="menu_button fa-solid fa-pen" id="ctp_snap_rename" title="重命名"></div>
+                <div class="menu_button fa-solid fa-trash-can" id="ctp_snap_delete" title="删除选中的设置预设（现在的设置不变）"></div>
+                <div class="menu_button fa-solid fa-file-export" id="ctp_snap_export" title="导出选中的设置预设（没选 = 导出现在的设置）"></div>
+                <div class="menu_button fa-solid fa-file-import" id="ctp_snap_import" title="从文件导入设置预设"></div>
+                <input type="file" id="ctp_snap_file" accept=".json,application/json" hidden>
+                <i class="ctp-q fa-solid fa-circle-question"></i>
+            </div>
+            <div class="ctp-help">设置预设 = 把这个面板里的<b>全部设置</b>存成一份，以后一键换回来：当前档案在三个模型模式（Krea 2、Anima、MOSS-Image）下各自的全部设置（角色预设、配图风格和解析提示词、提示词组装、工作流、模型、LoRA、采样、配图规则、状态栏、图片显示……）、所有模式共用的开关，以及 API 设置（解析模型的供应商、Key、模型，ComfyUI 的地址）。<br>➕ 把现在的设置存成新预设；在下拉框里选一个 = 把整套设置换成它（会先问一句，没存过的改动会丢）；💾 用现在的设置覆盖选中的预设；导出 / 导入可以备份或换设备（导出时可以选带不带 API Key）。<br>不包括：出图参数预设和设置预设这两个列表本身、从 ComfyUI 读到的模型列表、「每个用户人设使用独立档案」这个开关和别的人设的档案——套用预设改的是当前这个档案。预设只记和默认值不一样的地方，所以不会把设置文件撑大。</div>
+
             <!-- ============ 模型模式和这个模式的提示词写法（始终显示） ============ -->
             <div class="ctp-mode-bar">
                 <div class="ctp-row ctp-mode-row">

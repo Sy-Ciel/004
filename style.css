@@ -515,6 +515,16 @@
     min-height: 2.1em;
 }
 
+/* 设置预设, above everything: the list with its buttons; the buttons go under it on a narrow phone */
+.ctp-settings .ctp-snapshots {
+    margin: 4px 0 2px;
+    row-gap: 4px;
+}
+
+.ctp-settings .ctp-snapshots > .text_pole {
+    flex: 1 1 9em;
+}
+
 /* A sentence with a small field in it: 每隔 [1] 楼生成一次 */
 .ctp-settings label.ctp-inline {
     display: flex;

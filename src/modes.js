@@ -11,7 +11,7 @@ import { MODEL_ANIMA, MODEL_LABELS, MODEL_MODES, MODEL_MOSS, modeDefaults, norma
 import { fillDefaults, getSettings, isPlainObject } from './utils.js';
 
 /** Top-level keys all modes (and all profiles) share. */
-const SHARED_KEYS = ['settingsVersion', 'enabled', 'modelMode', 'modeStore', 'perPersonaProfiles', 'profilePersona', 'personaModes', 'autoModelByRating', 'reviewParserInput', 'placeInStory', 'panelAlsoInMessage', 'absentFallback', 'quickRegenButton', 'quickTogglePlace', 'paramPresets'];
+const SHARED_KEYS = ['settingsVersion', 'enabled', 'modelMode', 'modeStore', 'perPersonaProfiles', 'profilePersona', 'personaModes', 'autoModelByRating', 'reviewParserInput', 'placeInStory', 'panelAlsoInMessage', 'absentFallback', 'quickRegenButton', 'quickTogglePlace', 'paramPresets', 'snapshots', 'snapshotId'];
 
 /**
  * Keys of parser / comfy all modes share: the API settings, and which part of a message is the story (that
@@ -82,7 +82,7 @@ export function extractModeSettings(settings) {
 }
 
 /** Removes the active mode's own settings from the flat object, keeping the shared ones. */
-function clearModeSettings(settings) {
+export function clearModeSettings(settings) {
     for (const key of Object.keys(settings)) {
         if (SHARED_KEYS.includes(key)) continue;
         if (SHARED_NESTED[key] && isPlainObject(settings[key])) {
@@ -96,7 +96,7 @@ function clearModeSettings(settings) {
 }
 
 /** Copies a stored mode's own settings into the flat object (shared keys in the copy are ignored). */
-function applyModeSettings(settings, own) {
+export function applyModeSettings(settings, own) {
     for (const [key, value] of Object.entries(own ?? {})) {
         if (SHARED_KEYS.includes(key)) continue;
         if (SHARED_NESTED[key] && isPlainObject(value)) {

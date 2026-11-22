@@ -41,7 +41,7 @@ export function fillDefaults(target, defaults) {
  * One-time changes for settings saved by older versions. The early ones predate the Anima mode, so only the flat
  * (Krea 2) settings need them; later ones update every mode's copy in modeStore too.
  */
-function migrateSettings(settings) {
+export function migrateSettings(settings) {
     const version = Number(settings.settingsVersion) || 1;
     if (version < 2) {
         // 800 tokens was the v1 default and is too small for thinking models (GLM, DeepSeek-R1 …).
