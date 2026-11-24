@@ -703,8 +703,10 @@ function readCompletion(json) {
     const reasoning = String(message.reasoning_content ?? message.reasoning ?? '') || thoughts;
     // 用工具调用返回结果: the tool call's arguments are the result (any text beside it is not).
     const tool = toolArguments(message) || own;
+    // Claude thinking first: SillyTavern's text is its first block's, empty then; the answer is in the text blocks.
+    const text = content || blocks.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('');
     // service_tier: the tier the request was served at, where the provider says (OpenRouter: flex, default …).
-    return { content: tool || content, reasoning, finish: choice.finish_reason ?? '', tool: !!tool, tier: String(json?.service_tier ?? '') };
+    return { content: tool || text, reasoning, finish: choice.finish_reason ?? '', tool: !!tool, tier: String(json?.service_tier ?? '') };
 }
 
 /**

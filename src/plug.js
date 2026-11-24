@@ -80,7 +80,8 @@ function connectionFields(settings, source) {
     const fields = {};
     if (settings.reverse_proxy && PROXY_SOURCES.includes(source)) {
         fields.reverse_proxy = settings.reverse_proxy;
-        fields.proxy_password = settings.proxy_password;
+        // Always sent: without it the server's header would read 「Bearer undefined」.
+        fields.proxy_password = String(settings.proxy_password ?? '');
     }
     for (const [field, key] of Object.entries(SOURCE_FIELDS[source] ?? {})) {
         if (settings[key] !== undefined) fields[field] = structuredClone(settings[key]);
@@ -117,6 +118,36 @@ export function plugModel(parser = getSettings().parser, connection = plugConnec
     if (!connection) return '';
     const own = isPlainObject(parser.plugModels) ? String(parser.plugModels[connection.source] ?? '').trim() : '';
     return own || connection.chatModel;
+}
+
+/** Sources that take the effort as a string: SillyTavern's client maps its own efforts for them first. */
+const STRING_EFFORT_SOURCES = ['openai', 'azure_openai', 'custom', 'xai', 'aimlapi', 'openrouter', 'pollinations', 'perplexity', 'cometapi', 'electronhub', 'chutes', 'deepseek', 'fireworks'];
+
+/**
+ * SillyTavern's effort (auto / min / low / medium / high / max) as its client sends it for a source and model
+ * (getReasoningEffort in its openai.js, which extensions cannot call): Google AI Studio, Vertex AI, Claude … take it
+ * as it is and their server code maps it; the string sources get the API's own value, or none for auto.
+ * @returns {string | undefined}
+ */
+export function sourceEffort(source, model, effort, showThoughts) {
+    if (!STRING_EFFORT_SOURCES.includes(source)) return effort;
+    const gpt = source === 'openai' || source === 'azure_openai';
+    if (effort === 'auto') return undefined;
+    if (source === 'deepseek') return effort === 'min' || effort === 'low' ? 'low' : effort === 'max' ? 'max' : 'high';
+    if (source === 'fireworks') return effort === 'min' ? 'low' : effort;
+    if (source === 'custom' && /^koboldcpp\/(.+)$/.test(model)) return { min: 'minimal', max: 'xhigh' }[effort] ?? effort;
+    if (effort === 'min') {
+        if (source === 'openrouter' && !showThoughts) return 'none';
+        if (gpt && /^(?:gpt-5\.(?:4|5|6)|gpt-6-(?:sol|luna)|gpt-6\.1-terra)/.test(model)) return 'none';
+        if (gpt && /^gpt-5/.test(model)) return 'min';
+        return 'low';
+    }
+    if (effort === 'max') {
+        if (gpt && /^gpt-6(?:\.\d+)?-/.test(model)) return 'max';
+        if (gpt && /^gpt-5\.6/.test(model)) return 'xhigh';
+        return 'high';
+    }
+    return effort;
 }
 
 /** Sources that are Gemini's own API (Google AI Studio, Vertex AI). */
@@ -156,6 +187,11 @@ async function customAuth(settings) {
 export async function plugRequest(messages, parser, connection, model) {
     const settings = ctx().chatCompletionSettings ?? {};
     const auth = connection.source === 'custom' ? await customAuth(settings) : undefined;
+    const thinking = plugThinking(parser, settings);
+    const effort = sourceEffort(connection.source, model, thinking.reasoning_effort, thinking.include_reasoning);
+    const tool = toolBody(parser);
+    // Claude takes tool_choice as its own type: 「必须调用」 is its 'any'.
+    if (connection.source === 'claude' && tool.tool_choice === 'required') tool.tool_choice = 'any';
     return {
         stream: false,
         messages,
@@ -165,7 +201,8 @@ export async function plugRequest(messages, parser, connection, model) {
         temperature: Number(parser.temperature),
         ...connection.fields,
         ...(auth !== undefined ? { custom_auth: auth } : {}),
-        ...plugThinking(parser, settings),
-        ...toolBody(parser),
+        include_reasoning: thinking.include_reasoning,
+        ...(effort !== undefined ? { reasoning_effort: effort } : {}),
+        ...tool,
     };
 }

@@ -123,7 +123,7 @@ function updateThinkingHint() {
     const effortUsed = parser.thinking === 'on' && !noEffort && parser.source !== 'main';
     $('#ctp_thinking_effort').prop('disabled', !effortUsed);
     // 酒馆 API 连接: what goes to SillyTavern, 默认 included (it is the plug's own setting, not nothing).
-    const text = parser.source === 'plug' ? describeThinking(parser) : parser.thinking === 'default'
+    const text = parser.source === 'plug' ? `${describeThinking(parser)}${plugThinkingNote(parser)}` : parser.thinking === 'default'
         ? `默认：不发送任何思考参数，模型按它自己的默认方式思考或不思考。${vertex ? `Gemini 3 及之后的模型默认会思考，思考也算在输出里：这时「最大输出」不到 ${GEMINI_ROOM} 的按 ${GEMINI_ROOM} 发送。` : ''}`
         : `${describeThinking(parser)}${noEffort && parser.thinking === 'on' ? '。这种格式只有开 / 关，没有强度' : ''}`;
     $('#ctp_thinking_hint').text(text);
@@ -272,6 +272,14 @@ function updateSourceVisibility() {
 }
 
 /* ---------------- 酒馆 API 连接（插头） ---------------- */
+
+/** A Gemini SillyTavern sends no thinking settings for (it knows 2.5 and 3): the model thinks as it does by itself. */
+function plugThinkingNote(parser) {
+    const connection = plugConnection();
+    if (!connection || !['makersuite', 'vertexai'].includes(connection.source)) return '';
+    const model = plugModel(parser, connection).toLowerCase();
+    return /^gemini-/.test(model) && !/^gemini-(?:2\.5|3)/.test(model) ? `。酒馆只给 Gemini 2.5 和 3 系列发思考参数，${model} 按它自己的默认方式思考（这里的思考设置对它不起作用）` : '';
+}
 
 /** The parser's model of the plug's source (plugModels[source]); the picker's field follows the plug's source. */
 registerPickerOwner('plugPicker', () => {
