@@ -12,7 +12,7 @@ import { replyProblem } from './src/replyCheck.js';
 import { setEnabled, updateQuickToggle } from './src/quickToggle.js';
 import { updateStatusPrompt } from './src/statusBar.js';
 import { BLOCK_LABEL, findPromptBlocks, promptsInReply, replyEnded, replyStarted, replyToken, stripOldBlocks, stripOldBlocksText } from './src/inReply.js';
-import { REPLY_MACRO, dropAutomaticInstruction, dropAutomaticInstructionText, replyInstructionMacro, updateReplyPrompt } from './src/parser.js';
+import { REPLY_MACRO, dropAutomaticInstruction, dropAutomaticInstructionText, noteInstructionSent, replyInstructionMacro, updateReplyPrompt } from './src/parser.js';
 import { currentMode, imageMode, modeLabel } from './src/modes.js';
 import { findParserPreset } from './src/parserPresets.js';
 import { findPresetByName, findPresetById, initPersonaTracking } from './src/targets.js';
@@ -370,10 +370,12 @@ function registerEvents() {
         // 提示词和正文一起出: the main AI sees the picture blocks of its latest floors only, and the instruction once.
         stripOldBlocks(data?.chat);
         dropAutomaticInstruction(data?.chat);
+        if (!data?.dryRun) noteInstructionSent(data?.chat);
     });
     eventSource.on(eventTypes.GENERATE_AFTER_COMBINE_PROMPTS, data => {
         if (hintsEnabled() && typeof data?.prompt === 'string') data.prompt = stripHints(data.prompt);
         if (typeof data?.prompt === 'string') data.prompt = dropAutomaticInstructionText(stripOldBlocksText(data.prompt));
+        if (typeof data?.prompt === 'string' && !data.dryRun) noteInstructionSent(data.prompt);
     });
     if (eventTypes.STREAM_TOKEN_RECEIVED) eventSource.on(eventTypes.STREAM_TOKEN_RECEIVED, onReplyToken);
     eventSource.on(eventTypes.MESSAGE_SWIPED, mesId => onSwiped(Number(mesId)));

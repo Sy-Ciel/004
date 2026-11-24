@@ -1654,6 +1654,18 @@ async function clearChatData() {
     toastr.success(`已清除 ${count} 层的配图数据`);
 }
 
+/** The version running (from the manifest), in the panel's header: after an update, it shows the page was reloaded. */
+async function showVersion(root) {
+    try {
+        const response = await fetch(new URL('../manifest.json', import.meta.url), { cache: 'no-cache' });
+        const { version } = await response.json();
+        const label = root.querySelector('#ctp_version');
+        if (label && version) label.textContent = `v${version}`;
+    } catch {
+        // no version shown
+    }
+}
+
 export async function initSettingsUi() {
     const response = await fetch(SETTINGS_URL, { cache: 'no-cache' });
     const html = await response.text();
@@ -1661,6 +1673,7 @@ export async function initSettingsUi() {
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html;
     const root = wrapper.firstElementChild;
+    showVersion(root);
     container.appendChild(root);
 
     bindSettings(root);

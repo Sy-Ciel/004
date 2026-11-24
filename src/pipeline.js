@@ -3,7 +3,7 @@ import { addExtraLoras, addUpscale, deferUpscale, getWorkflowTemplate, prepareWo
 import { comparable, findQuote } from './anchors.js';
 import { comicPages, comicPanelCount, fitLayout, isComicPreset } from './comic.js';
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
-import { buildParserPrompt, floorParagraphs, parserLabel, readPartialReply, readReplyPictures, replyParserPrompt, requestParse, storyParagraphs, usesStream } from './parser.js';
+import { buildParserPrompt, floorParagraphs, lastInstructionSent, parserLabel, readPartialReply, readReplyPictures, replyParserPrompt, requestParse, storyParagraphs, usesStream } from './parser.js';
 import { ReplyScanner } from './partial.js';
 import { findPromptBlocks, promptsInReply, replyStream } from './inReply.js';
 import { replyProblem } from './replyCheck.js';
@@ -1559,7 +1559,15 @@ async function readReply(message, job, data, parserPrompt, chosen, modelMode, { 
     const comic = !!parserPrompt.comic;
     data.debug.notes.push(...parserPrompt.notes);
     data.parser = '正文 AI（提示词和正文一起出）';
+    // Whether the main AI was told: the last prompt that went out to it.
+    const sent = lastInstructionSent();
+    if (sent?.active) {
+        data.debug.notes.push(sent.included
+            ? `发给正文 AI 的请求里有配图说明（${sent.byMacro ? '预设里的 {{comfyRules}}' : '自动插在聊天记录最后'}）`
+            : '发给正文 AI 的请求里没有找到配图说明（可能被预设或别的扩展改掉了）');
+    }
     const stream = replyStream(message);
+    if (!stream) setStage(job, message, 'parsing', '读取正文 AI 写的配图提示词…');
     if (stream) {
         line.streaming = true;
         const several = comic ? comicPages(parserPrompt.preset) > 1 : sceneLimit(settings.parser) > 1;
@@ -1620,6 +1628,9 @@ async function readReply(message, job, data, parserPrompt, chosen, modelMode, { 
     data.parserFinish = '';
     const parsed = readReplyPictures(message, text, { comic });
     if (parsed) return parsed;
+    // Said, not only noted: the main AI not writing them is what to look at.
+    const why = sent?.active && !sent.included ? '（这次发给正文 AI 的请求里没有找到配图说明）' : '';
+    if (!force) toastr.info(`#${ctx().chat.indexOf(message)} 正文 AI 没有写${blocks.length ? '能读出来的' : ''}配图提示词块，这一楼没有配图${why}。可以重新生成这一楼。`, 'ComfyUI 角色配图', { timeOut: 8000 });
     if (force) {
         const error = new Error('这一楼的正文里没有能用的配图提示词块（正文 AI 没写，或者写的不是 JSON）。可以重新生成这一楼，或者关掉「提示词和正文一起出」改用解析模型');
         error.fromReply = true;

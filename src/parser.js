@@ -1435,6 +1435,16 @@ export const REPLY_MACRO = 'comfyRules';
 /** The instruction of the generation under way ('' when it gets none), and whether {{comfyRules}} put it in. */
 let replyInstruction = '';
 let instructionByMacro = false;
+/** What the last prompt sent to the main AI held of it: { active, included, byMacro } (see noteInstructionSent). */
+let instructionSent = null;
+/** Warnings shown once a session: {{comfyRules}} with the switch off; the instruction could not be built. */
+const warned = new Set();
+
+function warnOnce(key, text) {
+    if (warned.has(key)) return;
+    warned.add(key);
+    toastr.warning(text, 'ComfyUI 角色配图', { timeOut: 15000 });
+}
 
 /**
  * 提示词和正文一起出: puts the instruction into the main AI's prompt for a generation (or takes it out): as a system
@@ -1450,18 +1460,47 @@ export async function updateReplyPrompt(type) {
             text = await buildReplyInstruction();
         } catch (error) {
             warn(error);
+            warnOnce('build', `「提示词和正文一起出」的配图说明没能生成，这次没有发给正文 AI：${errorMessage(error)}`);
         }
     }
     replyInstruction = text;
     instructionByMacro = false;
+    instructionSent = null;
     const { setExtensionPrompt } = ctx();
     if (typeof setExtensionPrompt === 'function') setExtensionPrompt(REPLY_PROMPT_KEY, text, IN_CHAT, 0, false, ROLE_SYSTEM);
 }
 
-/** {{comfyRules}}: the instruction, where the preset writes it ('' while 提示词和正文一起出 is off). */
+/**
+ * {{comfyRules}}: the instruction, where the preset writes it ('' while 提示词和正文一起出 is off — said once, since
+ * a preset with the macro looks as if it should be on).
+ */
 export function replyInstructionMacro() {
-    if (replyInstruction) instructionByMacro = true;
-    return replyInstruction;
+    if (replyInstruction) {
+        instructionByMacro = true;
+        return replyInstruction;
+    }
+    const settings = getSettings();
+    if (settings.enabled && !promptsInReply(settings)) {
+        warnOnce('off', '预设里写了 {{comfyRules}}，但「配图规则」里的「提示词和正文一起出」没有打开：配图说明没有发给正文 AI，配图照常由解析模型写（正文写完后会单独请求一次解析模型）。要让正文 AI 自己写提示词，请打开这个开关。');
+    }
+    return '';
+}
+
+/**
+ * The prompt for the main AI as it goes out (chat completion messages, or a text completion prompt): whether the
+ * instruction is in it, and how, for the floor's debug notes (see lastInstructionSent).
+ */
+export function noteInstructionSent(prompt) {
+    if (!replyInstruction) return;
+    const text = Array.isArray(prompt)
+        ? prompt.map(message => (typeof message?.content === 'string' ? message.content : JSON.stringify(message?.content ?? ''))).join('\n')
+        : String(prompt ?? '');
+    instructionSent = { active: true, included: text.includes(replyInstruction), byMacro: instructionByMacro };
+}
+
+/** What the last prompt sent to the main AI held of the instruction (null: no instruction, or not known). */
+export function lastInstructionSent() {
+    return instructionSent;
 }
 
 /**
