@@ -800,7 +800,7 @@
                         <label class="checkbox_label"><input type="checkbox" data-ctp="parser.stream"><span>流式传输（边生成边接收） <i class="ctp-q fa-solid fa-circle-question"></i></span></label>
                         <div class="ctp-help">默认打开：解析模型的回复一边生成一边发回来，不用等它全部写完再一次性返回。好处：思考时间长的时候，连接不会因为一直没有数据被反向代理、网关断开（很多代理 60–100 秒收不到数据就断开）；配图状态里能看到已经收到多少字。开着时，下面的「超时」按「多久没有收到新内容」算，不是总时长。少数接口或代理不支持流式时会报错，关掉就是一次性返回。对「独立 API」「酒馆 API 连接（插头）」「酒馆连接配置」生效；「酒馆当前 API」由酒馆自己决定。</div>
                         <label class="checkbox_label"><input type="checkbox" data-ctp="parser.earlyDraw"><span>边解析边出图 <i class="ctp-q fa-solid fa-circle-question"></i></span></label>
-                        <div class="ctp-help">默认打开，需要开着「流式传输」。解析模型一边写，插件一边看：一张图的描述写完整了，就先送去 ComfyUI 画，不等其他图写完。多张图时，主字段（结束时这一张）写完就开画，之后 earlier_scenes 里每写完一段画一段；漫画分几页时，每写完一页画一页。ComfyUI 一次只画一张，后面的按顺序接上，上一张保存的同时下一张已经在画。<br>解析全部写完后会再核对一遍：和最终结果一样的图直接用；不一样的（比如模型把会影响画面的字段写在了 earlier_scenes 后面，或者解析失败重试了）会停掉、删掉，按最终结果重画，所以不会画错，只是偶尔多画一张。关掉就是等解析全部写完再开始画。</div>
+                        <div class="ctp-help">默认打开，需要开着「流式传输」。解析模型一边写，插件一边看：一张图的描述写完整了，就先送去 ComfyUI 画，不等其他图写完。多张图时，主字段（结束时这一张）写完就开画，之后 earlier_scenes 里每写完一段画一段；漫画分几页时，每写完一页画一页。ComfyUI 一次只画一张，后面的按顺序接上，上一张保存的同时下一张已经在画；画好一张就先显示一张。<br>解析全部写完后会再核对一遍：和最终结果一样的图直接用；不一样的（比如模型把会影响画面的字段写在了 earlier_scenes 后面，或者解析失败重试了）会停掉、删掉，按最终结果重画，所以不会画错，只是偶尔多画一张。关掉就是等解析全部写完再开始画。</div>
                     </div>
                     <div class="ctp-row">
                         <label class="flex1">思考模式 <i class="ctp-q fa-solid fa-circle-question"></i>

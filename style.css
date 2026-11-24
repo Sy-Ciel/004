@@ -997,6 +997,30 @@
 .ctp-picture-tools .ctp-act:hover {
     opacity: 1;
 }
+/* 画好一张显示一张: a slim line where a picture still being drawn will be (in the side panel: its page). */
+.ctp-pending {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-sizing: border-box;
+    width: min(100%, var(--ctp-img-max, 480px));
+    padding: 6px 10px;
+    border: 1px dashed var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.5));
+    border-radius: 8px;
+    background: rgba(128, 128, 128, 0.08);
+    font-size: 0.85em;
+    opacity: 0.85;
+}
+.ctp-wrap.ctp-side .ctp-pending {
+    width: 100%;
+}
+.ctp-pending-panel {
+    flex-direction: column;
+    justify-content: center;
+    width: 100%;
+    flex: 1 1 0;
+    min-height: 120px;
+}
 /* A picture put into the text where its part of the floor is. */
 .mes_text .ctp-inserted {
     display: block;

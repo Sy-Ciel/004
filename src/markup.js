@@ -36,13 +36,27 @@ export function upscaleStatusHtml(status) {
  */
 export function versionPictures(image) {
     const scenes = Array.isArray(image?.scenes) ? image.scenes : [];
+    // 画好一张显示一张: a floor still being drawn (FloorLine.preview) says how far each picture is, and its size.
+    const live = picture => (image?.live ? { live: true, state: picture.state || '', width: picture.width, height: picture.height } : {});
     return [
         ...scenes.map((scene, index) => ({
             src: scene.src, label: scene.label || `第 ${index + 1} 段`, scene: index,
-            start: scene.start || '', place: scene.place || '', startAt: scene.startAt, placeAt: scene.placeAt,
+            start: scene.start || '', place: scene.place || '', startAt: scene.startAt, placeAt: scene.placeAt, ...live(scene),
         })),
-        { src: image?.src, label: image?.label || (scenes.length ? '结束时' : ''), scene: -1, start: image?.start || '', place: image?.place || '', startAt: image?.startAt, placeAt: image?.placeAt },
+        { src: image?.src, label: image?.label || (scenes.length ? '结束时' : ''), scene: -1, start: image?.start || '', place: image?.place || '', startAt: image?.startAt, placeAt: image?.placeAt, ...live(image) },
     ];
+}
+
+/**
+ * 画好一张显示一张: where a picture still on its way will be — a slim line in the text (the picture takes its size when
+ * it comes, so the story is not broken up by empty boxes meanwhile); in the side panel, its page.
+ */
+function pendingHtml(picture, panel, style) {
+    const how = {
+        drawing: ['fa-paintbrush fa-beat-fade', 'ComfyUI 正在画这一张…'],
+        failed: ['fa-triangle-exclamation', '这一张没画成'],
+    }[picture.state] ?? ['fa-hourglass-half', '排队中，前面的画完就画这一张'];
+    return `<div class="ctp-pending${panel ? ' ctp-pending-panel' : ''}"${style ? ` style="${style}"` : ''}><i class="fa-solid ${how[0]}"></i><span>${how[1]}</span></div>`;
 }
 
 /** What one picture of a version carries; the rest of a version is about the floor (its story, mode, time). */
@@ -83,6 +97,8 @@ export function removePicture(image, scene) {
  * it acts on this picture); 'none'.
  */
 export function pictureHtml(picture, several, { imgClass = 'ctp-img', style = '', tools = 'all' } = {}) {
+    // 画好一张显示一张: a picture of a floor still being drawn is in no version yet: no buttons of its own.
+    if (picture.live) tools = 'none';
     const own = tools === 'all'
         ? `<i class="fa-solid fa-dice ctp-act" data-act="picture-reroll" data-scene="${picture.scene}" title="只换种子重画这一张（其他几张不变）"></i>
             <i class="fa-solid fa-rotate ctp-act" data-act="picture-reparse" data-scene="${picture.scene}" title="只重新解析这一张：解析模型重写这一段的画面，只重画这一张（其他几张不变）"></i>
@@ -96,7 +112,8 @@ export function pictureHtml(picture, several, { imgClass = 'ctp-img', style = ''
         </span>`
         : '';
     const head = picture.label || buttons ? `<div class="ctp-scene-head"><span class="ctp-scene-label">${escapeHtml(picture.label)}</span>${buttons}</div>` : '';
-    return `${head}<img class="${imgClass} ctp-act" data-act="zoom" data-scene="${picture.scene}" src="${escapeHtml(picture.src)}" alt="" loading="lazy"${style ? ` style="${style}"` : ''}>`;
+    if (!picture.src) return `${head}${pendingHtml(picture, imgClass === 'ctp-panel-img', style)}`;
+    return `${head}<img class="${imgClass} ctp-act" data-act="zoom" data-scene="${picture.scene}"${picture.live ? ' data-live="1"' : ''} src="${escapeHtml(picture.src)}" alt="" loading="lazy"${style ? ` style="${style}"` : ''}>`;
 }
 
 /**

@@ -156,12 +156,13 @@ async function clearState(mesId) {
     await ctx().saveChat();
 }
 
-function zoom(mesId, scene = -1) {
+function zoom(mesId, scene = -1, src = '') {
     const data = getMessageData(ctx().chat[mesId]);
     const image = data?.images?.[Math.max(0, data.index ?? 0)];
-    if (!image) return;
+    // 画好一张显示一张: a picture of a floor still being drawn is in no version yet: shown as it is.
     // 多张图: one of the earlier parts of the floor (-1 = the end of the floor).
-    const picture = scene >= 0 ? image.scenes?.[scene] ?? image : image;
+    const picture = src ? { src } : scene >= 0 ? image?.scenes?.[scene] ?? image : image;
+    if (!picture?.src) return;
     const { callGenericPopup, POPUP_TYPE } = ctx();
     const root = document.createElement('div');
     root.className = 'ctp-zoom';
@@ -230,7 +231,7 @@ function onAction(event) {
         case 'debug': showFloorDebug(mesId); break;
         case 'delete': deleteImage(mesId); break;
         case 'clear': clearState(mesId); break;
-        case 'zoom': zoom(mesId, Number(button.dataset.scene ?? -1)); break;
+        case 'zoom': zoom(mesId, Number(button.dataset.scene ?? -1), button.dataset.live ? button.getAttribute('src') : ''); break;
         case 'panel': showInPanel(mesId); break;
         case 'hint-remove':
             removeHint(ctx().chat[mesId], Number(button.dataset.index));

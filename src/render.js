@@ -46,6 +46,11 @@ function imageStyle() {
     return `--ctp-img-max: ${Number(getSettings().imageMaxWidth) || 480}px`;
 }
 
+/** 画好一张显示一张: the pictures of a floor still being drawn that are not in the text; no toolbar yet. */
+function liveHtml(pictures, several) {
+    return pictures.map(picture => `<div class="ctp-figure">${pictureHtml(picture, several, { style: imageStyle(), tools: 'none' })}</div>`).join('');
+}
+
 /** The image block: the pictures that are not in the text (see placePictures) and the toolbar. */
 function imageHtml(data, debug, pictures, several, panelButton) {
     // Only one of several pictures here (the others are in the text): the toolbar under it acts on that one.
@@ -121,7 +126,7 @@ function insertedFigure(picture) {
 function placePictures(element, wrap, pictures, kind, inStory, bounds = {}) {
     const text = element.find('.mes_text').get(0);
     if (!text) return { kept: pictures, wrapInText: false };
-    const signature = JSON.stringify([kind, inStory, bounds, pictures.map(picture => [picture.src, picture.start, picture.place, picture.startAt, picture.placeAt])]);
+    const signature = JSON.stringify([kind, inStory, bounds, pictures.map(picture => [picture.src, picture.start, picture.place, picture.startAt, picture.placeAt, picture.state ?? ''])]);
     const state = text.ctpPlacement;
     if (state?.signature === signature && placementIntact(text, wrap)) {
         return { kept: pictures.filter(picture => state.kept.includes(picture.scene)), wrapInText: state.wrapInText };
@@ -165,11 +170,11 @@ function placePictures(element, wrap, pictures, kind, inStory, bounds = {}) {
 }
 
 /** In panel mode the message only keeps a compact bar; clicking it shows this floor in the panel. */
-function chipHtml(data) {
-    const count = data.images.length;
+function chipHtml(data, live = false) {
+    const count = data?.images?.length ?? 0;
     return `<div class="ctp-chip ctp-act" data-act="panel" title="在侧边面板中显示这一楼的图">
         <i class="fa-solid fa-image"></i>
-        <span>配图${count > 1 ? ` · ${count} 张` : ''}</span>
+        <span>配图${live ? ' · 正在画' : count > 1 ? ` · ${count} 张` : ''}</span>
         <span class="ctp-chip-state"></span>
     </div>`;
 }
@@ -194,11 +199,13 @@ export function renderMessage(mesId) {
     const data = getMessageData(message);
     const job = getJob(message);
     const showJob = job && job.swipeId === (message?.swipe_id ?? 0);
+    // 画好一张显示一张: a floor being drawn shows its pictures as they are done, in their places (FloorLine.preview).
+    const live = showJob ? job.preview?.() ?? null : null;
 
     let wrap = element.find('.ctp-wrap');
     const hasImages = data?.images?.length > 0;
-    const showError = data?.error;
-    const showSkip = data?.skipped && settings.debug;
+    const showError = data?.error && !live;
+    const showSkip = data?.skipped && settings.debug && !live;
     if (!message || (!showJob && !hasImages && !showError && !showSkip)) {
         clearInserted(element);
         wrap.remove();
@@ -218,16 +225,17 @@ export function renderMessage(mesId) {
     let pictures = [];
     let several = false;
     let wrapInText = false;
-    if (hasImages && kind !== 'panel') {
-        const image = data.images[currentIndex(data)];
+    const shown = live ?? (hasImages ? data.images[currentIndex(data)] : null);
+    if (shown && kind !== 'panel') {
+        const image = shown;
         const all = versionPictures(image);
         several = all.length > 1;
         // Pictures go into the story only (what is inside <game>…</game>), found by its paragraphs.
         // A version from before every one kept its story's ends has the floor's (the same story, read last).
         const bounds = {
-            first: image.storyStart ?? data.storyStart,
-            last: image.storyEnd ?? data.storyEnd,
-            ending: image.storyEnding ?? data.storyEnding,
+            first: image.storyStart ?? data?.storyStart,
+            last: image.storyEnd ?? data?.storyEnd,
+            ending: image.storyEnding ?? data?.storyEnding,
             paragraphs: several || settings.placeInStory ? storyParagraphs(message) : [],
         };
         ({ kept: pictures, wrapInText } = placePictures(element, wrap[0], all, kind, !!settings.placeInStory, bounds));
@@ -236,12 +244,13 @@ export function renderMessage(mesId) {
         clearInserted(element);
     }
     if (!wrapInText) placeWrap(element, wrap, kind);
-    applySideLayout(element, wrap, hasImages && kind === 'inline' && !wrapInText ? mode.side : null);
+    applySideLayout(element, wrap, shown && kind === 'inline' && !wrapInText ? mode.side : null);
 
     const parts = [];
     if (showJob) parts.push(statusHtml(job));
-    if (hasImages) parts.push(kind === 'panel' ? chipHtml(data) : imageHtml(data, settings.debug, pictures, several, mode.kind === 'panel'));
-    if (hasImages) parts.push(upscaleStatusHtml(upscaleStatus(message, data.images[currentIndex(data)])));
+    if (live) parts.push(kind === 'panel' ? chipHtml(data, true) : liveHtml(pictures, several));
+    else if (hasImages) parts.push(kind === 'panel' ? chipHtml(data) : imageHtml(data, settings.debug, pictures, several, mode.kind === 'panel'));
+    if (hasImages && !live) parts.push(upscaleStatusHtml(upscaleStatus(message, data.images[currentIndex(data)])));
     if (showError) {
         parts.push(`<div class="ctp-error">
             <i class="fa-solid fa-triangle-exclamation"></i>

@@ -1320,8 +1320,13 @@ class FloorLine {
         this.job = job;
         this.message = message;
         this.modelMode = modelMode;
-        /** The pictures by their place: { slot, key, drawing, controller, notes, result, dropped }. */
+        /**
+         * The pictures by their place: { slot, key, drawing, controller, notes, result, dropped }, and for the display
+         * started (at ComfyUI now), done (saved: { src, path }) or failed (why).
+         */
         this.entries = new Map();
+        /** The floor's state the pictures belong to (where each goes in the text): the reply so far, then the whole. */
+        this.state = null;
         this.chain = Promise.resolve();
         this.turn = null;
         /** Pictures begun and drawn so far, how many wait for ComfyUI, and how many the floor has (known once the whole reply is read). */
@@ -1336,7 +1341,7 @@ class FloorLine {
         const current = this.entries.get(drawing.slot);
         if (current?.key === drawing.key) return current;
         if (current) this.drop(current);
-        const entry = { slot: drawing.slot, key: drawing.key, drawing, controller: childController(this.job.controller.signal), notes: [], dropped: false };
+        const entry = { slot: drawing.slot, key: drawing.key, drawing, controller: childController(this.job.controller.signal), notes: [], dropped: false, started: false, done: null, failed: '' };
         this.pending++;
         const drawn = this.chain.then(() => this.draw(entry));
         const settled = () => {
@@ -1352,8 +1357,20 @@ class FloorLine {
             if (entry.dropped) throw abortError();
             return { ...result, stored: await storePicture(result.image, entry.notes, result.values.filename_prefix) };
         });
-        // Read when the floor's pictures are put together; a picture given up before that is nobody's.
-        entry.result.catch(() => {});
+        // 画好一张显示一张: shown as soon as it is saved (read again when the floor's pictures are put together; a
+        // picture given up before that is nobody's).
+        entry.result.then(result => {
+            if (entry.dropped) return;
+            const first = ![...this.entries.values()].some(other => other.done);
+            entry.done = result.stored;
+            render(this.message);
+            // The floor's first new picture, like a finished floor's, is brought into view (the side panel).
+            if (first && (this.message.swipe_id ?? 0) === this.job.swipeId) imageAdded(ctx().chat.indexOf(this.message));
+        }, error => {
+            if (entry.dropped || isAbortError(error)) return;
+            entry.failed = errorMessage(error);
+            render(this.message);
+        });
         this.entries.set(drawing.slot, entry);
         return entry;
     }
@@ -1378,6 +1395,7 @@ class FloorLine {
         const { workflow, later } = buildWorkflow(template, values, drawing.plan, entry.notes);
         const started = performance.now();
         const status = drawing.slot === 'end' ? '' : drawing.label;
+        entry.started = true;
         const image = await runWorkflow(workflow, entry.controller.signal, text => setStage(this.job, this.message, 'drawing', `${status}${text}`));
         assertMode(this.modelMode);
         this.drawn++;
@@ -1414,6 +1432,43 @@ class FloorLine {
     keep() {
         this.entries.clear();
     }
+
+    /**
+     * 画好一张显示一张: the floor while its pictures are drawn, as a version (see addVersion) the display can show: the
+     * pictures done so far, and a box for each one still on its way, at their places in the text. null until the
+     * first one is done.
+     */
+    preview() {
+        const floor = this.state;
+        if (!floor || ![...this.entries.values()].some(entry => entry.done)) return null;
+        const picture = slot => {
+            const entry = this.entries.get(slot);
+            return {
+                src: entry?.done?.src ?? '',
+                state: entry?.done ? 'done' : entry?.failed ? 'failed' : entry?.started ? 'drawing' : 'waiting',
+                width: entry?.drawing.width ?? 0,
+                height: entry?.drawing.height ?? 0,
+            };
+        };
+        const scenes = (floor.scenes ?? []).map((scene, index) => ({
+            ...picture(index),
+            label: scene.label,
+            start: scene.start || '',
+            place: scene.place || '',
+            startAt: scene.startAt,
+            placeAt: scene.placeAt,
+        }));
+        return {
+            ...picture('end'),
+            start: scenes.length ? floor.endStart || '' : undefined,
+            startAt: scenes.length ? floor.endStartAt : undefined,
+            place: floor.place || undefined,
+            placeAt: floor.placeAt,
+            ...(floor.storyStart ? { storyStart: floor.storyStart, storyEnd: floor.storyEnd, storyEnding: floor.storyEnding } : {}),
+            scenes: scenes.length ? scenes : undefined,
+            live: true,
+        };
+    }
 }
 
 /**
@@ -1442,6 +1497,7 @@ function earlyDrawing(message, modelMode, parserPrompt, chosen, force, line, ove
                 if (!comic) line.offer(drawings.end);
                 for (const drawing of drawings.scenes) line.offer(drawing);
                 if (comic && partial.done) line.offer(drawings.end);
+                line.state = scratch;
             } catch (error) {
                 // Not drawable yet (or not like this): the whole reply decides.
                 log('边解析边出图：这一段还不能画', error);
@@ -1450,6 +1506,7 @@ function earlyDrawing(message, modelMode, parserPrompt, chosen, force, line, ove
         reset() {
             scanner.reset();
             line.dropAll();
+            line.state = null;
             line.begun = 0;
             line.drawn = 0;
         },
@@ -1495,8 +1552,9 @@ async function runJobInMode(message, job, options, ratingNote) {
     if (converted) data.modelMode = modelMode;
     // The user asked for a picture: a 🔄 that has to parse again must not be skipped.
     const force = !!options.force || (mode === 'reroll' && otherMode);
-    // The floor's pictures at ComfyUI (see FloorLine).
+    // The floor's pictures at ComfyUI (see FloorLine), shown as they are done (画好一张显示一张).
     const line = new FloorLine(job, message, modelMode);
+    job.preview = () => line.preview();
 
     try {
         if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -1602,6 +1660,7 @@ async function runJobInMode(message, job, options, ratingNote) {
         // while the parser was still writing are kept when the whole reply asks for the same picture.
         const drawings = floorDrawings(data, overrides, seedOf);
         const [endEntry, ...sceneEntries] = line.settle(drawings);
+        line.state = data;
         const { plan } = drawings;
         const { preset, profile, comfy, width, height } = plan;
         if (profile) data.debug.notes.push(`渲染配置：${profile.name}（角色预设「${resolveMacros(preset.name)}」）`);

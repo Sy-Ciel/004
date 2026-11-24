@@ -48,9 +48,15 @@ function panelSettings() {
 function floorsWithImages() {
     const floors = [];
     ctx().chat.forEach((message, index) => {
-        if (getMessageData(message)?.images?.length) floors.push(index);
+        if (getMessageData(message)?.images?.length || livePreview(message)) floors.push(index);
     });
     return floors;
+}
+
+/** 画好一张显示一张: the pictures of a floor being drawn (FloorLine.preview); null before the first one is done. */
+function livePreview(message) {
+    const job = getJob(message);
+    return job && job.swipeId === (message?.swipe_id ?? 0) ? job.preview?.() ?? null : null;
 }
 
 function floorElement(mesId) {
@@ -285,13 +291,14 @@ function ensurePanel() {
     return panel;
 }
 
-function panelHtml(mesId, data, job) {
+function panelHtml(mesId, data, job, live = null) {
     const settings = getSettings();
-    const image = data.images[currentIndex(data)];
+    // 画好一张显示一张: a floor being drawn shows what is done so far, without the toolbar yet.
+    const image = live ?? data.images[currentIndex(data)];
     // 多张图: one picture per page; the toolbar under it acts on the page shown (see applyPage).
     const pictures = versionPictures(image);
     const follow = panelSettings().follow;
-    const name = data.target || ctx().chat[mesId]?.name || '';
+    const name = data?.target || ctx().chat[mesId]?.name || '';
     return `<div class="ctp-panel-header" title="拖动标题栏移动，拖右下角调整大小">
         <span class="ctp-panel-title">#${mesId}${name ? ` · ${escapeHtml(name)}` : ''}</span>
         <span class="ctp-panel-spacer"></span>
@@ -303,8 +310,8 @@ function panelHtml(mesId, data, job) {
     </div>
     ${job ? statusHtml(job) : ''}
     ${picturesHtml(pictures)}
-    ${upscaleStatusHtml(upscaleStatus(ctx().chat[mesId], image))}
-    ${toolbarHtml(data, settings.debug, { scene: pictures.length > 1 ? pictures[0].scene : null })}`;
+    ${live ? '' : upscaleStatusHtml(upscaleStatus(ctx().chat[mesId], image))}
+    ${live ? '' : toolbarHtml(data, settings.debug, { scene: pictures.length > 1 ? pictures[0].scene : null })}`;
 }
 
 /** The picture, or with 多张图 one page per picture (the shown one is picked by applyPage) and ‹ › under them. */
@@ -352,8 +359,9 @@ export function refreshPanel() {
     const data = getMessageData(message);
     const job = getJob(message);
     const showJob = job && job.swipeId === (message?.swipe_id ?? 0) ? job : null;
+    const live = showJob?.preview?.() ?? null;
     // 多张图: turn to the part being read, like the panel moves on to the floor being read.
-    const shownImage = data.images[currentIndex(data)];
+    const shownImage = live ?? data.images[currentIndex(data)];
     const pictures = versionPictures(shownImage);
     if (pagedMesId !== shownMesId) {
         pagedMesId = shownMesId;
@@ -362,14 +370,14 @@ export function refreshPanel() {
     }
     if (pictures.length > 1 && panelSettings().follow && !pageSticky) {
         shownPage = pageAtReadingPosition(shownMesId, pictures, {
-            first: shownImage.storyStart ?? data.storyStart,
-            last: shownImage.storyEnd ?? data.storyEnd,
-            ending: shownImage.storyEnding ?? data.storyEnding,
+            first: shownImage.storyStart ?? data?.storyStart,
+            last: shownImage.storyEnd ?? data?.storyEnd,
+            ending: shownImage.storyEnding ?? data?.storyEnding,
             paragraphs: storyParagraphs(ctx().chat[shownMesId]),
         });
     }
     shownPage = Math.min(Math.max(0, shownPage), pictures.length - 1);
-    const html = panelHtml(shownMesId, data, showJob);
+    const html = panelHtml(shownMesId, data, showJob, live);
     panel.dataset.mesid = String(shownMesId);
     panel.classList.toggle('ctp-panel-max', maximized);
     if (html !== lastHtml) {
@@ -377,7 +385,7 @@ export function refreshPanel() {
         lastHtml = html;
     }
     applyPage(pictures);
-    applyGeometry(targetGeometry(mode.side, data.images[currentIndex(data)]));
+    applyGeometry(targetGeometry(mode.side, shownImage));
     panel.hidden = false;
     markActiveChip();
 }
