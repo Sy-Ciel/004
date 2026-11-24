@@ -549,7 +549,7 @@ export const DEFAULT_SETTINGS = {
         hideCharName: false,
         /** 多张图: a floor whose text moves on to another time or place gets a picture for each earlier part too. */
         multiScene: false,
-        /** Pictures per floor at most, the end of the floor included (2–4). */
+        /** Pictures per floor at most, the end of the floor included (2–8). */
         maxScenes: 3,
         /** MOSS-Image: the parser also reads a few sections of Moeblack's MOSS-Image prompt skill (see mossSkill.js). */
         mossSkill: true,

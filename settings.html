@@ -136,9 +136,13 @@
                             <option value="2">2</option>
                             <option value="3">3</option>
                             <option value="4">4</option>
+                            <option value="5">5</option>
+                            <option value="6">6</option>
+                            <option value="7">7</option>
+                            <option value="8">8</option>
                         </select> 张</label>
                     </div>
-                    <div class="ctp-help">由解析 AI 自动判断：比如前半段是晚上、后半段跳到了第二天早上，就画两张（先晚上，再早上）；整段都是同一个时间、同一个地方就只画一张。几张图按时间顺序显示在这一楼，最后一张是这一楼结束时的样子。多一张就多一次出图时间。所有模型模式共用。</div>
+                    <div class="ctp-help">由解析 AI 自动判断：比如前半段是晚上、后半段跳到了第二天早上，就画两张（先晚上，再早上）；整段都是同一个时间、同一个地方就只画一张。几张图按时间顺序显示在这一楼，最后一张是这一楼结束时的样子。多一张就多一次出图时间。最多可以选 8 张；超过 4 张时解析 AI 要一次写很多段，「最大输出」低于需要时这次自动调高（5 张约 3500，8 张约 5000）。所有模型模式共用。</div>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="absentFallback"><span>画谁不在画面里时，改画画面里的人或场景（关掉 = 这一楼不配图） <i class="ctp-q fa-solid fa-circle-question"></i></span></label>
                     <div class="ctp-help">比如主角选了 {{user}}，这一楼却只写了别的人物：解析 AI 改画这一楼的主要人物（有角色预设的用预设的外貌和角色 LoRA，没有的按正文写外貌）；一个人都没有就只画场景。所有模型模式共用。</div>
 
@@ -303,6 +307,10 @@
                                     <option value="2">2</option>
                                     <option value="3">3</option>
                                     <option value="4">4</option>
+                                    <option value="5">5</option>
+                                    <option value="6">6</option>
+                                    <option value="7">7</option>
+                                    <option value="8">8</option>
                                 </select> 页</label>
                                 <label class="checkbox_label"><input type="checkbox" data-pp="dialogue"><span>画对白 <i class="ctp-q fa-solid fa-circle-question"></i></span></label>
                             </div>

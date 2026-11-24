@@ -37,6 +37,14 @@ function comicMinTokens(pages) {
     return Math.min(8192, 2048 * (pages + 1));
 }
 
+/**
+ * 多张图 with more than 4 pictures: the parser writes every part's picture in one reply, so its output limit is
+ * raised to fit them (when 「最大输出」 is set lower); up to 4, the default limit has room.
+ */
+function scenesMinTokens(scenes) {
+    return scenes > 4 ? Math.min(8192, 512 * (scenes + 2)) : 0;
+}
+
 /** The last words of a comic request: the pages in MOSS-Image's layout format, never a written-out prompt. */
 function comicReminder(pages) {
     return pages > 1
@@ -617,8 +625,8 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     const writing = promptStyle() === MODEL_MOSS && settings.parser.mossSkill !== false ? await mossSkillBlock({ mode, comic, allowOthers, chinese })
         : promptStyle() === MODEL_KREA2 && settings.parser.kreaRules ? { text: kreaRulesBlock(mode), note: '提示词写法：Krea 2 官方模板（最后加上 Absolutely no text…）' }
             : null;
-    // A comic page (every panel, person and speech bubble described) is a long answer.
-    const minTokens = comic ? comicMinTokens(comic.pages) : 0;
+    // A comic page (every panel, person and speech bubble described) is a long answer; so are many pictures.
+    const minTokens = comic ? comicMinTokens(comic.pages) : scenesMinTokens(scenes);
     const raised = minTokens > (Number(settings.parser.maxTokens) || 2048);
     // Anima in natural-language mode: the presets were written for tags, so this rule overrides them.
     const natural = promptStyle() === 'anima-natural';
@@ -647,7 +655,7 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
             aspect ? '解析模型选择宽高比' : '',
             scenes ? `多张图：正文换了时间或地点时最多画 ${scenes} 张` : '',
             comic?.pages > 1 ? `漫画：按内容画 1–${comic.pages} 页（「多张图」的设置对漫画不起作用）` : '',
-            raised ? `漫画的输出比较长：这次的最大输出用 ${minTokens}（设置里是 ${Number(settings.parser.maxTokens) || 2048}）` : '',
+            raised ? `${comic ? '漫画' : `多张图（最多 ${scenes} 张）`}的输出比较长：这次的最大输出用 ${minTokens}（设置里是 ${Number(settings.parser.maxTokens) || 2048}）` : '',
             place ? '图片插在正文中间：由解析模型选位置' : '',
             absent ? '画谁不在画面里时，改画在场的人或场景' : '',
             focus ? `只重新解析「${focus.label}」这一张` : '',

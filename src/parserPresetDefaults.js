@@ -619,7 +619,7 @@ function comicSystem() {
  * @property {boolean} [allowOthers] Other people in the scene may be drawn too (field `others`)
  * @property {boolean} [comic] 漫画模式 (MOSS-Image): the floor as one comic page (see comic.js)
  * @property {number} [panels] Comic: panels per page at most (1–6)
- * @property {number} [pages] Comic: pages per floor at most (1–4); the parser decides how many
+ * @property {number} [pages] Comic: pages per floor at most (1–8); the parser decides how many
  * @property {boolean} [dialogue] Comic: the story's lines in speech bubbles (off: no text in the picture)
  */
 

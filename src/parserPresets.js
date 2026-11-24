@@ -29,10 +29,13 @@ export function extraFieldRules(negative, aspect, scenes = 0, place = false, abs
     return extraOnlyRules(promptStyle(), negative, aspect, scenes, place, absent);
 }
 
-/** Pictures per floor with 多张图 (2–4), or 0 when it is off. */
+/** The most pictures a floor can get: 多张图's pictures, or a comic's pages. */
+export const MAX_PICTURES = 8;
+
+/** Pictures per floor with 多张图 (2–8), or 0 when it is off. */
 export function sceneLimit(parser = getSettings().parser) {
     if (!parser.multiScene) return 0;
-    return Math.min(4, Math.max(2, Math.trunc(Number(parser.maxScenes)) || 3));
+    return Math.min(MAX_PICTURES, Math.max(2, Math.trunc(Number(parser.maxScenes)) || 3));
 }
 
 /** The active image model mode's built-in preset with this id (each mode has its own wording). */
