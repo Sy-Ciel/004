@@ -358,10 +358,11 @@ function comicFormat(comic, negative, aspect, place, absent) {
     if (negative) tail.push('"negative": ""');
     if (aspect) tail.push(`"aspect": "${aspect.fallback}"`);
     if (several) {
+        // The pages last, after everything they are drawn with: 边解析边出图 draws each page as soon as it is written.
         const anchor = (start, after) => (place ? `"place": ${after}` : `"start": ${start}`);
         const pages = `"pages": [\n{"label": "前半段·门口", ${anchor(1, 2)}, "layout": ${layoutJson(example)}},\n{"label": "后半段·晚上", ${anchor(3, 4)}, "layout": ${layoutJson(comicLaterExample(comic.dialogue))}}\n]`;
         return `输出格式（下面是一个 2 页的示例，第一页 ${panels} 格、第二页 1 格，内容是虚构的：只照它的格式写，页数、格数、内容、位置都按这一楼的剧情来，不要照抄；内容少就只写一页）：
-{${fields.join(', ')}, ${pages}${tail.length ? `, ${tail.join(', ')}` : ''}}`;
+{${[...fields, ...tail].join(', ')}, ${pages}}`;
     }
     if (place) tail.push('"place": 2');
     return `输出格式（下面是一个 ${panels} 格的示例，内容是虚构的：只照它的格式写，格数、内容、位置都按这一楼的剧情来，不要照抄）：

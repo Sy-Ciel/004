@@ -121,15 +121,21 @@ class Reply {
         if (chunk.type === 'message-end' && chunk.delta?.finish_reason) this.finish = finishOf(chunk.delta.finish_reason);
     }
 
-    /** The submit_picture call's arguments as JSON text ('' without a call): the parser's result then. */
-    tool() {
+    /** The submit_picture call's arguments so far, as JSON text (null without a call). */
+    call() {
         const named = list => list.find(item => item?.name === TOOL_NAME) ?? list[0];
         const call = named(this.calls.filter(Boolean));
-        if (call) return call.arguments || '{}';
+        if (call) return call.arguments;
         const use = named(this.blocks.filter(block => block?.type === 'tool_use'));
-        if (use) return use.input || '{}';
+        if (use) return use.input;
         const fn = named(this.functions);
-        return fn ? JSON.stringify(fn.args ?? {}) : '';
+        return fn ? JSON.stringify(fn.args ?? {}) : null;
+    }
+
+    /** The submit_picture call's arguments as JSON text ('' without a call): the parser's result then. */
+    tool() {
+        const call = this.call();
+        return call === null ? '' : call || '{}';
     }
 
     /** @returns {{ content: string, reasoning: string, finish: string, tool: boolean, tier: string }} */
@@ -143,8 +149,9 @@ class Reply {
 /**
  * Reads a streamed reply to the end.
  * @param {Response} response
- * @param {{ onData?: () => void, onProgress?: (progress: { text: number, reasoning: number }) => void, fallback: (json: object) => object }} options
- *   onData: something arrived (keeps the time without data from running out); onProgress: what has come in so far;
+ * @param {{ onData?: () => void, onProgress?: (progress: { text: number, reasoning: number, answer: () => string }) => void, fallback: (json: object) => object }} options
+ *   onData: something arrived (keeps the time without data from running out); onProgress: what has come in so far
+ *   (how many characters of answer and thinking, and the answer itself);
  *   fallback: how to read the reply when the server answered with plain JSON instead of a stream
  */
 export async function readStream(response, { onData, onProgress, fallback }) {
@@ -168,7 +175,12 @@ export async function readStream(response, { onData, onProgress, fallback }) {
         }
         events++;
         reply.add(chunk);
-        onProgress?.({ text: reply.text.length + reply.calls.reduce((sum, call) => sum + (call?.arguments?.length ?? 0), 0), reasoning: reply.reasoning.length });
+        onProgress?.({
+            text: reply.text.length + reply.calls.reduce((sum, call) => sum + (call?.arguments?.length ?? 0), 0),
+            reasoning: reply.reasoning.length,
+            // The answer so far (边解析边出图 reads it): the submit_picture call's arguments once it is made, else the text.
+            answer: () => reply.call() ?? reply.text,
+        });
     };
     const line = text => {
         if (text === '') dispatch();

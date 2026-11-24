@@ -531,6 +531,11 @@ export const DEFAULT_SETTINGS = {
         /** 流式传输: replies read as they arrive (all sources but 酒馆当前 API); the timeout then counts time without data. */
         stream: true,
         /**
+         * 边解析边出图: with 流式传输, each picture of the reply goes to ComfyUI as soon as it is written (多张图: the end of
+         * the floor, then each earlier part; 漫画: each page), while the parser writes the others.
+         */
+        earlyDraw: true,
+        /**
          * 酒馆 API 连接（插头）: the model used through SillyTavern's own connection, per chat completion source
          * ({ vertexai: 'gemini-3.8-flash', … }); none = the model the chat uses.
          */

@@ -8,6 +8,7 @@ import { mossSkillBlock } from './mossSkill.js';
 import { TOOL_NAME, TOOL_REMINDER, TOOL_RULE, toolArguments, toolBody, toolDeclaration, usesTool } from './parserTool.js';
 import { PROVIDERS, nativeProvider, providerOf, providerUrl, usesFlex } from './providers.js';
 import { openRouterWebsite, plugConnection, plugModel, plugRequest } from './plug.js';
+import { ReplyScanner } from './partial.js';
 import { readStream, streamError } from './stream.js';
 import { callVertex } from './vertex.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
@@ -827,7 +828,7 @@ async function callProfile(system, user, signal, parser = getSettings().parser, 
         for await (const part of result()) {
             last = part;
             io.onData?.();
-            io.onProgress?.({ text: String(part?.text ?? '').length, reasoning: String(part?.state?.reasoning ?? '').length });
+            io.onProgress?.({ text: String(part?.text ?? '').length, reasoning: String(part?.state?.reasoning ?? '').length, answer: () => String(part?.text ?? '') });
         }
         return { content: String(last?.text ?? ''), reasoning: String(last?.state?.reasoning ?? ''), finish: '' };
     }
@@ -1185,48 +1186,95 @@ export function parseParserOutput(raw, { comic = false } = {}) {
     let object = null;
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
-    if (start !== -1 && end > start) {
-        const body = text.slice(start, end + 1);
-        const mended = fixStrings(body);
-        for (const candidate of [body, repairJson(body), mended, mended.replace(/,\s*([}\]])/g, '$1')]) {
-            try {
-                object = JSON.parse(candidate);
-                break;
-            } catch {
-                // try next candidate
-            }
-        }
+    if (start !== -1 && end > start) object = readJson(text.slice(start, end + 1));
+    if (object && typeof object === 'object') return parseResult(object, { comic });
+
+    // 多张图, a reply cut off (or broken) inside its earlier_scenes: the fields in front of the list, and each part of it
+    // written out in full (as 边解析边出图 read them while the reply came in).
+    if (!comic) {
+        const scanner = new ReplyScanner(['earlier_scenes', 'earlierScenes']);
+        scanner.read(text);
+        const read = scanner.close < 0 ? readPartialReply(scanner) : null;
+        if (read) return { ...read.parsed, partial: true };
     }
 
-    // 漫画模式: one page's `layout`, or `pages` when the floor may get several.
-    let pages = comic && object && typeof object === 'object' ? readPages(object.pages) : [];
-    let layout = comic && object && typeof object === 'object' && !pages.length ? layoutOf(object) : null;
-    let partial = false;
-    if (!object) {
-        // Salvage fields from broken or truncated JSON, or from "key: value" lines. A quoted value only counts
-        // when its closing quote is present, so a reply cut off mid-value does not leak half a phrase.
-        object = {};
-        for (const key of ['skip', 'reason', 'target', 'looks', 'place', 'prompt', 'negative', 'negative_prompt', 'aspect', ...STATE_FIELDS, ...PARSED_FIELDS]) {
-            // Whole keys only: "prompt" must not match the end of "negative_prompt".
-            const quoted = text.match(new RegExp(`(?<![\\w])["']?${key}["']?\\s*[:：]\\s*"([^"\\n]*)"`, 'i'));
-            const line = text.match(new RegExp(`^\\s*${key}\\s*[:：]\\s*([^"{}\\n]+)$`, 'im'));
-            if (quoted) object[key] = quoted[1];
-            else if (line) object[key] = line[1];
-        }
-        const skip = text.match(/["']?skip["']?\s*[:：]\s*(true|false)/i);
-        if (skip) object.skip = skip[1].toLowerCase() === 'true';
-        const absent = text.match(/["']?absent["']?\s*[:：]\s*(true|false)/i);
-        if (absent) object.absent = absent[1].toLowerCase() === 'true';
-        if (comic) {
-            pages = /"pages"\s*:\s*\[/.test(text) ? readPages(salvagePages(text)) : [];
-            layout = pages.length ? null : salvageLayout(text);
-            partial = pages.length > 0 || !!layout;
-        }
-        if (!Object.keys(object).length && !layout && !pages.length) {
-            throw new Error('解析模型没有返回可识别的 JSON');
+    // Salvage fields from broken or truncated JSON, or from "key: value" lines. A quoted value only counts when its
+    // closing quote is present, so a reply cut off mid-value does not leak half a phrase.
+    const salvaged = {};
+    for (const key of ['skip', 'reason', 'target', 'looks', 'place', 'prompt', 'negative', 'negative_prompt', 'aspect', ...STATE_FIELDS, ...PARSED_FIELDS]) {
+        // Whole keys only: "prompt" must not match the end of "negative_prompt".
+        const quoted = text.match(new RegExp(`(?<![\\w])["']?${key}["']?\\s*[:：]\\s*"([^"\\n]*)"`, 'i'));
+        const line = text.match(new RegExp(`^\\s*${key}\\s*[:：]\\s*([^"{}\\n]+)$`, 'im'));
+        if (quoted) salvaged[key] = quoted[1];
+        else if (line) salvaged[key] = line[1];
+    }
+    const skip = text.match(/["']?skip["']?\s*[:：]\s*(true|false)/i);
+    if (skip) salvaged.skip = skip[1].toLowerCase() === 'true';
+    const absent = text.match(/["']?absent["']?\s*[:：]\s*(true|false)/i);
+    if (absent) salvaged.absent = absent[1].toLowerCase() === 'true';
+    // 漫画模式: what can be read of its pages, or of its one page's layout.
+    const pages = comic && /"pages"\s*:\s*\[/.test(text) ? readPages(salvagePages(text)) : [];
+    const layout = comic && !pages.length ? salvageLayout(text) : null;
+    if (!Object.keys(salvaged).length && !layout && !pages.length) {
+        throw new Error('解析模型没有返回可识别的 JSON');
+    }
+    return parseResult(salvaged, { comic, pages, layout, partial: pages.length > 0 || !!layout });
+}
+
+/**
+ * 边解析边出图: what a reply still coming in already says (see ReplyScanner in partial.js), read as parseParserOutput
+ * reads a whole reply: the fields in front of its list of pictures, with the parts of the list written out so far.
+ * 漫画模式 with another page begun: the pages so far are all earlier pages (the end of the floor is the last one, still
+ * to come), so the last of them is put in once more to stand for it.
+ * @param {{ pieces: () => object | null }} scanner
+ * @returns {{ parsed: ReturnType<typeof parseParserOutput>, done: boolean } | null} done: the list is complete (with
+ *   漫画模式 the last page is the end of the floor); null while nothing can be read yet
+ */
+export function readPartialReply(scanner, { comic = false } = {}) {
+    const pieces = scanner.pieces();
+    if (!pieces) return null;
+    let object = null;
+    if (pieces.whole !== undefined) {
+        object = readJson(pieces.whole);
+    } else {
+        const head = readJson(pieces.head);
+        if (head && typeof head === 'object' && !Array.isArray(head)) {
+            const parts = pieces.parts.map(readJson);
+            if (comic && pieces.more && parts.length) parts.push(parts.at(-1));
+            object = { ...head, [pieces.key]: parts };
         }
     }
+    if (!object || typeof object !== 'object' || Array.isArray(object)) return null;
+    try {
+        return { parsed: parseResult(object, { comic }), done: pieces.done };
+    } catch {
+        return null;
+    }
+}
 
+/**
+ * A JSON object's text read as JSON, with the slips models make mended (curly quotes, trailing commas, raw line breaks,
+ * quotes they did not escape); null when it cannot be read.
+ */
+function readJson(body) {
+    const mended = fixStrings(body);
+    for (const candidate of [body, repairJson(body), mended, mended.replace(/,\s*([}\]])/g, '$1')]) {
+        try {
+            return JSON.parse(candidate);
+        } catch {
+            // try next candidate
+        }
+    }
+    return null;
+}
+
+/**
+ * What a reply's object says, as the pipeline uses it (see parseParserOutput).
+ * @param {object} object the reply's JSON object (or the fields salvaged from a broken one)
+ * @param {{ comic?: boolean, pages?: object[], layout?: object | null, partial?: boolean }} options 漫画模式: pages
+ *   and layout as found in the object, unless salvaged from a broken one (partial)
+ */
+function parseResult(object, { comic = false, pages = comic ? readPages(object.pages) : [], layout = comic && !pages.length ? layoutOf(object) : null, partial = false } = {}) {
     const result = {
         skip: object.skip === true || String(object.skip).toLowerCase() === 'true',
         reason: normalizeValue(object.reason),
