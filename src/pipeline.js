@@ -607,7 +607,9 @@ function imageFolder() {
  * Queues image generation for a floor.
  * @param {number} mesId Floor index
  * @param {object} [options]
- * @param {'reparse'|'reroll'|'edit'} [options.mode='reparse'] reparse = ask the parser again; reroll = same prompt, new seed; edit = use options.prompt
+ * @param {'reparse'|'reroll'|'edit'|'resend'} [options.mode='reparse'] reparse = ask the parser again; reroll = same prompt, new seed;
+ *   edit = use options.prompt; resend = 重新发送提示词: the floor's prompts sent to ComfyUI again as they are (after
+ *   ComfyUI failed), seeds as for a first drawing
  * @param {string} [options.target] Target override
  * @param {string} [options.prompt] Prompt for edit mode
  * @param {string} [options.negative] Negative prompt for edit mode (default: the floor's)
@@ -1542,7 +1544,9 @@ async function runJobInMode(message, job, options, ratingNote) {
     const previous = swipeData(message, job.swipeId);
     const data = previous ? structuredClone(previous) : { v: 1, images: [], index: 0 };
     data.images ??= [];
-    const mode = options.mode === 'edit' || options.mode === 'reroll' ? options.mode : 'reparse';
+    const mode = ['edit', 'reroll', 'resend'].includes(options.mode) ? options.mode : 'reparse';
+    // 🎲, and 重新发送提示词 (the floor's prompts drawn again without asking the parser).
+    const again = mode === 'reroll' || mode === 'resend';
     // The whole job uses one image model mode; switching modes cancels it (see assertMode).
     const modelMode = currentMode();
     // The floor's state was made in the other mode: 🔄 parses it again instead of reusing that model's prompt, and
@@ -1551,10 +1555,12 @@ async function runJobInMode(message, job, options, ratingNote) {
     let converted = !otherMode;
     if (converted) data.modelMode = modelMode;
     // The user asked for a picture: a 🔄 that has to parse again must not be skipped.
-    const force = !!options.force || (mode === 'reroll' && otherMode);
+    const force = !!options.force || (again && otherMode);
     // The floor's pictures at ComfyUI (see FloorLine), shown as they are done (画好一张显示一张).
     const line = new FloorLine(job, message, modelMode);
     job.preview = () => line.preview();
+    // The prompts were there when it failed: ComfyUI's step failed (重新发送提示词 can send them again).
+    let prompted = false;
 
     try {
         if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -1562,6 +1568,7 @@ async function runJobInMode(message, job, options, ratingNote) {
         if (mesId < 0) return;
 
         data.error = null;
+        delete data.failedAt;
         data.debug = { ...(data.debug || {}), notes: [] };
         if (ratingNote) data.debug.notes.push(ratingNote);
         // 多张图: 🎲 / ✏️ on one picture of a version redraws only that picture.
@@ -1571,23 +1578,24 @@ async function runJobInMode(message, job, options, ratingNote) {
             return;
         }
         // Edit-dialog choices stay with the floor for 🔄 (new seed, same settings) until it is parsed again.
-        let overrides = mode === 'edit' ? options.overrides ?? null : mode === 'reroll' ? data.editOverrides ?? null : null;
+        let overrides = mode === 'edit' ? options.overrides ?? null : again ? data.editOverrides ?? null : null;
         // Each picture's seed, by its place in the floor: a picture drawn while the parser was still writing (边解析边
         // 出图) is the same picture when the whole reply asks for it.
         const randomSeeds = new Map();
         const seedOf = (slot, comfy) => {
-            if (slot === 'end' && mode === 'edit' && Number.isFinite(overrides?.seed) && overrides.seed >= 0) return overrides.seed;
+            if (slot === 'end' && (mode === 'edit' || mode === 'resend') && Number.isFinite(overrides?.seed) && overrides.seed >= 0) return overrides.seed;
             const fixedSeed = Number(comfy.seed);
             if (mode !== 'reroll' && fixedSeed >= 0) return fixedSeed;
             if (!randomSeeds.has(slot)) randomSeeds.set(slot, randomSeed());
             return randomSeeds.get(slot);
         };
 
-        if (mode === 'reparse' || !data.prompt || (mode === 'reroll' && otherMode)) {
+        if (mode === 'resend' && data.prompt && !otherMode) data.debug.notes.push('没有重新解析：把这一楼解析好的提示词重新发给了 ComfyUI');
+        if (mode === 'reparse' || !data.prompt || (again && otherMode)) {
             overrides = null;
             delete data.editOverrides;
             delete data.promptEdited;
-            if (mode === 'reroll' && otherMode) data.debug.notes.push(`这一楼上次是 ${modeLabel(floorMode(previous))} 模式画的，已按 ${modeLabel(modelMode)} 模式重新解析`);
+            if (again && otherMode) data.debug.notes.push(`这一楼上次是 ${modeLabel(floorMode(previous))} 模式画的，已按 ${modeLabel(modelMode)} 模式重新解析`);
             setStage(job, message, 'parsing', '正在解析角色状态…');
             const target = resolveTarget(message, options.target);
             // Recorded before the request so a failed floor still shows who it was for.
@@ -1658,6 +1666,7 @@ async function runJobInMode(message, job, options, ratingNote) {
 
         // The pictures go to ComfyUI one at a time, the jobs' in the order they got there (see FloorLine); the ones drawn
         // while the parser was still writing are kept when the whole reply asks for the same picture.
+        prompted = true;
         const drawings = floorDrawings(data, overrides, seedOf);
         const [endEntry, ...sceneEntries] = line.settle(drawings);
         line.state = data;
@@ -1759,9 +1768,12 @@ async function runJobInMode(message, job, options, ratingNote) {
         // A failure in this mode leaves the other mode's picture state usable there.
         if (!converted) restoreFloorState(data, previous);
         data.error = errorMessage(error);
+        // 重新发送提示词: the floor's prompts are kept, so they can go to ComfyUI again without the parser.
+        if (prompted && hasFloorState(data)) data.failedAt = 'comfy';
         commit(message, job.swipeId, data);
-        const where = error?.parsing || job.stage === 'parsing' ? '（解析模型）' : job.stage === 'drawing' ? '（ComfyUI）' : '';
-        toastr.error(truncate(data.error, 300), `配图失败${where}`);
+        const where = data.failedAt ? '（ComfyUI）' : error?.parsing || job.stage === 'parsing' ? '（解析模型）' : job.stage === 'drawing' ? '（ComfyUI）' : '';
+        const resend = data.failedAt ? '。提示词已经保存：ComfyUI 好了以后点这一楼的「重新发送提示词」，不用重新解析' : '';
+        toastr.error(`${truncate(data.error, 300)}${resend}`, `配图失败${where}`);
     } finally {
         // Pictures not kept (failed, cancelled, skipped) are stopped and deleted; a job still waiting for ComfyUI
         // leaves the line.

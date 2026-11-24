@@ -217,6 +217,8 @@ function onAction(event) {
         case 'next': changeIndex(mesId, 1); break;
         case 'reroll': enqueue(mesId, { mode: 'reroll' }); break;
         case 'reparse': enqueue(mesId, { mode: 'reparse', force: true }); break;
+        // ComfyUI failed after the parse: the same prompts again, without the parser.
+        case 'resend': enqueue(mesId, { mode: 'resend' }); break;
         case 'force': enqueue(mesId, { mode: 'reparse', force: true }); break;
         case 'edit': openEditDialog(mesId); break;
         // 多张图: one picture of the shown version.

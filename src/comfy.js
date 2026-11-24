@@ -411,6 +411,10 @@ async function generateViaProxy(workflow, signal) {
     });
     if (!response.ok) {
         const text = await response.text();
+        // SillyTavern's server could not reach ComfyUI at all (it only passes on "fetch failed" then).
+        if (/fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|socket hang up/i.test(text)) {
+            throw new Error(`无法连接 ComfyUI（${comfyBase()}，${truncate(text, 200)}）：确认 ComfyUI 已经启动、「ComfyUI 地址」填得对（「酒馆后端代理」模式是酒馆服务器去连这个地址）`);
+        }
         throw new Error(`ComfyUI 生成失败: ${truncate(text, 1500)}（想看节点级报错可切换为「浏览器直连」模式）`);
     }
     const body = await response.text();

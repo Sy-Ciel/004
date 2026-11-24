@@ -5,6 +5,7 @@ import { currentIndex, pictureHtml, statusHtml, toolbarHtml, upscaleStatusHtml, 
 import { getPanelMesId, schedulePanelRefresh } from './panel.js';
 import { storyParagraphs } from './parser.js';
 import { getJob, upscaleStatus } from './pipeline.js';
+import { currentMode, floorMode } from './modes.js';
 import { decorateStatusBars } from './statusBar.js';
 import { ctx, escapeHtml, getMessageData, getSettings } from './utils.js';
 
@@ -252,10 +253,14 @@ export function renderMessage(mesId) {
     else if (hasImages) parts.push(kind === 'panel' ? chipHtml(data) : imageHtml(data, settings.debug, pictures, several, mode.kind === 'panel'));
     if (hasImages && !live) parts.push(upscaleStatusHtml(upscaleStatus(message, data.images[currentIndex(data)])));
     if (showError) {
+        // 重新发送提示词: ComfyUI failed after the parser had written the prompts (not reachable, an error in the
+        // workflow …): they go to ComfyUI again as they are, without asking the parser. Not for another mode's prompts.
+        const resend = data.failedAt === 'comfy' && !!data.prompt && (floorMode(data) === currentMode() || !!settings.autoModelByRating);
         parts.push(`<div class="ctp-error">
             <i class="fa-solid fa-triangle-exclamation"></i>
             <span>配图失败：${escapeHtml(String(data.error).split('\n')[0])}</span>
-            <span class="ctp-link ctp-act" data-act="reparse">重试</span>
+            ${resend ? '<span class="ctp-link ctp-act" data-act="resend" title="解析结果已经有了：不再问解析模型，把这一楼的提示词原样重新发给 ComfyUI（几张图都重画）">重新发送提示词</span>' : ''}
+            <span class="ctp-link ctp-act" data-act="reparse"${resend ? ' title="重新问一次解析模型，再出图"' : ''}>${resend ? '重新解析' : '重试'}</span>
             <span class="ctp-link ctp-act" data-act="hint">加指令重画</span>
             <span class="ctp-link ctp-act" data-act="debug">详情</span>
             ${hasImages ? '' : '<span class="ctp-link ctp-act" data-act="clear">关闭</span>'}
