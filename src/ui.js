@@ -273,7 +273,8 @@ async function previewReplyInstruction() {
     }
     text = ctx().substituteParams?.(text) ?? text;
     const enabled = getSettings().parser.inReply ? '' : '<p class="ctp-muted">（「提示词和正文一起出」现在是关闭的，打开后才会发给正文 AI）</p>';
-    await callGenericPopup(`<h3>发给正文 AI 的配图说明</h3>${enabled}<pre class="ctp-pre">${escapeHtml(text)}</pre>`, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true, okButton: '关闭' });
+    const where = '<p class="ctp-muted">默认作为系统消息放在聊天记录最后；在预设里写 <code>{{comfyRules}}</code> 就放在那个位置（不再自动插入）。</p>';
+    await callGenericPopup(`<h3>发给正文 AI 的配图说明</h3>${enabled}${where}<pre class="ctp-pre">${escapeHtml(text)}</pre>`, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true, okButton: '关闭' });
 }
 
 async function previewStatusInstruction() {

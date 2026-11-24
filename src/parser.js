@@ -1429,13 +1429,19 @@ const IN_CHAT = 1;
 const ROLE_SYSTEM = 0;
 const REPLY_PROMPT_KEY = 'comfy_portrait_in_reply';
 
+/** The macro that writes the instruction where the user's own preset puts it. */
+export const REPLY_MACRO = 'comfyRules';
+
+/** The instruction of the generation under way ('' when it gets none), and whether {{comfyRules}} put it in. */
+let replyInstruction = '';
+let instructionByMacro = false;
+
 /**
- * 提示词和正文一起出: puts the instruction into the main AI's prompt for a generation (or takes it out). Quiet
- * generations (other extensions, summaries) and impersonation never get it.
+ * 提示词和正文一起出: puts the instruction into the main AI's prompt for a generation (or takes it out): as a system
+ * message after the chat, unless the user's preset has {{comfyRules}} somewhere (see dropAutomaticInstruction).
+ * Quiet generations (other extensions, summaries) and impersonation never get it.
  */
 export async function updateReplyPrompt(type) {
-    const { setExtensionPrompt } = ctx();
-    if (typeof setExtensionPrompt !== 'function') return;
     const settings = getSettings();
     const active = settings.enabled && promptsInReply(settings) && !['quiet', 'impersonate'].includes(type);
     let text = '';
@@ -1446,7 +1452,38 @@ export async function updateReplyPrompt(type) {
             warn(error);
         }
     }
-    setExtensionPrompt(REPLY_PROMPT_KEY, text, IN_CHAT, 0, false, ROLE_SYSTEM);
+    replyInstruction = text;
+    instructionByMacro = false;
+    const { setExtensionPrompt } = ctx();
+    if (typeof setExtensionPrompt === 'function') setExtensionPrompt(REPLY_PROMPT_KEY, text, IN_CHAT, 0, false, ROLE_SYSTEM);
+}
+
+/** {{comfyRules}}: the instruction, where the preset writes it ('' while 提示词和正文一起出 is off). */
+export function replyInstructionMacro() {
+    if (replyInstruction) instructionByMacro = true;
+    return replyInstruction;
+}
+
+/**
+ * The main AI's prompt is ready (chat completion): when {{comfyRules}} wrote the instruction into it, the automatic
+ * copy — the last one, after the chat — is taken out, so it is not sent twice.
+ */
+export function dropAutomaticInstruction(messages) {
+    if (!instructionByMacro || !replyInstruction || !Array.isArray(messages)) return;
+    const copies = messages.filter(message => typeof message?.content === 'string' && message.content.includes(replyInstruction));
+    if (copies.length < 2) return;
+    const last = copies.at(-1);
+    last.content = last.content.replace(replyInstruction, '').trim();
+    if (!last.content) messages.splice(messages.indexOf(last), 1);
+}
+
+/** The same for a text completion prompt (one string): the last copy goes when there are two. */
+export function dropAutomaticInstructionText(prompt) {
+    const text = String(prompt ?? '');
+    if (!instructionByMacro || !replyInstruction) return text;
+    const last = text.lastIndexOf(replyInstruction);
+    if (last < 0 || text.indexOf(replyInstruction) === last) return text;
+    return `${text.slice(0, last)}${text.slice(last + replyInstruction.length)}`;
 }
 
 /**

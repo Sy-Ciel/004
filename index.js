@@ -12,7 +12,7 @@ import { replyProblem } from './src/replyCheck.js';
 import { setEnabled, updateQuickToggle } from './src/quickToggle.js';
 import { updateStatusPrompt } from './src/statusBar.js';
 import { BLOCK_LABEL, findPromptBlocks, promptsInReply, replyEnded, replyStarted, replyToken, stripOldBlocks, stripOldBlocksText } from './src/inReply.js';
-import { updateReplyPrompt } from './src/parser.js';
+import { REPLY_MACRO, dropAutomaticInstruction, dropAutomaticInstructionText, replyInstructionMacro, updateReplyPrompt } from './src/parser.js';
 import { currentMode, imageMode, modeLabel } from './src/modes.js';
 import { findParserPreset } from './src/parserPresets.js';
 import { findPresetByName, findPresetById, initPersonaTracking } from './src/targets.js';
@@ -114,6 +114,22 @@ function onReplyToken(text) {
     if (!autoAllowed(mesId, streamType)) return;
     log(`自动配图 #${mesId}（正文还在写，第一张图的提示词已经写好）`);
     enqueue(mesId, { mode: 'reparse', auto: true });
+}
+
+/**
+ * {{comfyRules}}: the instruction of 提示词和正文一起出, for the user's own preset. SillyTavern's older registration
+ * works with both of its macro engines (it hands the macro on to the new one when that is on); the newer one alone
+ * only reaches the new engine.
+ */
+function registerReplyMacro() {
+    const context = ctx();
+    const description = 'ComfyUI 角色配图：「提示词和正文一起出」时，告诉正文 AI 怎么写配图提示词块的说明（开关关着时为空）。用了它，扩展就不再自动插入这份说明';
+    try {
+        if (typeof context.registerMacro === 'function') context.registerMacro(REPLY_MACRO, () => replyInstructionMacro(), description);
+        else context.macros?.register?.(REPLY_MACRO, { handler: () => replyInstructionMacro(), description });
+    } catch (error) {
+        console.warn(LOG_PREFIX, error);
+    }
 }
 
 /** 提示词和正文一起出: picture blocks are hidden from the moment they are shown, while a reply streams in too. */
@@ -351,12 +367,13 @@ function registerEvents() {
     });
     eventSource.on(eventTypes.CHAT_COMPLETION_PROMPT_READY, data => {
         stripOutgoingChat(data?.chat);
-        // 提示词和正文一起出: the main AI sees the picture blocks of its latest floors only.
+        // 提示词和正文一起出: the main AI sees the picture blocks of its latest floors only, and the instruction once.
         stripOldBlocks(data?.chat);
+        dropAutomaticInstruction(data?.chat);
     });
     eventSource.on(eventTypes.GENERATE_AFTER_COMBINE_PROMPTS, data => {
         if (hintsEnabled() && typeof data?.prompt === 'string') data.prompt = stripHints(data.prompt);
-        if (typeof data?.prompt === 'string') data.prompt = stripOldBlocksText(data.prompt);
+        if (typeof data?.prompt === 'string') data.prompt = dropAutomaticInstructionText(stripOldBlocksText(data.prompt));
     });
     if (eventTypes.STREAM_TOKEN_RECEIVED) eventSource.on(eventTypes.STREAM_TOKEN_RECEIVED, onReplyToken);
     eventSource.on(eventTypes.MESSAGE_SWIPED, mesId => onSwiped(Number(mesId)));
@@ -581,6 +598,7 @@ jQuery(async () => {
         injectWandButton();
         updateQuickToggle();
         registerEvents();
+        registerReplyMacro();
         registerSlashCommands();
         updateStatusPrompt();
         updateRatingPrompt();
