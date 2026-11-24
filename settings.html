@@ -736,6 +736,7 @@
                     <label>来源
                         <select class="text_pole" data-ctp="parser.source" id="ctp_parser_source">
                             <option value="custom">独立 API（选供应商，或自己填地址）</option>
+                            <option value="plug">酒馆 API 连接（插头里的接口，可以换模型）</option>
                             <option value="profile">酒馆连接配置（Connection Profile）</option>
                             <option value="main">酒馆当前 API（和正文共用）</option>
                         </select>
@@ -763,6 +764,14 @@
                             <div class="ctp-help" id="ctp_flex_help"></div>
                             <small class="ctp-hint ctp-warn" id="ctp_flex_state"></small>
                         </div>
+                    </div>
+                    <div class="ctp-source" data-source="plug">
+                        <small class="ctp-hint" id="ctp_plug_state"></small>
+                        <div class="ctp-row">
+                            <label class="flex1">模型 <i class="ctp-q fa-solid fa-circle-question"></i> <select class="text_pole" id="ctp_plug_model" data-plug-picker="" data-list="plugModels"></select></label>
+                            <div class="menu_button" id="ctp_plug_refresh" title="重新读取插头里的接口和它的模型列表">刷新</div>
+                        </div>
+                        <div class="ctp-help" id="ctp_plug_help"></div>
                     </div>
                     <div class="ctp-source" data-source="profile">
                         <div class="ctp-row ctp-tool-row">
@@ -813,8 +822,8 @@
                     </div>
                     <small class="ctp-hint" id="ctp_thinking_hint"></small>
 
-                    <div class="ctp-source" data-source="custom">
-                        <h4>工具调用和附加参数</h4>
+                    <div class="ctp-source" data-source="custom plug">
+                        <h4>工具调用</h4>
                         <div class="ctp-row ctp-wrap-row ctp-center-row">
                             <label class="checkbox_label"><input type="checkbox" data-ctp="parser.toolCall"><span>用工具调用返回结果（function calling） <i class="ctp-q fa-solid fa-circle-question"></i></span></label>
                             <label class="ctp-inline">调用方式
@@ -824,7 +833,9 @@
                                 </select>
                             </label>
                         </div>
-                        <div class="ctp-help">打开后，解析模型通过调用 submit_picture 工具交回结果：画面字段、整段提示词、漫画版面都作为工具的参数，不在正文里写 JSON 或提示词。适合 Gemini 这类擅长工具调用的模型。模型没调用工具、在正文里写了 JSON 时照常读取（🐞 里会注明）。「自动」由模型决定，大多数模型会调用；不调用时改成「必须调用」（Claude 新模型不支持「必须调用」，会报错）。「附加请求参数」里自己写的 tool_choice 优先。只对「独立 API」生效。</div>
+                        <div class="ctp-help" id="ctp_tool_help">打开后，解析模型通过调用 submit_picture 工具交回结果：画面字段、整段提示词、漫画版面都作为工具的参数，不在正文里写 JSON 或提示词。适合 Gemini 这类擅长工具调用的模型。模型没调用工具、在正文里写了 JSON 时照常读取（🐞 里会注明）。「自动」由模型决定，大多数模型会调用；不调用时改成「必须调用」（Claude 新模型不支持「必须调用」，会报错）。「附加请求参数」里自己写的 tool_choice 优先。对「独立 API」和「酒馆 API 连接（插头）」生效（插头那边由酒馆转成接口自己的格式，Google AI Studio / Vertex AI 是 Gemini 的函数调用）。</div>
+                    </div>
+                    <div class="ctp-source" data-source="custom">
                         <label>附加请求参数（JSON，可选） <i class="ctp-q fa-solid fa-circle-question"></i>
                             <textarea class="text_pole ctp-mono" rows="2" data-ctp="parser.extraBody" id="ctp_extra_body" placeholder='例：GLM 关闭思考 {"thinking": {"type": "disabled"}}'></textarea>
                         </label>

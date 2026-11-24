@@ -40,7 +40,21 @@ const MANUAL = '__ctp_manual__';
 const FILTER_NOTE = '__ctp_filter_note__';
 
 /** Lists long enough to want a 🔍 filter in front of their picker: models, LoRAs, the parser's models. */
-const FILTERED_LISTS = new Set(['unet', 'clip', 'vae', 'lora', 'upscale', 'parserModels']);
+const FILTERED_LISTS = new Set(['unet', 'clip', 'vae', 'lora', 'upscale', 'parserModels', 'plugModels']);
+
+/** Lists of model names (not ComfyUI files): typed in by hand as a model's name. */
+const MODEL_LISTS = new Set(['parserModels', 'plugModels']);
+
+/**
+ * Lists that are not kept in the settings (read from SillyTavern's page when shown): name → { items, empty }.
+ * empty: the label of the empty choice, which then means something of its own (e.g. 「和正文一样」).
+ * @type {Record<string, { items: () => string[], empty?: () => string }>}
+ */
+const lists = {};
+
+export function registerPickerList(name, list) {
+    lists[name] = list;
+}
 
 /**
  * Pickers edit a settings path (data-picker="comfy.unet") or a field of the object an editor has open
@@ -59,6 +73,7 @@ function ownerField(select) {
 }
 
 function pickerItems(listName) {
+    if (lists[listName]) return lists[listName].items() ?? [];
     const settings = getSettings();
     if (listName === 'parserModels') return settings.parser.models || [];
     return settings.comfy.lists?.[listName] || [];
@@ -81,6 +96,8 @@ function writePicker(select, value) {
         owner.object[owner.field] = value;
     }
     saveSettings();
+    // After the value is written (a typed-in one too): for what shows the picker's value elsewhere.
+    select.dispatchEvent(new CustomEvent('ctp-picked', { bubbles: true }));
 }
 
 /** The picker's list narrowed by its 🔍 filter: every word typed, in any case, in the name. */
@@ -94,7 +111,10 @@ export function renderPicker(select) {
     const value = readPicker(select);
     const { items, words, shown } = filteredItems(select);
     const options = [];
-    if (select.dataset.inherit) {
+    const empty = lists[select.dataset.list]?.empty;
+    if (empty) {
+        options.push(['', empty()]);
+    } else if (select.dataset.inherit) {
         // Override pickers: empty = use the default setting, LORA_NONE = explicitly nothing.
         const fallback = String(getPath(getSettings(), select.dataset.inherit) ?? '');
         options.push(['', `（默认：${fallback || '不使用'}）`]);
@@ -177,7 +197,7 @@ export function bindPickers(root) {
                 return;
             }
             const { callGenericPopup, POPUP_TYPE } = ctx();
-            const typed = await callGenericPopup('手动输入（ComfyUI 里的文件名，含子文件夹路径和扩展名）', POPUP_TYPE.INPUT, readPicker(select));
+            const typed = await callGenericPopup(MODEL_LISTS.has(select.dataset.list) ? '手动输入模型名' : '手动输入（ComfyUI 里的文件名，含子文件夹路径和扩展名）', POPUP_TYPE.INPUT, readPicker(select));
             if (typeof typed === 'string') writePicker(select, typed.trim());
             renderPicker(select);
         });

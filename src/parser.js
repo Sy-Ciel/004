@@ -7,6 +7,7 @@ import { CHINESE_PROMPT_RULE, NATURAL_STYLE_RULE } from './parserPresetDefaults.
 import { mossSkillBlock } from './mossSkill.js';
 import { TOOL_NAME, TOOL_REMINDER, TOOL_RULE, toolArguments, toolBody, toolDeclaration, usesTool } from './parserTool.js';
 import { PROVIDERS, nativeProvider, providerOf, providerUrl, usesFlex } from './providers.js';
+import { plugConnection, plugModel, plugRequest } from './plug.js';
 import { callVertex } from './vertex.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
 import { ASPECT_RATIOS, baseSize, parseAspect, parserPicksAspect } from './resolution.js';
@@ -687,9 +688,21 @@ function readCompletion(json) {
     const content = Array.isArray(message.content)
         ? message.content.map(part => part?.text ?? '').join('')
         : String(message.content ?? choice.text ?? '');
-    const reasoning = String(message.reasoning_content ?? message.reasoning ?? '');
+    // SillyTavern's server answers for Google AI Studio / Vertex AI and Claude in the OpenAI shape with the text only,
+    // and keeps the API's own reply beside it: Gemini's parts (responseContent), Claude's blocks (content). The tool
+    // call and the thoughts are read from there.
+    const parts = Array.isArray(json?.responseContent?.parts) ? json.responseContent.parts : [];
+    const blocks = Array.isArray(json?.content) ? json.content : [];
+    const call = parts.find(part => part?.functionCall?.name === TOOL_NAME)?.functionCall ?? parts.find(part => part?.functionCall)?.functionCall;
+    const use = blocks.find(block => block?.type === 'tool_use' && block.name === TOOL_NAME) ?? blocks.find(block => block?.type === 'tool_use');
+    const own = call ? JSON.stringify(call.args ?? {}) : use ? JSON.stringify(use.input ?? {}) : '';
+    const thoughts = [
+        ...parts.filter(part => part?.thought && typeof part.text === 'string').map(part => part.text),
+        ...blocks.filter(block => block?.type === 'thinking' && typeof block.thinking === 'string').map(block => block.thinking),
+    ].join('\n');
+    const reasoning = String(message.reasoning_content ?? message.reasoning ?? '') || thoughts;
     // 用工具调用返回结果: the tool call's arguments are the result (any text beside it is not).
-    const tool = toolArguments(message);
+    const tool = toolArguments(message) || own;
     // service_tier: the tier the request was served at, where the provider says (OpenRouter: flex, default …).
     return { content: tool || content, reasoning, finish: choice.finish_reason ?? '', tool: !!tool, tier: String(json?.service_tier ?? '') };
 }
@@ -777,6 +790,23 @@ async function callProfile(system, user, signal, parser = getSettings().parser) 
     return { content: String(result?.content ?? ''), reasoning: String(result?.reasoning ?? ''), finish: '' };
 }
 
+/**
+ * 酒馆 API 连接（插头）: SillyTavern's server sends the request over the plug's connection (its API, key, reverse
+ * proxy …) with the parser's model; see plug.js.
+ * @returns {Promise<ParserReply>}
+ */
+async function callPlug(system, user, signal, parser = getSettings().parser) {
+    const service = ctx().ChatCompletionService;
+    if (!service?.processRequest) throw settingsError('当前酒馆版本没有 ChatCompletionService 接口，请更新酒馆，或改用「独立 API」');
+    const connection = plugConnection();
+    if (!connection) throw settingsError('酒馆插头里现在不是 Chat Completion（聊天补全）接口：「酒馆 API 连接」只支持这一类，请在插头里换成聊天补全接口，或改用别的来源');
+    const model = plugModel(parser, connection);
+    if (!model) throw settingsError(`插头里的 ${connection.label} 还没有选模型，这里也没有选`);
+    const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
+    const json = await service.processRequest(await plugRequest(messages, parser, connection, model), {}, false, signal);
+    return readCompletion(json);
+}
+
 /** @returns {Promise<ParserReply>} */
 async function callMain(system, user, signal, parser = getSettings().parser) {
     const { generateRaw } = ctx();
@@ -801,6 +831,10 @@ export function parserLabel() {
         }
         case 'main':
             return '酒馆当前 API';
+        case 'plug': {
+            const connection = plugConnection();
+            return connection ? `酒馆 API 连接: ${connection.label} · ${plugModel(parser, connection) || '（没选模型）'}` : '酒馆 API 连接（插头里不是聊天补全接口）';
+        }
         default: {
             const provider = providerOf(parser);
             return `${provider === 'custom' ? '独立 API' : PROVIDERS[provider].label}: ${parser.customModel}`;
@@ -824,6 +858,8 @@ export async function callParser(system, user, parentSignal, { minTokens = 0 } =
                 return await callProfile(system, user, signal, parser);
             case 'main':
                 return await callMain(system, user, signal, parser);
+            case 'plug':
+                return await callPlug(system, user, signal, parser);
             default:
                 return await callCustom(system, user, signal, parser);
         }

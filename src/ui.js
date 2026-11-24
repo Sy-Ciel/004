@@ -30,7 +30,8 @@ import { injectMessageButtons } from './messageButtons.js';
 import { applyEnabled, updateQuickToggle } from './quickToggle.js';
 import { DISPLAY_KEYS, SHARED_COMFY_KEYS, SHARED_PARSER_KEYS, currentMode, modeLabel, adoptProfile, hasProfile, otherSlotKey, personaMode, releaseProfile, swapModeSettings, swapProfile } from './modes.js';
 import { resetPanelForMode, resetPanelGeometry } from './panel.js';
-import { bindPickers, getPath, readInput, registerPickerOwner, renderPicker, renderPickers, setPath, writeInput } from './form.js';
+import { bindPickers, getPath, readInput, registerPickerList, registerPickerOwner, renderPicker, renderPickers, setPath, writeInput } from './form.js';
+import { plugConnection, plugModel, plugModelList } from './plug.js';
 import { initParserPresetUi, refreshParserPresetUi } from './ui-parser-presets.js';
 import { applyCardParamPreset, initParamPresetUi, refreshParamPresetUi } from './ui-param-presets.js';
 import { initRenderProfileUi, refreshRenderProfileUi, refreshRenderProfileUsage, resetRenderProfileSelection } from './ui-render-profiles.js';
@@ -121,7 +122,8 @@ function updateThinkingHint() {
     const noEffort = parser.source === 'custom' && !vertex && !formatHasEffort(format);
     const effortUsed = parser.thinking === 'on' && !noEffort && parser.source !== 'main';
     $('#ctp_thinking_effort').prop('disabled', !effortUsed);
-    const text = parser.thinking === 'default'
+    // 酒馆 API 连接: what goes to SillyTavern, 默认 included (it is the plug's own setting, not nothing).
+    const text = parser.source === 'plug' ? describeThinking(parser) : parser.thinking === 'default'
         ? `默认：不发送任何思考参数，模型按它自己的默认方式思考或不思考。${vertex ? `Gemini 3 及之后的模型默认会思考，思考也算在输出里：这时「最大输出」不到 ${GEMINI_ROOM} 的按 ${GEMINI_ROOM} 发送。` : ''}`
         : `${describeThinking(parser)}${noEffort && parser.thinking === 'on' ? '。这种格式只有开 / 关，没有强度' : ''}`;
     $('#ctp_thinking_hint').text(text);
@@ -262,10 +264,54 @@ async function previewStatusInstruction() {
 function updateSourceVisibility() {
     const source = getSettings().parser.source;
     $('.ctp-settings .ctp-source').each(function () {
-        $(this).toggle(this.dataset.source === source);
+        $(this).toggle(String(this.dataset.source).split(' ').includes(source));
     });
     if (source === 'profile') refreshProfiles();
+    if (source === 'plug') updatePlugUi();
     updateProviderUi();
+}
+
+/* ---------------- 酒馆 API 连接（插头） ---------------- */
+
+/** The parser's model of the plug's source (plugModels[source]); the picker's field follows the plug's source. */
+registerPickerOwner('plugPicker', () => {
+    const { parser } = getSettings();
+    if (!isPlainObject(parser.plugModels)) parser.plugModels = {};
+    return parser.plugModels;
+});
+
+registerPickerList('plugModels', {
+    items() {
+        const connection = plugConnection();
+        return connection ? plugModelList(connection.source) : [];
+    },
+    empty() {
+        const connection = plugConnection();
+        return connection?.chatModel ? `和正文一样（现在是 ${connection.chatModel}）` : '和正文一样';
+    },
+});
+
+const PLUG_HELP = '用酒馆自己的 API 连接发请求（酒馆顶上插头图标里选的那个接口）：接口、Key、反向代理、Vertex AI 的区域和认证方式都用那里的，请求由酒馆后端发出，和正文一样，这里不用再填 Key；只有模型可以另外选。比如正文用 Vertex AI 的 gemini-4-argon，配图解析用同一个 Vertex（同一个反向代理）的 gemini-3.8-flash。「和正文一样」= 插头里现在选的模型。列表是插头里这个接口自己的模型列表：在插头里换了接口、或者那边读到了新的模型列表后，点「刷新」；列表里没有的选「✏️ 手动输入…」。每个接口各记各的选择：插头换成别的接口时，这里自动换成那个接口上次选的模型。下面的温度、最大输出和思考模式照常发送（思考由酒馆按接口换成它的参数）。只支持 Chat Completion（聊天补全）类的接口。';
+
+/** 酒馆 API 连接: what the plug is connected to, and the parser's model on it. */
+function updatePlugUi() {
+    const connection = plugConnection();
+    const select = document.getElementById('ctp_plug_model');
+    $('#ctp_plug_help').text(PLUG_HELP);
+    if (!connection) {
+        $('#ctp_plug_state').addClass('ctp-warn').text('酒馆现在用的不是 Chat Completion（聊天补全）接口：在插头里换成聊天补全类的接口（OpenAI、Claude、Google AI Studio / Vertex AI、OpenRouter、自定义……），或者改用上面别的来源。');
+        if (select) select.dataset.plugPicker = '';
+        $(select).prop('disabled', true);
+        if (select) renderPicker(select);
+        return;
+    }
+    const parts = [`接口：${connection.label}`, connection.proxy ? `反向代理：${connection.proxy}` : '', `正文模型：${connection.chatModel || '（没选）'}`, `解析用：${plugModel(getSettings().parser, connection) || '（没选）'}`];
+    $('#ctp_plug_state').removeClass('ctp-warn').text(parts.filter(Boolean).join(' · '));
+    $(select).prop('disabled', false);
+    if (select) {
+        select.dataset.plugPicker = connection.source;
+        renderPicker(select);
+    }
 }
 
 /** 供应商 of the independent API: the choice, what it says about itself, and the fields only some providers have. */
@@ -1641,6 +1687,22 @@ export async function initSettingsUi() {
     });
     $('#ctp_profile_refresh').on('click', refreshProfiles);
     $('#ctp_parser_models').on('click', fetchParserModels);
+    // 酒馆 API 连接: the state line follows the model picked; 刷新 reads the plug again (its API and model list).
+    $(root).on('ctp-picked', '#ctp_plug_model', updatePlugUi);
+    $('#ctp_plug_refresh').on('click', () => {
+        updatePlugUi();
+        const connection = plugConnection();
+        if (connection) toastr.info(`插头现在是 ${connection.label}，读到 ${plugModelList(connection.source).length} 个模型`, 'ComfyUI 角色配图', { timeOut: 3000 });
+    });
+    // The plug changed in SillyTavern's API panel (another API, model or connection profile): shown at once.
+    const { eventSource, eventTypes } = ctx();
+    for (const name of ['MAIN_API_CHANGED', 'CHATCOMPLETION_SOURCE_CHANGED', 'CHATCOMPLETION_MODEL_CHANGED', 'CONNECTION_PROFILE_LOADED', 'OAI_PRESET_CHANGED_AFTER']) {
+        if (eventTypes?.[name] && eventSource?.on) {
+            eventSource.on(eventTypes[name], () => {
+                if (getSettings().parser.source === 'plug') updatePlugUi();
+            });
+        }
+    }
     $('#ctp_parser_provider').on('change', onProviderChange);
     $('#ctp_parser_test').on('click', testParser);
     $('#ctp_comfy_test').on('click', testComfy);

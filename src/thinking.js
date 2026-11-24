@@ -4,7 +4,7 @@
  * address and model name (or chosen by hand). Nothing is sent in "default", so the model behaves as before.
  */
 import { nativeProvider } from './providers.js';
-import { getSettings } from './utils.js';
+import { ctx, getSettings } from './utils.js';
 
 export const THINKING_FORMATS = {
     openai: 'OpenAI 格式 reasoning_effort（OpenAI、Gemini、Grok 等）',
@@ -70,7 +70,7 @@ export function geminiModel(name) {
 }
 
 /** Gemini models that think unless told not to (2.5 Flash and Pro, 3 and later); the thinking counts as output. */
-function geminiThinks(model) {
+export function geminiThinks(model) {
     return /gemini-2\.5-(?:flash(?!-lite)|pro)|gemini-[3-9]/.test(model);
 }
 
@@ -169,7 +169,25 @@ export function profileThinking(parser = getSettings().parser) {
 }
 
 /** One line describing what is sent, for the settings hint and the debug notes. */
+/**
+ * 酒馆 API 连接（插头）: SillyTavern's own reasoning fields, which its server turns into each API's parameters
+ * (reasoning_effort: auto / min / low / medium / high / max; include_reasoning: thinking on and its thoughts sent
+ * back, which some APIs take as the switch itself). 默认 is what the plug does for the chat (its 推理强度 and
+ * 显示思考): sending nothing would not leave it to the model, SillyTavern's server takes a missing effort as no
+ * thinking for Gemini 2.5 Flash. 关闭 asks for the least thinking SillyTavern can ask for.
+ */
+export function plugThinking(parser = getSettings().parser, settings = ctx().chatCompletionSettings ?? {}) {
+    if (parser.thinking === 'on') return { reasoning_effort: SILLYTAVERN_EFFORT[effortOf(parser)] ?? effortOf(parser), include_reasoning: true };
+    if (parser.thinking === 'off') return { reasoning_effort: 'min', include_reasoning: false };
+    return { reasoning_effort: String(settings.reasoning_effort || 'auto'), include_reasoning: !!settings.show_thoughts };
+}
+
 export function describeThinking(parser = getSettings().parser) {
+    if (parser.source === 'plug') {
+        const label = parser.thinking === 'on' ? `开启（强度 ${THINKING_EFFORTS[effortOf(parser)]}）` : parser.thinking === 'off' ? '关闭' : '默认（和正文一样，用插头里的推理强度和「显示思考」）';
+        const rounded = parser.thinking === 'on' && effortOf(parser) === 'xhigh' ? '（酒馆没有「超高」，按「最大」发送）' : '';
+        return `思考模式：${label} · 酒馆 API 连接：发送 ${JSON.stringify(plugThinking(parser))}${rounded}，由酒馆按插头里的接口转换`;
+    }
     if (parser.thinking !== 'on' && parser.thinking !== 'off') return '';
     const label = parser.thinking === 'on' ? `开启（强度 ${THINKING_EFFORTS[effortOf(parser)]}）` : '关闭';
     if (parser.source === 'main') return `思考模式：${label} · 「酒馆当前 API」用酒馆自己的设置，这里的思考设置不生效`;

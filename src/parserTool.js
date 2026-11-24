@@ -87,9 +87,12 @@ const TOOL = {
     },
 };
 
-/** Whether this request asks for the tool (independent API with the switch on). */
+/**
+ * Whether this request asks for the tool: the switch on, with the independent API or the plug (SillyTavern's server
+ * passes the tool on, as Gemini's function declarations for Google AI Studio / Vertex AI).
+ */
 export function usesTool(parser = getSettings().parser) {
-    return parser.source === 'custom' && !!parser.toolCall;
+    return (parser.source === 'custom' || parser.source === 'plug') && !!parser.toolCall;
 }
 
 /** Request-body fields for the tool, or none. The user's own 「附加请求参数」 are merged after these. */

@@ -528,6 +528,11 @@ export const DEFAULT_SETTINGS = {
         customKey: '',
         customModel: 'deepseek-chat',
         profileId: '',
+        /**
+         * 酒馆 API 连接（插头）: the model used through SillyTavern's own connection, per chat completion source
+         * ({ vertexai: 'gemini-3.8-flash', … }); none = the model the chat uses.
+         */
+        plugModels: {},
         temperature: 0.6,
         maxTokens: 2048,
         extraBody: '',
