@@ -528,6 +528,8 @@ export const DEFAULT_SETTINGS = {
         customKey: '',
         customModel: 'deepseek-chat',
         profileId: '',
+        /** 流式传输: replies read as they arrive (all sources but 酒馆当前 API); the timeout then counts time without data. */
+        stream: true,
         /**
          * 酒馆 API 连接（插头）: the model used through SillyTavern's own connection, per chat completion source
          * ({ vertexai: 'gemini-3.8-flash', … }); none = the model the chat uses.

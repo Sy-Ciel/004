@@ -8,6 +8,7 @@
  *   which needs https or localhost, for the project in the file.
  */
 import { geminiModel, thinkingMaxTokens, vertexThinking } from './thinking.js';
+import { readStream } from './stream.js';
 import { errorMessage, isAbortError, isPlainObject, settingsError, truncate } from './utils.js';
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -304,7 +305,8 @@ const noFlex = new Set();
  * Flex 模式 (options.flex): the request asks for the Flex tier and goes to the global endpoint, the only one that has
  * it. A model Google does not offer Flex for (a 400 that says so) is asked again the standard way, and the reply
  * says so in `note`.
- * @param {{ tool?: { declaration: object, required: boolean } | null, extraBody?: object | null, flex?: boolean }} [options]
+ * @param {{ tool?: { declaration: object, required: boolean } | null, extraBody?: object | null, flex?: boolean, stream?: boolean, io?: object }} [options]
+ *   stream: read the reply as it arrives (流式传输); io: what to tell while it does (see readStream)
  * @returns {Promise<{ content: string, reasoning: string, finish: string, tool: boolean, tier: string, note?: string }>}
  */
 export async function callVertex(system, user, signal, parser, options = {}) {
@@ -316,8 +318,10 @@ export async function callVertex(system, user, signal, parser, options = {}) {
     else headers.Authorization = `Bearer ${await accessToken(credential.account, signal)}`;
     const send = async flex => {
         const { host, url } = vertexEndpoint(flex ? { ...parser, vertexRegion: 'global' } : parser, credential);
-        const response = await request(url, { method: 'POST', headers, body: JSON.stringify(vertexBody(system, user, parser, { ...options, flex })), signal }, host);
-        if (response.ok) return { reply: readVertexReply(await response.json()) };
+        // 流式传输: streamGenerateContent as server-sent events (see stream.js).
+        const target = options.stream ? `${url.replace(/:generateContent$/, ':streamGenerateContent')}?alt=sse` : url;
+        const response = await request(target, { method: 'POST', headers, body: JSON.stringify(vertexBody(system, user, parser, { ...options, flex })), signal }, host);
+        if (response.ok) return { reply: options.stream ? await readStream(response, { ...options.io, fallback: readVertexReply }) : readVertexReply(await response.json()) };
         const text = await response.text().catch(() => '');
         let message = truncate(text, 500);
         try {

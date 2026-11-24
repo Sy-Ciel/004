@@ -8,6 +8,7 @@ import { mossSkillBlock } from './mossSkill.js';
 import { TOOL_NAME, TOOL_REMINDER, TOOL_RULE, toolArguments, toolBody, toolDeclaration, usesTool } from './parserTool.js';
 import { PROVIDERS, nativeProvider, providerOf, providerUrl, usesFlex } from './providers.js';
 import { openRouterWebsite, plugConnection, plugModel, plugRequest } from './plug.js';
+import { readStream, streamError } from './stream.js';
 import { callVertex } from './vertex.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
 import { ASPECT_RATIOS, baseSize, parseAspect, parserPicksAspect } from './resolution.js';
@@ -714,11 +715,34 @@ function readCompletion(json) {
  *   the arguments of the submit_picture tool call
  */
 
+/** 流式传输: whether this request streams (on by default; 酒馆当前 API is SillyTavern's own request). */
+export function usesStream(parser = getSettings().parser) {
+    return parser.stream !== false && parser.source !== 'main';
+}
+
+/**
+ * A request through SillyTavern's server, streamed: the body as ChatCompletionService would send it (its
+ * use_sysprompt default, the body's own winning), the reply read as it arrives.
+ * @param {{ onData?: () => void, onProgress?: (progress: object) => void }} io
+ */
+async function streamThroughServer(body, signal, io) {
+    const response = await fetch('/api/backends/chat-completions/generate', {
+        method: 'POST',
+        headers: ctx().getRequestHeaders(),
+        cache: 'no-cache',
+        body: JSON.stringify({ use_sysprompt: true, ...body, stream: true }),
+        signal,
+    });
+    if (!response.ok) throw new Error(`解析模型返回 ${response.status}：${await streamError(response)}`);
+    return await readStream(response, { ...io, fallback: readCompletion });
+}
+
 /** @returns {Promise<ParserReply>} */
-async function callCustom(system, user, signal, parser = getSettings().parser) {
+async function callCustom(system, user, signal, parser = getSettings().parser, io = {}) {
+    const streaming = usesStream(parser);
     // Google Vertex AI speaks Gemini's own API (see vertex.js); the other providers are OpenAI-compatible.
     if (nativeProvider(parser) === 'vertex') {
-        return await callVertex(system, user, signal, parser, { tool: toolDeclaration(parser), extraBody: parseExtraBody(), flex: usesFlex(parser) });
+        return await callVertex(system, user, signal, parser, { tool: toolDeclaration(parser), extraBody: parseExtraBody(), flex: usesFlex(parser), stream: streaming, io });
     }
     const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
     const url = providerUrl(parser);
@@ -738,7 +762,7 @@ async function callCustom(system, user, signal, parser = getSettings().parser) {
     if (service?.processRequest) {
         // Routed through the SillyTavern server: no CORS problems, key is sent only as a request header.
         // extractData=false so finish_reason and reasoning_content are available for diagnostics.
-        const json = await service.processRequest({
+        const body = {
             stream: false,
             messages,
             model: parser.customModel.trim(),
@@ -749,8 +773,9 @@ async function callCustom(system, user, signal, parser = getSettings().parser) {
             custom_exclude_body: omitted.length ? JSON.stringify(omitted) : undefined,
             max_tokens: maxTokens,
             temperature,
-        }, {}, false, signal);
-        return readCompletion(json);
+        };
+        if (streaming) return await streamThroughServer(body, signal, io);
+        return readCompletion(await service.processRequest(body, {}, false, signal));
     }
 
     const response = await fetch(`${url}/chat/completions`, {
@@ -764,7 +789,7 @@ async function callCustom(system, user, signal, parser = getSettings().parser) {
             messages,
             max_tokens: maxTokens,
             temperature,
-            stream: false,
+            stream: streaming,
             ...extraBody,
         }),
         signal,
@@ -772,11 +797,11 @@ async function callCustom(system, user, signal, parser = getSettings().parser) {
     if (!response.ok) {
         throw new Error(`解析模型返回 ${response.status}: ${truncate(await response.text(), 500)}`);
     }
-    return readCompletion(await response.json());
+    return streaming ? await readStream(response, { ...io, fallback: readCompletion }) : readCompletion(await response.json());
 }
 
 /** @returns {Promise<ParserReply>} */
-async function callProfile(system, user, signal, parser = getSettings().parser) {
+async function callProfile(system, user, signal, parser = getSettings().parser, io = {}) {
     const service = ctx().ConnectionManagerRequestService;
     if (!service) throw settingsError('当前酒馆版本没有 Connection Manager 接口，请改用「独立 API」');
     if (!parser.profileId) throw settingsError('未选择连接配置');
@@ -785,9 +810,19 @@ async function callProfile(system, user, signal, parser = getSettings().parser) 
         parser.profileId,
         messages,
         Number(parser.maxTokens) || 2048,
-        { stream: false, signal, extractData: true, includePreset: true, includeInstruct: true },
+        { stream: usesStream(parser), signal, extractData: true, includePreset: true, includeInstruct: true },
         { temperature: Number(parser.temperature), ...profileThinking(parser) },
     );
+    // Streamed: SillyTavern's own reader, which gives the text and thoughts so far each time something arrives.
+    if (typeof result === 'function') {
+        let last = null;
+        for await (const part of result()) {
+            last = part;
+            io.onData?.();
+            io.onProgress?.({ text: String(part?.text ?? '').length, reasoning: String(part?.state?.reasoning ?? '').length });
+        }
+        return { content: String(last?.text ?? ''), reasoning: String(last?.state?.reasoning ?? ''), finish: '' };
+    }
     if (typeof result === 'string') return { content: result, reasoning: '', finish: '' };
     return { content: String(result?.content ?? ''), reasoning: String(result?.reasoning ?? ''), finish: '' };
 }
@@ -797,7 +832,7 @@ async function callProfile(system, user, signal, parser = getSettings().parser) 
  * proxy …) with the parser's model; see plug.js.
  * @returns {Promise<ParserReply>}
  */
-async function callPlug(system, user, signal, parser = getSettings().parser) {
+async function callPlug(system, user, signal, parser = getSettings().parser, io = {}) {
     const service = ctx().ChatCompletionService;
     if (!service?.processRequest) throw settingsError('当前酒馆版本没有 ChatCompletionService 接口，请更新酒馆，或改用「独立 API」');
     const connection = plugConnection();
@@ -805,8 +840,9 @@ async function callPlug(system, user, signal, parser = getSettings().parser) {
     const model = plugModel(parser, connection);
     if (!model && !openRouterWebsite(connection)) throw settingsError(`插头里的 ${connection.label} 还没有选模型，这里也没有选`);
     const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
-    const json = await service.processRequest(await plugRequest(messages, parser, connection, model), {}, false, signal);
-    return readCompletion(json);
+    const body = await plugRequest(messages, parser, connection, model);
+    if (usesStream(parser)) return await streamThroughServer(body, signal, io);
+    return readCompletion(await service.processRequest(body, {}, false, signal));
 }
 
 /** @returns {Promise<ParserReply>} */
@@ -846,24 +882,27 @@ export function parserLabel() {
 
 /**
  * Calls the parser model.
- * @param {{ minTokens?: number }} [options] minTokens: the output limit for this request when the setting is lower
- *   (a comic page is a long answer)
+ * @param {{ minTokens?: number, onProgress?: (progress: { text: number, reasoning: number }) => void }} [options]
+ *   minTokens: the output limit for this request when the setting is lower (a comic page is a long answer);
+ *   onProgress: 流式传输, how much of the reply has come in (characters of the answer and of the thoughts)
  * @returns {Promise<ParserReply>}
  */
-export async function callParser(system, user, parentSignal, { minTokens = 0 } = {}) {
+export async function callParser(system, user, parentSignal, { minTokens = 0, onProgress } = {}) {
     const settings = getSettings().parser;
     const parser = minTokens > (Number(settings.maxTokens) || 2048) ? { ...settings, maxTokens: minTokens } : settings;
-    const { signal, dispose } = withTimeout(parentSignal, Number(parser.timeoutSec) || 0);
+    const { signal, dispose, touch } = withTimeout(parentSignal, Number(parser.timeoutSec) || 0);
+    // A stream keeps the time from running out while it brings something.
+    const io = { onData: touch, onProgress };
     try {
         switch (parser.source) {
             case 'profile':
-                return await callProfile(system, user, signal, parser);
+                return await callProfile(system, user, signal, parser, io);
             case 'main':
                 return await callMain(system, user, signal, parser);
             case 'plug':
-                return await callPlug(system, user, signal, parser);
+                return await callPlug(system, user, signal, parser, io);
             default:
-                return await callCustom(system, user, signal, parser);
+                return await callCustom(system, user, signal, parser, io);
         }
     } catch (error) {
         if (signal.aborted && signal.reason instanceof Error) {
@@ -885,12 +924,12 @@ export async function callParser(system, user, parentSignal, { minTokens = 0 } =
  *   minTokens: see callParser; comic: 漫画模式, a reply without a usable comic layout counts as failed (see parseParserOutput)
  * @returns {Promise<{ reply: ParserReply, parsed: ReturnType<typeof parseParserOutput>, retried: number }>}
  */
-export async function requestParse(system, user, signal, { onReply, onRetry, minTokens = 0, comic = false } = {}) {
+export async function requestParse(system, user, signal, { onReply, onRetry, onProgress, minTokens = 0, comic = false } = {}) {
     const retries = Math.max(0, Math.min(5, Math.trunc(Number(getSettings().parser.retries) || 0)));
     for (let attempt = 0; ; attempt++) {
         let reply = null;
         try {
-            reply = await callParser(system, user, signal, { minTokens });
+            reply = await callParser(system, user, signal, { minTokens, onProgress });
             onReply?.(reply);
             return { reply, parsed: parseParserReply(reply, { comic }), retried: attempt };
         } catch (error) {

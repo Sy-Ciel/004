@@ -788,6 +788,10 @@
                         <label>温度 <input type="number" class="text_pole" step="0.05" min="0" max="2" data-ctp="parser.temperature" data-type="float"></label>
                         <label>最大输出 <input type="number" class="text_pole" step="50" min="100" data-ctp="parser.maxTokens" data-type="int"></label>
                     </div>
+                    <div class="ctp-source" data-source="custom plug profile">
+                        <label class="checkbox_label"><input type="checkbox" data-ctp="parser.stream"><span>流式传输（边生成边接收） <i class="ctp-q fa-solid fa-circle-question"></i></span></label>
+                        <div class="ctp-help">默认打开：解析模型的回复一边生成一边发回来，不用等它全部写完再一次性返回。好处：思考时间长的时候，连接不会因为一直没有数据被反向代理、网关断开（很多代理 60–100 秒收不到数据就断开）；配图状态里能看到已经收到多少字。开着时，下面的「超时」按「多久没有收到新内容」算，不是总时长。少数接口或代理不支持流式时会报错，关掉就是一次性返回。对「独立 API」「酒馆 API 连接（插头）」「酒馆连接配置」生效；「酒馆当前 API」由酒馆自己决定。</div>
+                    </div>
                     <div class="ctp-row">
                         <label class="flex1">思考模式 <i class="ctp-q fa-solid fa-circle-question"></i>
                             <select class="text_pole" data-ctp="parser.thinking">

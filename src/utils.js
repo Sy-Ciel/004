@@ -208,20 +208,33 @@ export function sleep(ms, signal) {
 }
 
 /** Returns an AbortSignal that fires when either the parent fires or the timeout elapses. */
+/**
+ * A signal that aborts with the parent's, or after `timeoutSec` (0 = never). touch(): data arrived, the time starts
+ * again (a streamed reply runs out of time only when nothing comes for that long).
+ */
 export function withTimeout(parentSignal, timeoutSec) {
     const controller = new AbortController();
     const onAbort = () => controller.abort(parentSignal?.reason);
     // An abort listener added after the fact never fires, so a job cancelled meanwhile stops here.
     if (parentSignal?.aborted) onAbort();
     else parentSignal?.addEventListener('abort', onAbort, { once: true });
-    const timer = timeoutSec > 0
-        ? setTimeout(() => controller.abort(new Error(`超时（${timeoutSec} 秒）`)), timeoutSec * 1000)
-        : null;
+    let timer = null;
+    let streaming = false;
+    const arm = () => {
+        if (!(timeoutSec > 0)) return;
+        clearTimeout(timer);
+        timer = setTimeout(() => controller.abort(new Error(streaming ? `超时（${timeoutSec} 秒没有收到新内容）` : `超时（${timeoutSec} 秒）`)), timeoutSec * 1000);
+    };
+    arm();
     return {
         signal: controller.signal,
         dispose: () => {
-            if (timer) clearTimeout(timer);
+            clearTimeout(timer);
             parentSignal?.removeEventListener('abort', onAbort);
+        },
+        touch: () => {
+            streaming = true;
+            if (!controller.signal.aborted) arm();
         },
     };
 }

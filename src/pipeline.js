@@ -943,9 +943,17 @@ async function askParser(message, job, data, parserPrompt, target, modelMode) {
 
     const started = performance.now();
     assertMode(modelMode);
+    // 流式传输: what has come in so far, under the stage's own words (at most a few times a second).
+    let stageText = job.text;
+    let shownAt = 0;
     const { parsed } = await requestParse(parserPrompt.system, parserPrompt.user, signal, {
         minTokens: parserPrompt.minTokens,
         comic: parserPrompt.comic,
+        onProgress: ({ text, reasoning }) => {
+            if (performance.now() - shownAt < 250 || signal.aborted) return;
+            shownAt = performance.now();
+            setStage(job, message, 'parsing', `${stageText}（已收到 ${text} 字${reasoning ? `，思考 ${reasoning} 字` : ''}）`);
+        },
         onReply: reply => {
             // 用工具调用返回结果: what the debug view shows is the tool call's arguments.
             data.parserRaw = truncate(`${reply.tool ? '（工具调用 submit_picture 的参数）\n' : ''}${reply.content}`, 6000);
@@ -961,7 +969,8 @@ async function askParser(message, job, data, parserPrompt, target, modelMode) {
         },
         onRetry: (attempt, max, error) => {
             data.debug.notes.push(`解析第 ${attempt} 次失败，已自动重试：${truncate(errorMessage(error), 300)}`);
-            setStage(job, message, 'parsing', `解析失败，正在重试（${attempt}/${max}）…`);
+            stageText = `解析失败，正在重试（${attempt}/${max}）…`;
+            setStage(job, message, 'parsing', stageText);
         },
     });
     data.parserMs = Math.round(performance.now() - started);
