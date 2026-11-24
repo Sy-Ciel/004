@@ -7,6 +7,7 @@ import { storyParagraphs } from './parser.js';
 import { getJob, upscaleStatus } from './pipeline.js';
 import { currentMode, floorMode } from './modes.js';
 import { decorateStatusBars } from './statusBar.js';
+import { decoratePromptBlocks } from './inReply.js';
 import { ctx, escapeHtml, getMessageData, getSettings } from './utils.js';
 
 export { onLayoutChange } from './layout.js';
@@ -197,6 +198,8 @@ export function renderMessage(mesId) {
     const settings = getSettings();
     renderHints(element, message);
     decorateStatusBars(element);
+    // 提示词和正文一起出: the main AI's picture blocks are hidden.
+    decoratePromptBlocks(element);
     const data = getMessageData(message);
     const job = getJob(message);
     const showJob = job && job.swipeId === (message?.swipe_id ?? 0);
@@ -231,16 +234,25 @@ export function renderMessage(mesId) {
         const image = shown;
         const all = versionPictures(image);
         several = all.length > 1;
+        // 提示词和正文一起出: pictures drawn from the main AI's blocks go where the blocks are.
+        const inStory = !!settings.placeInStory || !!image.inStory;
         // Pictures go into the story only (what is inside <game>…</game>), found by its paragraphs.
         // A version from before every one kept its story's ends has the floor's (the same story, read last).
         const bounds = {
             first: image.storyStart ?? data?.storyStart,
             last: image.storyEnd ?? data?.storyEnd,
             ending: image.storyEnding ?? data?.storyEnding,
-            paragraphs: several || settings.placeInStory ? storyParagraphs(message) : [],
+            paragraphs: several || inStory ? storyParagraphs(message) : [],
         };
-        ({ kept: pictures, wrapInText } = placePictures(element, wrap[0], all, kind, !!settings.placeInStory, bounds));
-        if (several || settings.placeInStory) watchText(element);
+        if (image.streaming) {
+            // The reply is still streaming in (SillyTavern draws its text again with every token): the pictures done
+            // so far wait under it, and go to their places once it is done.
+            clearInserted(element);
+            pictures = all;
+        } else {
+            ({ kept: pictures, wrapInText } = placePictures(element, wrap[0], all, kind, inStory, bounds));
+            if (several || inStory) watchText(element);
+        }
     } else {
         clearInserted(element);
     }

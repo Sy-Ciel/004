@@ -997,6 +997,13 @@
 .ctp-picture-tools .ctp-act:hover {
     opacity: 1;
 }
+/* 提示词和正文一起出: the main AI's picture blocks are for the extension only (SillyTavern prefixes their class). */
+.mes_text details.ctp-prompt-block,
+.mes_text details.ctp-pic,
+.mes_text details.custom-ctp-pic {
+    display: none !important;
+}
+
 /* 画好一张显示一张: a slim line where a picture still being drawn will be (in the side panel: its page). */
 .ctp-pending {
     display: flex;

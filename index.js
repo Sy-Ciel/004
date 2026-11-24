@@ -11,6 +11,8 @@ import { updateRatingPrompt } from './src/rating.js';
 import { replyProblem } from './src/replyCheck.js';
 import { setEnabled, updateQuickToggle } from './src/quickToggle.js';
 import { updateStatusPrompt } from './src/statusBar.js';
+import { BLOCK_LABEL, findPromptBlocks, promptsInReply, replyEnded, replyStarted, replyToken, stripOldBlocks, stripOldBlocksText } from './src/inReply.js';
+import { updateReplyPrompt } from './src/parser.js';
 import { currentMode, imageMode, modeLabel } from './src/modes.js';
 import { findParserPreset } from './src/parserPresets.js';
 import { findPresetByName, findPresetById, initPersonaTracking } from './src/targets.js';
@@ -40,30 +42,39 @@ function isGreetingFloor(mesId) {
     return true;
 }
 
-async function maybeAutoGenerate(mesId, type) {
+/** Whether 自动配图 draws this floor (a reply just done, or still streaming in): everything but how the reply came out. */
+function autoAllowed(mesId, type) {
     const settings = getSettings();
-    if (!settings.enabled || !settings.autoGenerate) return;
+    if (!settings.enabled || !settings.autoGenerate) return false;
     const chat = ctx().chat;
     const message = chat[mesId];
-    if (!message || message.is_user || message.is_system || !String(message.mes || '').trim()) return;
-    if (['impersonate', 'quiet'].includes(type)) return;
+    if (!message || message.is_user || message.is_system || !String(message.mes || '').trim()) return false;
+    if (['impersonate', 'quiet'].includes(type)) return false;
     // A finished reply is always the newest floor. Other extensions / card scripts may re-emit the rendered
     // event for older floors (or rewrite the greeting); those must not start generations.
-    if (mesId !== chat.length - 1) return;
-    if (!settings.includeFirstMessage && (type === 'first_message' || isGreetingFloor(mesId))) return;
+    if (mesId !== chat.length - 1) return false;
+    if (!settings.includeFirstMessage && (type === 'first_message' || isGreetingFloor(mesId))) return false;
     // A stopped/aborted stream also emits the rendered event; don't draw half a message.
-    if (Date.now() - lastStoppedAt < 2000) return;
-    if (getJob(message)) return;
+    if (Date.now() - lastStoppedAt < 2000) return false;
+    if (getJob(message)) return false;
 
     // Any earlier result (image, error or skip) means this floor was already handled; only an explicit
     // "continue" with the regenerate option asks for a new version.
     const existing = getMessageData(message);
-    if (existing && !(type === 'continue' && settings.regenOnContinue)) return;
+    if (existing && !(type === 'continue' && settings.regenOnContinue)) return false;
 
     // Drawing instructions always get a picture, even between "every N floors".
     const hasHints = pendingHints(mesId).length > 0;
     const everyN = Math.max(1, Number(settings.everyN) || 1);
-    if (everyN > 1 && aiFloorNumber(mesId) % everyN !== 0 && !hasHints) return;
+    return !(everyN > 1 && aiFloorNumber(mesId) % everyN !== 0 && !hasHints);
+}
+
+async function maybeAutoGenerate(mesId, type) {
+    const settings = getSettings();
+    if (!autoAllowed(mesId, type)) return;
+    const chat = ctx().chat;
+    const message = chat[mesId];
+    const existing = getMessageData(message);
 
     // 正文截断、安全检查、提示词过滤: a reply that was cut off or blocked gets no picture (after 「继续」 finishes it,
     // it is checked again).
@@ -85,7 +96,38 @@ async function maybeAutoGenerate(mesId, type) {
     }
 
     log(`自动配图 #${mesId} (${type ?? 'normal'})`);
-    enqueue(mesId, { mode: 'reparse' });
+    enqueue(mesId, { mode: 'reparse', auto: true });
+}
+
+/** The type of the generation whose reply is streaming in (see onReplyToken). */
+let streamType = 'normal';
+
+/**
+ * 提示词和正文一起出: a token of a reply streaming in. Once one of its picture blocks is complete, 自动配图 starts the
+ * floor at once: that picture goes to ComfyUI while the main AI writes on (see readReply in pipeline.js).
+ */
+function onReplyToken(text) {
+    const reply = replyToken(text);
+    if (!reply || getJob(reply.message) || !reply.text.includes('</details')) return;
+    if (!findPromptBlocks(reply.text).some(block => block.complete)) return;
+    const mesId = ctx().chat.indexOf(reply.message);
+    if (!autoAllowed(mesId, streamType)) return;
+    log(`自动配图 #${mesId}（正文还在写，第一张图的提示词已经写好）`);
+    enqueue(mesId, { mode: 'reparse', auto: true });
+}
+
+/** 提示词和正文一起出: picture blocks are hidden from the moment they are shown, while a reply streams in too. */
+function hidePromptBlocks(chatElement) {
+    new MutationObserver(mutations => {
+        for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
+                if (!(node instanceof HTMLElement) || !node.textContent.includes(BLOCK_LABEL)) continue;
+                for (const details of node.matches('details') ? [node] : node.querySelectorAll('details')) {
+                    if (details.querySelector(':scope > summary')?.textContent.includes(BLOCK_LABEL)) details.classList.add('ctp-prompt-block');
+                }
+            }
+        }
+    }).observe(chatElement, { childList: true, subtree: true });
 }
 
 /* ---------------- per-floor actions ---------------- */
@@ -174,6 +216,11 @@ function zoom(mesId, scene = -1, src = '') {
 
 /** 「加画图指令重画」: edit the floor's drawing instructions, then parse it again with them; the text stays. */
 async function redrawWithHints(mesId) {
+    // 提示词和正文一起出: no parser model reads the instructions; the main AI gets them with its next reply.
+    if (promptsInReply()) {
+        toastr.info('「提示词和正文一起出」开着：画图指令交给正文 AI，在它下一次写正文时生效。要按新的指令重画这一楼，请让正文 AI 重写这一楼（重新生成 / 滑动），或者先关掉这个开关改用解析模型', 'ComfyUI 角色配图', { timeOut: 8000 });
+        return;
+    }
     const message = ctx().chat[mesId];
     const data = getMessageData(message);
     const image = data?.images?.[Math.max(0, data.index ?? 0)];
@@ -288,6 +335,8 @@ function renderAllSoon() {
 function registerEvents() {
     const { eventSource, eventTypes } = ctx();
     eventSource.on(eventTypes.CHARACTER_MESSAGE_RENDERED, (mesId, type) => {
+        // 提示词和正文一起出: a reply that was streaming in is done (a floor drawing from it reads it whole now).
+        replyEnded({ message: ctx().chat[Number(mesId)] });
         renderMessage(Number(mesId));
         maybeAutoGenerate(Number(mesId), type).catch(error => console.warn(LOG_PREFIX, error));
     });
@@ -300,25 +349,40 @@ function registerEvents() {
     eventSource.on(eventTypes.MESSAGE_EDITED, mesId => {
         if (captureHints(Number(mesId))) ctx().saveChat();
     });
-    eventSource.on(eventTypes.CHAT_COMPLETION_PROMPT_READY, data => stripOutgoingChat(data?.chat));
+    eventSource.on(eventTypes.CHAT_COMPLETION_PROMPT_READY, data => {
+        stripOutgoingChat(data?.chat);
+        // 提示词和正文一起出: the main AI sees the picture blocks of its latest floors only.
+        stripOldBlocks(data?.chat);
+    });
     eventSource.on(eventTypes.GENERATE_AFTER_COMBINE_PROMPTS, data => {
         if (hintsEnabled() && typeof data?.prompt === 'string') data.prompt = stripHints(data.prompt);
+        if (typeof data?.prompt === 'string') data.prompt = stripOldBlocksText(data.prompt);
     });
+    if (eventTypes.STREAM_TOKEN_RECEIVED) eventSource.on(eventTypes.STREAM_TOKEN_RECEIVED, onReplyToken);
     eventSource.on(eventTypes.MESSAGE_SWIPED, mesId => onSwiped(Number(mesId)));
     eventSource.on(eventTypes.MESSAGE_UPDATED, mesId => renderMessage(Number(mesId)));
     eventSource.on(eventTypes.MESSAGE_EDITED, mesId => renderMessage(Number(mesId)));
     eventSource.on(eventTypes.MESSAGE_DELETED, renderAllSoon);
     eventSource.on(eventTypes.MORE_MESSAGES_LOADED, renderAllSoon);
-    eventSource.on(eventTypes.GENERATION_STOPPED, () => { lastStoppedAt = Date.now(); });
+    eventSource.on(eventTypes.GENERATION_STOPPED, () => {
+        lastStoppedAt = Date.now();
+        replyEnded({ stopped: true });
+    });
     // Status bar instruction for the main AI: refreshed per generation (who to describe can change, and quiet
     // generations must not get it).
-    eventSource.on(eventTypes.GENERATION_STARTED, type => {
+    eventSource.on(eventTypes.GENERATION_STARTED, async (type, _options, dryRun) => {
         updateStatusPrompt(type);
         updateRatingPrompt(type);
+        // 提示词和正文一起出: the main AI is told to write the picture blocks, and its reply is followed.
+        if (!dryRun && !['quiet', 'impersonate'].includes(type)) streamType = type || 'normal';
+        replyStarted(type, dryRun);
+        await updateReplyPrompt(type);
     });
     eventSource.on(eventTypes.CHAT_CHANGED, () => {
+        replyEnded({ stopped: true });
         updateStatusPrompt();
         updateRatingPrompt();
+        updateReplyPrompt();
         cancelAllJobs();
         cancelUpscales();
         resetPanelForChat();
@@ -336,6 +400,7 @@ function registerEvents() {
 
     // Whole-chat re-renders (branch, reload) don't always emit per-message events.
     const chatElement = document.getElementById('chat');
+    if (chatElement) hidePromptBlocks(chatElement);
     if (chatElement) {
         new MutationObserver(mutations => {
             if (mutations.some(mutation => [...mutation.addedNodes].some(node => node instanceof HTMLElement && node.classList.contains('mes')))) {
@@ -519,6 +584,7 @@ jQuery(async () => {
         registerSlashCommands();
         updateStatusPrompt();
         updateRatingPrompt();
+        updateReplyPrompt();
         renderAll();
         console.log(LOG_PREFIX, 'loaded');
     } catch (error) {

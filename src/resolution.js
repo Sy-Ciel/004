@@ -61,11 +61,24 @@ export function parserPicksAspect(comfy) {
  * The size from the ComfyUI settings (render profile applied), before per-picture overrides.
  * @param {object} comfy
  * @param {string} [parsedAspect] The ratio the parser chose for this picture
+ * @param {boolean} [picks] whether that ratio is used: the parser picks it (selector mode with the switch on), or the
+ *   main AI wrote it (提示词和正文一起出) — then with a fixed size too, its pixel count kept
  * @returns {{ width: number, height: number, aspect: string, fromParser: boolean }}
  */
-export function baseSize(comfy, parsedAspect = '') {
-    if (comfy?.sizeMode !== 'selector') return { width: Number(comfy?.width), height: Number(comfy?.height), aspect: '', fromParser: false };
-    const fromParser = parserPicksAspect(comfy) ? parseAspect(parsedAspect) : '';
-    const aspect = fromParser || parseAspect(comfy.aspectRatio) || '1:1';
-    return { ...selectorSize(aspect, comfy.megapixels), aspect, fromParser: !!fromParser };
+export function baseSize(comfy, parsedAspect = '', picks = parserPicksAspect(comfy)) {
+    const picked = picks ? parseAspect(parsedAspect) : '';
+    if (comfy?.sizeMode !== 'selector') {
+        const width = Number(comfy?.width);
+        const height = Number(comfy?.height);
+        if (!picked) return { width, height, aspect: '', fromParser: false };
+        return { ...selectorSize(picked, (width * height) / (1024 * 1024)), aspect: picked, fromParser: true };
+    }
+    const aspect = picked || parseAspect(comfy.aspectRatio) || '1:1';
+    return { ...selectorSize(aspect, comfy.megapixels), aspect, fromParser: !!picked };
+}
+
+/** The ratio of the size as set (what a picture keeps when no ratio is chosen for it). */
+export function sizeAspect(comfy) {
+    if (comfy?.sizeMode === 'selector') return parseAspect(comfy.aspectRatio) || '1:1';
+    return parseAspect(`${Number(comfy?.width) || 1}:${Number(comfy?.height) || 1}`) || '1:1';
 }

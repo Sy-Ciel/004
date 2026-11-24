@@ -12,11 +12,12 @@ import { ReplyScanner } from './partial.js';
 import { readStream, streamError } from './stream.js';
 import { callVertex } from './vertex.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
-import { ASPECT_RATIOS, baseSize, parseAspect, parserPicksAspect } from './resolution.js';
+import { ASPECT_RATIOS, baseSize, parseAspect, parserPicksAspect, sizeAspect } from './resolution.js';
 import { describeThinking, profileThinking, thinkingBody, thinkingMaxTokens, thinkingOmits } from './thinking.js';
 import { isTriggerTag, triggerWordList } from './prompt.js';
 import { findStatusBar, withoutStatusBar } from './statusBar.js';
-import { findUserPreset, presetForName, presetName, presetsMentioned } from './targets.js';
+import { findUserPreset, presetForName, presetName, presetsMentioned, resolveTarget } from './targets.js';
+import { findPromptBlocks, promptsInReply, withoutPromptBlocks } from './inReply.js';
 import {
     ctx,
     errorMessage,
@@ -82,7 +83,8 @@ function ignoredTags(parser) {
  * must not draw it, and pictures do not go after it.
  */
 function withoutIgnored(text, parser) {
-    let source = String(text ?? '');
+    // 提示词和正文一起出: the main AI's picture blocks are not story.
+    let source = withoutPromptBlocks(String(text ?? ''));
     for (const tag of ignoredTags(parser)) {
         source = source.replace(new RegExp(`<${tag}(?:\\s[^>]*)?>[\\s\\S]*?(?:</${tag}\\s*>|$)`, 'gi'), '');
     }
@@ -1165,6 +1167,8 @@ function parseScenes(value) {
         for (const field of PARSED_FIELDS) scene[field] = normalizeValue(item[field]);
         scene.prompt = normalizeValue(item.prompt);
         scene.negative = normalizeValue(item.negative ?? item.negative_prompt);
+        // Its own ratio (the main AI writes one per picture); '' = the end of the floor's.
+        scene.aspect = normalizeValue(item.aspect ?? item.aspect_ratio);
         if (scene.prompt || PARSED_FIELDS.some(field => scene[field])) scenes.push(scene);
     }
     return scenes;
@@ -1219,6 +1223,230 @@ export function parseParserOutput(raw, { comic = false } = {}) {
         throw new Error('解析模型没有返回可识别的 JSON');
     }
     return parseResult(salvaged, { comic, pages, layout, partial: pages.length > 0 || !!layout });
+}
+
+/** A line no story has: where a picture block was, while its place among the story's paragraphs is counted. */
+const BLOCK_MARK = 'CTPPICTUREBLOCK';
+
+/** The JSON object in a picture block (in a ``` fence or not); null when there is none. */
+function blockObject(text) {
+    const source = String(text ?? '').replace(/```(?:json)?/gi, '');
+    const start = source.indexOf('{');
+    const end = source.lastIndexOf('}');
+    const object = start >= 0 && end > start ? readJson(source.slice(start, end + 1)) : null;
+    return object && typeof object === 'object' && !Array.isArray(object) ? object : null;
+}
+
+/** Fields a picture block may leave out and take from the picture before it (the same person): what lasts. */
+const LASTING_FIELDS = ['outfit', 'scene', 'lighting', 'aspect', 'negative'];
+
+/**
+ * 提示词和正文一起出: the pictures the main AI wrote into its reply (see inReply.js), read as parseParserOutput reads
+ * the parser's reply: the last one is the end of the floor, the ones before it its earlier parts. Each goes after the
+ * paragraph its block follows (place, as the parser's paragraph numbers), its part beginning after the block before
+ * it (start). A lasting field a block leaves out is the one before it's, for the same person. Only complete blocks
+ * count while the reply still streams in; once it is done (`done`), a last block without its closing tag counts too
+ * (SillyTavern's 「修剪不完整的句子」 cuts it off the end of a reply) when its JSON is whole.
+ * @returns {ReturnType<typeof parseParserOutput> | null} null when the reply has no usable picture block
+ */
+export function readReplyPictures(message, text, { comic = false, done = true } = {}) {
+    const source = String(text ?? '');
+    const found = findPromptBlocks(source);
+    const blocks = found.filter((block, index) => block.complete || (done && index === found.length - 1));
+    if (!blocks.length) return null;
+    // The paragraph before each block: the blocks marked in the story as lines of their own, then counted.
+    let marked = '';
+    let at = 0;
+    blocks.forEach((block, index) => {
+        marked += `${source.slice(at, block.start)}\n\n${BLOCK_MARK}${index}\n\n`;
+        at = block.end;
+    });
+    marked += source.slice(at);
+    const lines = storyParagraphs({ ...message, mes: marked });
+    const placeOf = index => {
+        const position = lines.indexOf(`${BLOCK_MARK}${index}`);
+        return position < 0 ? -1 : lines.slice(0, position).filter(line => !line.startsWith(BLOCK_MARK)).length;
+    };
+    const pictures = [];
+    for (const [index, block] of blocks.entries()) {
+        const object = blockObject(block.json);
+        if (!object || isTrue(object.skip)) continue;
+        const before = pictures.at(-1)?.object;
+        if (before) {
+            const target = normalizeValue(object.target);
+            if (!target) {
+                for (const key of ['target', 'absent', 'looks']) if (before[key] !== undefined) object[key] = before[key];
+            }
+            if (!target || target === normalizeValue(before.target)) {
+                for (const key of LASTING_FIELDS) if (!normalizeValue(object[key]) && before[key]) object[key] = before[key];
+            }
+        }
+        let parsed;
+        try {
+            parsed = parseResult(object, { comic });
+        } catch {
+            continue;
+        }
+        if (parsed.skip) continue;
+        pictures.push({ object, parsed, label: normalizeValue(object.label ?? object.title), place: placeOf(index) });
+    }
+    if (!pictures.length) return null;
+    const number = value => (value > 0 ? String(value) : '');
+    // Where part `index` begins: after the block before it.
+    const startOf = index => (index === 0 ? '1' : pictures[index - 1].place >= 0 ? String(pictures[index - 1].place + 1) : '');
+    const last = pictures.at(-1);
+    return {
+        ...last.parsed,
+        start: pictures.length > 1 ? startOf(pictures.length - 1) : '',
+        place: number(last.place),
+        earlierScenes: pictures.slice(0, -1).map((picture, index) => ({
+            label: picture.label,
+            start: startOf(index),
+            place: number(picture.place),
+            absent: picture.parsed.absent,
+            target: picture.parsed.target,
+            looks: picture.parsed.looks,
+            ...Object.fromEntries(PARSED_FIELDS.map(field => [field, picture.parsed[field]])),
+            prompt: picture.parsed.prompt,
+            negative: picture.parsed.negative,
+            aspect: picture.parsed.aspect,
+            ...(picture.parsed.page ? { page: picture.parsed.page } : {}),
+        })),
+        fromReply: true,
+    };
+}
+
+/**
+ * 提示词和正文一起出: what a floor drawn from the main AI's blocks is read with, as buildParserPrompt's result without
+ * a request to send: the parser preset, its prompt mode, 漫画模式, and whether someone else may be drawn.
+ */
+export function replyParserPrompt() {
+    const settings = getSettings();
+    const preset = activeParserPreset();
+    const comic = isComicPreset(preset);
+    return {
+        system: '',
+        user: '',
+        preset,
+        mode: comic ? 'ai' : promptMode(),
+        absent: settings.absentFallback !== false,
+        comic,
+        minTokens: 0,
+        inReply: true,
+        notes: [`${modeLabel()} 模式 · 解析预设：${preset.name} · 提示词和正文一起出：用的是正文 AI 写在回复里的配图提示词，没有调用解析模型`],
+    };
+}
+
+/**
+ * 提示词和正文一起出: what the main AI is told, so it writes a hidden picture block after each part of its reply that
+ * gets a picture — by the parser preset's own rules (one picture's output format, its 横 / 竖 included), with what the
+ * parser would be given about the character (looks, last state, earlier pictures, the user's drawing instructions).
+ * For the reply about to be written.
+ */
+export async function buildReplyInstruction() {
+    const settings = getSettings();
+    const context = ctx();
+    const mesId = (context.chat ?? []).length;
+    const target = resolveTarget({ name: context.name2, is_user: false });
+    const preset = activeParserPreset();
+    const comicPreset = isComicPreset(preset);
+    // 漫画模式: a block is one page.
+    const comic = comicPreset ? { panels: comicPanels(preset), pages: 1, dialogue: preset.dialogue !== false } : null;
+    const mode = comic ? 'ai' : promptMode();
+    const allowOthers = !!preset.allowOthers;
+    const negative = !!settings.parserNegative;
+    const absent = settings.absentFallback !== false ? { auto: !!target.auto } : null;
+    // 横 / 竖: the main AI picks each picture's ratio (the pixel count stays), unless the preset sets its own size.
+    const aspect = presetResolution(preset) ? null : { ratios: ASPECT_RATIOS, fallback: sizeAspect(settings.comfy) };
+    const size = comic && presetResolution(preset);
+    if (size?.width > 0 && size?.height > 0) Object.assign(comic, { width: Math.round(size.width), height: Math.round(size.height) });
+    const limit = comicPreset ? comicPages(preset) : sceneLimit(settings.parser);
+
+    const historyCount = Math.max(0, Math.min(20, Number(settings.parser.historyFloors) || 0));
+    const records = previousOutputs(mesId, historyCount);
+    const lastState = settings.continuity && !target.auto ? findLastState(mesId, target.name) : null;
+    const hints = pendingHints(mesId);
+    const vars = {
+        target: target.auto ? '（从下面的候选角色里选）' : target.name,
+        appearance: [referenceBlock(target, mode, !!comic), allowOthers || absent ? othersReference(mesId, target, !!absent) : ''].filter(Boolean).join('\n'),
+        fixed_fields: fixedFieldsBlock(preset),
+        output_rules: outputRules(mode, allowOthers, negative, aspect, 0, false, absent, comic),
+        candidates: target.auto
+            ? `【候选角色】每张图从以下角色中选出画面主角（通常是这一段里动作、情绪描写最集中的人），把名字原样填入 target：\n${target.candidates.map(name => `- ${name}`).join('\n')}`
+            : '',
+        last_state: target.auto ? '（自动模式下不提供）' : formatState(lastState, new Set(records.map(record => record.floor))),
+        prev_outputs: formatOutputs(records, settings.parser.historyIncludePrompt !== false),
+        history: '（就是你正在写的这段剧情）',
+        latest: '（你这次写的正文）',
+        status_bar: '',
+        world_info: '',
+        user_hints: hints.length
+            ? `【用户画图指令（用户写给配图的画面要求，优先级最高，必须体现在对应字段里）】\n${hints.flatMap(item => item.hints.map(hint => `- ${hint}`)).join('\n')}`
+            : '',
+        floor: String(mesId),
+    };
+    let systemTemplate = String(preset.system || '');
+    if ((mode === 'ai' || allowOthers) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += '\n\n{{output_rules}}';
+    else if ((negative || aspect || absent) && !systemTemplate.includes('{{output_rules}}')) systemTemplate += `\n\n${extraFieldRules(negative, aspect, 0, false, absent)}`;
+    const chinese = chinesePrompt();
+    const writing = promptStyle() === MODEL_MOSS && settings.parser.mossSkill !== false ? await mossSkillBlock({ mode, comic, allowOthers, chinese })
+        : promptStyle() === MODEL_KREA2 && settings.parser.kreaRules ? { text: kreaRulesBlock(mode) }
+            : null;
+    const natural = promptStyle() === 'anima-natural';
+    const rules = [fillTemplate(systemTemplate, vars), natural ? NATURAL_STYLE_RULE : '', chinese ? CHINESE_PROMPT_RULE : '', triggerWordsRule(mode, !!comic), writing?.text]
+        .filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n');
+    const reference = [`【目标角色】${vars.target}`, vars.appearance, vars.candidates, vars.fixed_fields, `【上一次状态】\n${vars.last_state}`, vars.prev_outputs, vars.user_hints]
+        .filter(Boolean).join('\n\n');
+    const what = comic ? '一页漫画' : '一张图';
+    const count = limit > 1
+        ? `- 一楼最多 ${limit} 个块。正文里时间、地点或画面明显变化时，在每一段写完的地方各写一个块；整楼都是同一个时间、同一个地方就只写一个，放在正文最后。最后一个块画的是这一楼结束时的样子\n- 每个块再加一个 label 字段：几个字说明这${comic ? '一页' : '张图'}画的是哪一段（例如 "清晨·门口"）`
+        : `- 只写一个块，放在正文最后，画这一楼结束时的样子`;
+    return `【配图：提示词和正文一起写】
+这一楼的配图由你在写正文时一起写好：每${what}写一个隐藏的「配图提示词」块，紧跟在它画的那段正文后面——${comic ? '这页漫画' : '图'}会显示在块的位置，块本身读者看不到。格式：
+
+（这${comic ? '一页' : '张图'}画的那段正文……）
+<details class="ctp-pic"><summary>配图提示词</summary>
+{ 一个 JSON 对象 }
+</details>
+（后面的正文……）
+
+${count}
+- 块里只放一个 JSON 对象，不要代码块标记，不要解释；每个块都单独写全，不要写「同上」
+- 正文照常写：不要在正文里提到配图块，也不要因为它改变正文的写法、长度和节奏
+- 图的位置就是块的位置：不要写 place、start、earlier_scenes 这些字段
+- 这一楼没有能画的内容时，可以不写块
+- JSON 怎么写，按下面这份给配图助手的要求（原本是让它读完正文再输出 JSON；现在由你在写正文时直接写进块里：要求里的【当前楼层】指块前面你写的那段正文，「输出一个 JSON 对象」指一个块里的内容）
+
+<配图要求>
+${rules}
+</配图要求>
+
+${reference}`.replace(/\n{3,}/g, '\n\n');
+}
+
+/** SillyTavern's extension_prompt_types.IN_CHAT and extension_prompt_roles.SYSTEM. */
+const IN_CHAT = 1;
+const ROLE_SYSTEM = 0;
+const REPLY_PROMPT_KEY = 'comfy_portrait_in_reply';
+
+/**
+ * 提示词和正文一起出: puts the instruction into the main AI's prompt for a generation (or takes it out). Quiet
+ * generations (other extensions, summaries) and impersonation never get it.
+ */
+export async function updateReplyPrompt(type) {
+    const { setExtensionPrompt } = ctx();
+    if (typeof setExtensionPrompt !== 'function') return;
+    const settings = getSettings();
+    const active = settings.enabled && promptsInReply(settings) && !['quiet', 'impersonate'].includes(type);
+    let text = '';
+    if (active) {
+        try {
+            text = await buildReplyInstruction();
+        } catch (error) {
+            warn(error);
+        }
+    }
+    setExtensionPrompt(REPLY_PROMPT_KEY, text, IN_CHAT, 0, false, ROLE_SYSTEM);
 }
 
 /**

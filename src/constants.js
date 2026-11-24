@@ -536,6 +536,13 @@ export const DEFAULT_SETTINGS = {
          */
         earlyDraw: true,
         /**
+         * 提示词和正文一起出: the main AI writes each picture's prompt in a hidden block after the part it shows (where
+         * the picture goes, its 横 / 竖 included), and no parser model is asked.
+         */
+        inReply: false,
+        /** How many of the latest AI floors keep their picture blocks in what the main AI is sent (0 = none). */
+        replyBlockDepth: 1,
+        /**
          * 酒馆 API 连接（插头）: the model used through SillyTavern's own connection, per chat completion source
          * ({ vertexai: 'gemini-3.8-flash', … }); none = the model the chat uses.
          */

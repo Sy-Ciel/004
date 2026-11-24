@@ -3,12 +3,14 @@ import { addExtraLoras, addUpscale, deferUpscale, getWorkflowTemplate, prepareWo
 import { comparable, findQuote } from './anchors.js';
 import { comicPages, comicPanelCount, fitLayout, isComicPreset } from './comic.js';
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
-import { buildParserPrompt, floorParagraphs, parserLabel, readPartialReply, requestParse, storyParagraphs, usesStream } from './parser.js';
+import { buildParserPrompt, floorParagraphs, parserLabel, readPartialReply, readReplyPictures, replyParserPrompt, requestParse, storyParagraphs, usesStream } from './parser.js';
 import { ReplyScanner } from './partial.js';
+import { findPromptBlocks, promptsInReply, replyStream } from './inReply.js';
+import { replyProblem } from './replyCheck.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution, sceneLimit } from './parserPresets.js';
 import { buildImagePrompt, buildNegativePrompt, finishPrompt } from './prompt.js';
 import { modeForRating, readRating } from './rating.js';
-import { baseSize } from './resolution.js';
+import { baseSize, parserPicksAspect } from './resolution.js';
 import { effectiveComfy, renderProfileFor } from './renderProfiles.js';
 import { slgSettings } from './slg.js';
 import { findPresetById, presetForName, resolveTarget, settleAutoTarget, substituteTarget } from './targets.js';
@@ -170,9 +172,10 @@ function sameSubject(a, b) {
 function scenePrompt(scene, who, mainSubject, mainParsed, parserPrompt) {
     const { label, start, place, absent, target, looks, ...fields } = scene;
     // A field the parser left out is taken from the end of the floor (usually the same outfit) when the part
-    // shows the same person.
+    // shows the same person. 提示词和正文一起出: each block is a whole picture already (what it left out was taken
+    // from the block before it), drawn the same whether it turns out to be the end of the floor or not.
     const filled = Object.fromEntries(Object.entries(fields).filter(([, value]) => value));
-    const base = sameSubject(who, mainSubject) ? { ...mainParsed, prompt: '', negative: '', others: '' } : {};
+    const base = !parserPrompt.inReply && sameSubject(who, mainSubject) ? { ...mainParsed, prompt: '', negative: '', others: '' } : {};
     return promptFromParse(subjectPreset(who), { ...base, ...filled }, parserPrompt, [], { nobody: !!who.nobody });
 }
 
@@ -180,9 +183,10 @@ function scenePrompt(scene, who, mainSubject, mainParsed, parserPrompt) {
  * The size a picture parsed with this parser preset is drawn at, without edit-dialog choices (as renderPlan
  * works it out: the parser preset's own size, else the global one, or the resolution selector's ratio).
  */
-function plannedSize(parserPreset, aspect) {
+function plannedSize(parserPreset, aspect, fromReply = false) {
     const presetSize = presetResolution(parserPreset);
-    const base = baseSize(getSettings().comfy, aspect);
+    const { comfy } = getSettings();
+    const base = baseSize(comfy, aspect, parserPicksAspect(comfy) || fromReply);
     const defaults = modeDefaults(currentMode()).comfy;
     return {
         width: roundTo16(presetSize?.width || base.width, defaults.width),
@@ -200,7 +204,7 @@ function promptFromParse(characterPreset, parsed, parserPrompt, notes, { nobody 
     const comic = isComicPreset(parserPrompt.preset);
     // 漫画模式 always draws MOSS-Image's JSON layout, never a written-out prompt.
     if (comic && !final.page) throw new Error('解析模型没有画出这一页漫画的版面（layout），没有出图');
-    const canvas = comic ? plannedSize(parserPrompt.preset, final.aspect) : null;
+    const canvas = comic ? plannedSize(parserPrompt.preset, final.aspect, !!parserPrompt.inReply) : null;
     if (canvas) {
         const panels = comicPanelCount(final.page);
         const texts = final.page.items.filter(item => item.label === 'text').length;
@@ -669,7 +673,8 @@ export function renderPlan(data, overrides = null) {
     // Resolution: the edit dialog, else the parser preset this floor was parsed with, else the global size
     // (fixed width × height, or the resolution selector's ratio — the parser's pick when it chooses one).
     const presetSize = presetResolution(findParserPreset(data?.parserPresetId) ?? activeParserPreset());
-    const base = baseSize(comfy, data?.parsed?.aspect);
+    // 提示词和正文一起出: the main AI chose the picture's 横 / 竖 (with a fixed size too, its pixel count kept).
+    const base = baseSize(comfy, data?.parsed?.aspect, parserPicksAspect(comfy) || !!data?.fromReply);
     const fromBase = !overrides?.width && !presetSize;
     const defaults = modeDefaults(currentMode()).comfy;
     const width = roundTo16(overrides?.width || presetSize?.width || base.width, defaults.width);
@@ -759,7 +764,7 @@ function floorRating(message, swipeId) {
  * A floor's picture state: what 🔄 and ✏️ reuse and what continuity reads. All of it belongs to one image model
  * mode, data.modelMode (a Krea 2 sentence prompt or preset id means nothing to Anima, and the other way round).
  */
-const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'subject', 'parsed', 'prompt', 'canvas', 'negative', 'scenes', 'endStart', 'endStartAt', 'place', 'placeAt', 'storyStart', 'storyEnd', 'storyEnding', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited'];
+const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'subject', 'parsed', 'prompt', 'canvas', 'negative', 'scenes', 'endStart', 'endStartAt', 'place', 'placeAt', 'storyStart', 'storyEnd', 'storyEnding', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited', 'fromReply'];
 
 /** Whether a floor has picture state of its own (a parse or a prompt), as opposed to nothing or only an error. */
 function hasFloorState(data) {
@@ -1056,8 +1061,10 @@ async function redrawPicture(message, job, data, options, modelMode, otherMode) 
     // A version whose end-of-floor picture was deleted shows an earlier part as its own picture (promoted).
     const label = scene >= 0 ? picture.label || `第 ${scene + 1} 段` : base.label || (base.scenes?.length ? '结束时' : '这一张');
     const edit = options.mode === 'edit';
-    // 🔄 on the picture: the parser writes this part again; 🎲 / ✏️ keep (or take) a prompt.
-    const reparse = !edit && options.mode !== 'reroll';
+    // 🔄 on the picture: the parser writes this part again; 🎲 / ✏️ keep (or take) a prompt. 提示词和正文一起出: no
+    // parser is asked, so 🔄 draws the main AI's prompt again.
+    const reparse = !edit && options.mode !== 'reroll' && !promptsInReply();
+    if (!edit && options.mode !== 'reroll' && !reparse) data.debug.notes.push('提示词和正文一起出：不调用解析模型，按正文 AI 写的提示词重画');
     const overrides = edit ? options.overrides ?? null : null;
     const fresh = reparse ? await parsePicture(message, job, data, base, scene, label, modelMode) : null;
     const prompt = fresh ? fresh.prompt : edit ? String(options.prompt ?? '') : String(picture.prompt ?? '');
@@ -1168,6 +1175,10 @@ function applyTarget(data, resolved) {
  */
 function floorFromParse(message, data, parsed, parserPrompt, chosen) {
     const settings = getSettings();
+    // 提示词和正文一起出: every picture goes where the main AI put its block (as 图片插在正文中间 does).
+    const inStory = !!settings.placeInStory || !!parsed.fromReply;
+    if (parsed.fromReply) data.fromReply = true;
+    else delete data.fromReply;
     // Who is drawn: the target (auto: the one the parser picked), or, when the target is not in the scene, whoever
     // is (画谁不在画面里).
     const { subject: target, sceneSubject } = subjectsOf(chosen, parsed, parserPrompt, message, data.debug.notes);
@@ -1210,6 +1221,8 @@ function floorFromParse(message, data, parsed, parserPrompt, chosen) {
             parsed: sceneBuilt.parsed,
             prompt: sceneBuilt.prompt,
             negative: buildNegativePrompt(who.preset, sceneBuilt.parsed, sceneBuilt.prompt),
+            // 提示词和正文一起出: its own 横 / 竖.
+            ...(scene.aspect ? { aspect: scene.aspect } : {}),
         };
     });
     const story = comparable(paragraphs.join('\n'));
@@ -1223,7 +1236,7 @@ function floorFromParse(message, data, parsed, parserPrompt, chosen) {
         data.endStart = endStart.text;
         data.endStartAt = endStart.at;
         data.debug.notes.push(`正文分成了 ${data.scenes.length + 1} 段，画 ${data.scenes.length + 1} 张：${[...data.scenes.map(scene => scene.label), '结束时'].join(' → ')}`);
-        if (!settings.placeInStory && missing([...data.scenes.slice(1).map(scene => scene.start), data.endStart])) {
+        if (!inStory && missing([...data.scenes.slice(1).map(scene => scene.start), data.endStart])) {
             data.debug.notes.push('解析模型没给全每一段从第几段开始（或给的对不上），缺的按比例插进正文');
         }
     }
@@ -1233,7 +1246,7 @@ function floorFromParse(message, data, parsed, parserPrompt, chosen) {
     // words not in the story), the paragraph that tells what the picture shows (now_doing), rather than the
     // end of the story.
     let place = paragraphAnchor(parsed.place, paragraphs, 'after');
-    if (settings.placeInStory && (!place.text || missing([place.text]))) {
+    if (inStory && (!place.text || missing([place.text]))) {
         const guess = guessPlace(parsed.now_doing, paragraphs.slice(0, floorParagraphs(message).length));
         if (guess >= 0) {
             place = paragraphAt(paragraphs, guess, 'after');
@@ -1247,7 +1260,7 @@ function floorFromParse(message, data, parsed, parserPrompt, chosen) {
         delete data.place;
         delete data.placeAt;
     }
-    if (settings.placeInStory && missing([...(data.scenes ?? []).map(scene => scene.place), data.place])) {
+    if (inStory && missing([...(data.scenes ?? []).map(scene => scene.place), data.place])) {
         data.debug.notes.push('解析模型没给出插图位置（或给的对不上），缺的按比例插进正文（只有一张图时放在正文最后）');
     }
     data.parserPresetId = parserPrompt.preset.id;
@@ -1266,34 +1279,39 @@ function floorFromParse(message, data, parsed, parserPrompt, chosen) {
 function floorDrawings(data, overrides, seedOf, several = !!data.scenes?.length) {
     // The character's render profile swaps in its own model / LoRA / sampling settings.
     const plan = renderPlan(data, overrides);
-    const { width, height } = plan;
-    const drawing = (slot, label, own, picture) => {
+    // 提示词和正文一起出: each picture is a block of its own — its turn in the reply is its slot, and it has its own
+    // 横 / 竖 — so a block is drawn the same whether it turns out to be the end of the floor or an earlier part.
+    const inline = !!data.fromReply;
+    const scenes = data.scenes ?? [];
+    const drawing = (slot, role, label, own, picture, size) => {
         const seed = seedOf(slot, plan.comfy);
         const who = own ? [own.presetId, own.target] : [data.presetId ?? null, data.target ?? ''];
         const negative = picture.negative || '';
         return {
             slot,
+            role,
             label,
             plan: own ? own.plan : plan,
             prompt: picture.prompt,
             negative,
-            width,
-            height,
+            width: size.width,
+            height: size.height,
             seed,
-            key: JSON.stringify([picture.prompt, negative, width, height, seed, ...who]),
+            key: JSON.stringify([picture.prompt, negative, size.width, size.height, seed, ...who]),
         };
     };
     // A JSON layout (漫画模式) is in pixels of the canvas it was written for: drawn at another size, it is scaled.
-    const prompt = data.canvas ? fitLayout(data.prompt, data.canvas, { width, height }) : data.prompt;
+    const prompt = data.canvas ? fitLayout(data.prompt, data.canvas, { width: plan.width, height: plan.height }) : data.prompt;
     return {
         plan,
-        end: drawing('end', several ? '结束时这一张' : '', null, { prompt, negative: data.negative }),
-        // The earlier parts: the same model, LoRAs and size, unless a part shows someone else.
-        scenes: (data.scenes ?? []).map((scene, index) => {
-            const own = 'presetId' in scene && scene.presetId !== (data.presetId ?? null)
-                ? { presetId: scene.presetId, target: scene.target, plan: renderPlan({ ...data, presetId: scene.presetId, target: scene.target }, overrides) }
-                : null;
-            return drawing(index, `「${scene.label}」`, own, scene);
+        end: drawing(inline ? scenes.length : 'end', 'end', several ? '结束时这一张' : '', null, { prompt, negative: data.negative }, plan),
+        // The earlier parts: the same model, LoRAs and size, unless a part shows someone else (and, drawn from the
+        // reply's blocks, its own 横 / 竖).
+        scenes: scenes.map((scene, index) => {
+            const other = 'presetId' in scene && scene.presetId !== (data.presetId ?? null) ? { ...data, presetId: scene.presetId, target: scene.target } : null;
+            const own = other ? { presetId: scene.presetId, target: scene.target, plan: renderPlan(other, overrides) } : null;
+            const size = inline ? renderPlan({ ...(other ?? data), parsed: { ...data.parsed, aspect: scene.aspect || '' } }, overrides) : plan;
+            return drawing(index, 'scene', `「${scene.label}」`, own, scene, size);
         }),
     };
 }
@@ -1329,6 +1347,10 @@ class FloorLine {
         this.entries = new Map();
         /** The floor's state the pictures belong to (where each goes in the text): the reply so far, then the whole. */
         this.state = null;
+        /** The end of the floor's slot ('end'; with a reply's blocks, the last block's turn). */
+        this.endSlot = 'end';
+        /** 提示词和正文一起出: the main AI's reply is still streaming in (its pictures are not put into the text yet). */
+        this.streaming = false;
         this.chain = Promise.resolve();
         this.turn = null;
         /** Pictures begun and drawn so far, how many wait for ComfyUI, and how many the floor has (known once the whole reply is read). */
@@ -1350,7 +1372,7 @@ class FloorLine {
             this.pending--;
             // 边解析边出图: ComfyUI has drawn what is written so far, the parser is still writing.
             if (!this.pending && this.drawn && this.job.parsing && !this.job.controller.signal.aborted) {
-                setStage(this.job, this.message, 'waiting', `ComfyUI 画完了已经写好的 ${this.drawn} 张，等解析模型写下一张…`);
+                setStage(this.job, this.message, 'waiting', `ComfyUI 画完了已经写好的 ${this.drawn} 张，等下一张的提示词…`);
             }
         };
         // The next picture goes to ComfyUI once this one is drawn; saving this one happens meanwhile.
@@ -1396,7 +1418,7 @@ class FloorLine {
         const values = workflowValues(drawing.plan, this.modelMode, { prompt: drawing.prompt, negative: drawing.negative, width: drawing.width, height: drawing.height, seed: drawing.seed });
         const { workflow, later } = buildWorkflow(template, values, drawing.plan, entry.notes);
         const started = performance.now();
-        const status = drawing.slot === 'end' ? '' : drawing.label;
+        const status = drawing.role === 'end' ? '' : drawing.label;
         entry.started = true;
         const image = await runWorkflow(workflow, entry.controller.signal, text => setStage(this.job, this.message, 'drawing', `${status}${text}`));
         assertMode(this.modelMode);
@@ -1423,11 +1445,16 @@ class FloorLine {
      * @returns {object[]} their entries, the end of the floor first
      */
     settle(drawings) {
-        const wanted = [drawings.end, ...drawings.scenes];
+        const wanted = [...drawings.scenes, drawings.end];
         this.total = wanted.length;
+        this.endSlot = drawings.end.slot;
         const slots = new Set(wanted.map(drawing => drawing.slot));
         for (const entry of [...this.entries.values()]) if (!slots.has(entry.slot)) this.drop(entry);
-        return wanted.map(drawing => this.offer(drawing));
+        // The end of the floor first (it is the one a parse settles first), then the earlier parts; with a reply's
+        // blocks, in their order.
+        const order = drawings.end.slot === 'end' ? [drawings.end, ...drawings.scenes] : wanted;
+        const entries = order.map(drawing => this.offer(drawing));
+        return [entries[order.indexOf(drawings.end)], ...drawings.scenes.map(drawing => entries[order.indexOf(drawing)])];
     }
 
     /** The pictures are the floor's now: nothing is given up when the job ends. */
@@ -1461,13 +1488,16 @@ class FloorLine {
             placeAt: scene.placeAt,
         }));
         return {
-            ...picture('end'),
+            ...picture(this.endSlot),
             start: scenes.length ? floor.endStart || '' : undefined,
             startAt: scenes.length ? floor.endStartAt : undefined,
             place: floor.place || undefined,
             placeAt: floor.placeAt,
             ...(floor.storyStart ? { storyStart: floor.storyStart, storyEnd: floor.storyEnd, storyEnding: floor.storyEnding } : {}),
             scenes: scenes.length ? scenes : undefined,
+            // Drawn from the reply's blocks: in the story where the blocks are; while the reply still streams in, under it.
+            ...(floor.fromReply ? { inStory: true } : {}),
+            ...(this.streaming ? { streaming: true } : {}),
             live: true,
         };
     }
@@ -1500,6 +1530,7 @@ function earlyDrawing(message, modelMode, parserPrompt, chosen, force, line, ove
                 for (const drawing of drawings.scenes) line.offer(drawing);
                 if (comic && partial.done) line.offer(drawings.end);
                 line.state = scratch;
+                line.endSlot = drawings.end.slot;
             } catch (error) {
                 // Not drawable yet (or not like this): the whole reply decides.
                 log('边解析边出图：这一段还不能画', error);
@@ -1513,6 +1544,88 @@ function earlyDrawing(message, modelMode, parserPrompt, chosen, force, line, ove
             line.drawn = 0;
         },
     };
+}
+
+/**
+ * 提示词和正文一起出: the floor's pictures from the main AI's own blocks, without asking a parser model. While its
+ * reply is still streaming in, each complete block goes to ComfyUI at once (边解析边出图); the whole reply has the last
+ * word. A reply that was stopped gets no pictures; one cut off or blocked neither, when the floor was started by
+ * 自动配图 (as it checks every reply).
+ * @returns {Promise<object>} the parse, as the parser's reply is read (see readReplyPictures)
+ */
+async function readReply(message, job, data, parserPrompt, chosen, modelMode, { auto, force, line, seedOf }) {
+    const settings = getSettings();
+    const signal = job.controller.signal;
+    const comic = !!parserPrompt.comic;
+    data.debug.notes.push(...parserPrompt.notes);
+    data.parser = '正文 AI（提示词和正文一起出）';
+    const stream = replyStream(message);
+    if (stream) {
+        line.streaming = true;
+        const several = comic ? comicPages(parserPrompt.preset) > 1 : sceneLimit(settings.parser) > 1;
+        // Worked out again only when another block is complete (the text before a block does not change after it).
+        let complete = -1;
+        const read = text => {
+            try {
+                const count = findPromptBlocks(text).filter(block => block.complete).length;
+                if (count === complete) return;
+                complete = count;
+                // The reply so far: its story as written up to now, its complete blocks.
+                const now = { ...message, mes: text };
+                const partial = readReplyPictures(now, text, { comic, done: false });
+                if (!partial) return;
+                const scratch = { modelMode, debug: { notes: [] } };
+                floorFromParse(now, scratch, partial, parserPrompt, chosen);
+                if (!String(scratch.prompt ?? '').trim()) return;
+                const drawings = floorDrawings(scratch, null, seedOf, several);
+                for (const drawing of [...drawings.scenes, drawings.end]) line.offer(drawing);
+                line.state = scratch;
+                line.endSlot = drawings.end.slot;
+            } catch (error) {
+                log('提示词和正文一起出：这一块还不能画', error);
+            }
+        };
+        setStage(job, message, 'parsing', '正文 AI 还在写：写好一张图的提示词就先画…');
+        read(stream.text);
+        const stop = stream.listen(read);
+        let ended;
+        job.parsing = true;
+        try {
+            ended = await new Promise((resolve, reject) => {
+                stream.done.then(resolve);
+                if (signal.aborted) reject(abortError());
+                signal.addEventListener('abort', () => reject(abortError()), { once: true });
+            });
+        } finally {
+            stop();
+            job.parsing = false;
+            line.streaming = false;
+        }
+        // Stopped part way: no pictures, as for any reply that was stopped.
+        if (ended.stopped) throw abortError();
+        assertMode(modelMode);
+        if (auto && !force && settings.skipBadReplies !== false) {
+            const problem = await replyProblem(message);
+            if (problem) {
+                const error = new Error(problem);
+                error.replyProblem = true;
+                throw error;
+            }
+        }
+    }
+    const text = swipeText(message, job.swipeId);
+    const blocks = findPromptBlocks(text).filter(block => block.complete);
+    data.parserRaw = truncate(blocks.map(block => block.json).join('\n\n'), 6000);
+    data.parserReasoning = '';
+    data.parserFinish = '';
+    const parsed = readReplyPictures(message, text, { comic });
+    if (parsed) return parsed;
+    if (force) {
+        const error = new Error('这一楼的正文里没有能用的配图提示词块（正文 AI 没写，或者写的不是 JSON）。可以重新生成这一楼，或者关掉「提示词和正文一起出」改用解析模型');
+        error.fromReply = true;
+        throw error;
+    }
+    return { skip: true, reason: blocks.length ? '正文 AI 写的配图提示词块读不出来（不是 JSON）' : '正文 AI 这一楼没有写配图提示词' };
 }
 
 async function runJob(message, job, options) {
@@ -1600,11 +1713,18 @@ async function runJobInMode(message, job, options, ratingNote) {
             const target = resolveTarget(message, options.target);
             // Recorded before the request so a failed floor still shows who it was for.
             applyTarget(data, target);
-            const parserPrompt = await buildParserPrompt(mesId, target);
-            if (force) parserPrompt.user += FORCE_NOTE;
-            // 边解析边出图: the pictures the reply settles while it streams in go to ComfyUI at once.
-            const early = earlyDrawing(message, modelMode, parserPrompt, target, force, line, null, seedOf);
-            const parsed = await askParser(message, job, data, parserPrompt, target, modelMode, early);
+            // 提示词和正文一起出: the main AI wrote the pictures into its reply; no parser model is asked.
+            const inline = promptsInReply(settings);
+            const parserPrompt = inline ? replyParserPrompt() : await buildParserPrompt(mesId, target);
+            let parsed;
+            if (inline) {
+                parsed = await readReply(message, job, data, parserPrompt, target, modelMode, { auto: !!options.auto, force, line, seedOf });
+            } else {
+                if (force) parserPrompt.user += FORCE_NOTE;
+                // 边解析边出图: the pictures the reply settles while it streams in go to ComfyUI at once.
+                const early = earlyDrawing(message, modelMode, parserPrompt, target, force, line, null, seedOf);
+                parsed = await askParser(message, job, data, parserPrompt, target, modelMode, early);
+            }
             if (parsed.skip && !force) {
                 // A skip in this mode leaves the other mode's picture state as it was.
                 if (!converted) restoreFloorState(data, previous);
@@ -1715,7 +1835,7 @@ async function runJobInMode(message, job, options, ratingNote) {
                 assertMode(modelMode);
                 addNotes(data.debug.notes, entry.notes);
                 scenes.push({
-                    ...picture.stored, ...laterMark(picture.later, picture.image), seed: entry.drawing.seed, width, height,
+                    ...picture.stored, ...laterMark(picture.later, picture.image), seed: entry.drawing.seed, width: entry.drawing.width, height: entry.drawing.height,
                     prompt: scene.prompt,
                     negative: scene.negative || '',
                     refined: refinedText(picture.template, picture.image) || undefined,
@@ -1750,6 +1870,8 @@ async function runJobInMode(message, job, options, ratingNote) {
             // Where the story began and ended when it was drawn: pictures go into that stretch of the text.
             ...(data.storyStart ? { storyStart: data.storyStart, storyEnd: data.storyEnd, storyEnding: data.storyEnding } : {}),
             scenes: scenes.length ? scenes : undefined,
+            // 提示词和正文一起出: in the story where the main AI put the blocks, whatever 图片插在正文中间 says.
+            ...(data.fromReply ? { inStory: true } : {}),
             mode: modelMode,
             time: Date.now(),
         });
@@ -1760,6 +1882,11 @@ async function runJobInMode(message, job, options, ratingNote) {
         queueUpscales(message, job.swipeId, data.images.at(-1));
         log(`#${mesId} 完成`, data);
     } catch (error) {
+        // 提示词和正文一起出: a reply that came out cut off or blocked gets no picture, as 自动配图 would decide.
+        if (error?.replyProblem) {
+            toastr.info(`${error.message}，没有自动配图。需要的话可以手动生成。`, 'ComfyUI 角色配图', { timeOut: 5000 });
+            return;
+        }
         if (isAbortError(error)) {
             toastr.info(error.modeChanged || currentMode() !== modelMode ? '切换了模型模式，已取消这次配图' : '已取消配图');
             return;
@@ -1771,7 +1898,7 @@ async function runJobInMode(message, job, options, ratingNote) {
         // 重新发送提示词: the floor's prompts are kept, so they can go to ComfyUI again without the parser.
         if (prompted && hasFloorState(data)) data.failedAt = 'comfy';
         commit(message, job.swipeId, data);
-        const where = data.failedAt ? '（ComfyUI）' : error?.parsing || job.stage === 'parsing' ? '（解析模型）' : job.stage === 'drawing' ? '（ComfyUI）' : '';
+        const where = data.failedAt ? '（ComfyUI）' : error?.fromReply ? '（正文 AI 的配图提示词）' : error?.parsing || job.stage === 'parsing' ? '（解析模型）' : job.stage === 'drawing' ? '（ComfyUI）' : '';
         const resend = data.failedAt ? '。提示词已经保存：ComfyUI 好了以后点这一楼的「重新发送提示词」，不用重新解析' : '';
         toastr.error(`${truncate(data.error, 300)}${resend}`, `配图失败${where}`);
     } finally {
@@ -1792,8 +1919,18 @@ export async function dryRun(mesId, targetOverride) {
     if (!message) throw new Error(`没有 #${mesId} 楼`);
     const modelMode = currentMode();
     let target = resolveTarget(message, targetOverride);
-    const parserPrompt = await buildParserPrompt(mesId, target);
-    const { reply, parsed: raw } = await requestParse(parserPrompt.system, parserPrompt.user, undefined, { minTokens: parserPrompt.minTokens, comic: parserPrompt.comic });
+    // 提示词和正文一起出: what the main AI's blocks say (no parser model).
+    const inline = promptsInReply();
+    const parserPrompt = inline ? replyParserPrompt() : await buildParserPrompt(mesId, target);
+    let reply;
+    let raw;
+    if (inline) {
+        raw = readReplyPictures(message, message.mes, { comic: parserPrompt.comic });
+        if (!raw) throw new Error('这一楼的正文里没有能用的配图提示词块（正文 AI 没写，或者写的不是 JSON）');
+        reply = { content: findPromptBlocks(message.mes).map(block => block.json).join('\n\n'), reasoning: '', finish: '' };
+    } else {
+        ({ reply, parsed: raw } = await requestParse(parserPrompt.system, parserPrompt.user, undefined, { minTokens: parserPrompt.minTokens, comic: parserPrompt.comic }));
+    }
     if (currentMode() !== modelMode) throw new Error('试运行期间切换了模型模式，结果已丢弃');
     const notes = [...parserPrompt.notes];
     const chosen = target;

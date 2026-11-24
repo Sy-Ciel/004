@@ -39,7 +39,7 @@ import { initSnapshotUi, refreshSnapshotUi } from './ui-snapshots.js';
 import { renderProfileFor, sanitizeRenderProfile } from './renderProfiles.js';
 import { buildStatusInstruction, updateStatusPrompt } from './statusBar.js';
 import { updateRatingPrompt } from './rating.js';
-import { callParser, parseExtraBody } from './parser.js';
+import { buildReplyInstruction, callParser, parseExtraBody, updateReplyPrompt } from './parser.js';
 import { PROVIDERS, nativeProvider, providerOf, providerUrl, switchProvider, usesFlex } from './providers.js';
 import { listVertexModels } from './vertex.js';
 import { cancelAllJobs, enqueue, hasActiveJobs, planLoraLines, renderPlan } from './pipeline.js';
@@ -194,6 +194,10 @@ function onSettingChanged(path) {
         updateStatusPrompt();
         updateStatusVisibility();
     }
+    if (path === 'enabled' || path === 'parser.inReply') {
+        updateReplyPrompt();
+        updateStatusVisibility();
+    }
     if (path === 'statusBar.label') renderAll();
     if (path === 'comfy.width' || path === 'comfy.height') {
         syncResolutionSelect();
@@ -252,6 +256,24 @@ function bindSettings(root) {
 
 function updateStatusVisibility() {
     $('#ctp_status_name').toggle(getSettings().statusBar.target === 'custom');
+    // 提示词和正文一起出: its own options, and the parser section says it is not used.
+    const inReply = !!getSettings().parser.inReply;
+    $('#ctp_inreply_opts').toggle(inReply);
+    $('#ctp_parser_inreply_note').toggle(inReply);
+}
+
+/** 提示词和正文一起出: what the main AI is told with each reply (as it would be now). */
+async function previewReplyInstruction() {
+    const { callGenericPopup, POPUP_TYPE } = ctx();
+    let text;
+    try {
+        text = await buildReplyInstruction();
+    } catch (error) {
+        text = `（生成说明失败：${errorMessage(error)}）`;
+    }
+    text = ctx().substituteParams?.(text) ?? text;
+    const enabled = getSettings().parser.inReply ? '' : '<p class="ctp-muted">（「提示词和正文一起出」现在是关闭的，打开后才会发给正文 AI）</p>';
+    await callGenericPopup(`<h3>发给正文 AI 的配图说明</h3>${enabled}<pre class="ctp-pre">${escapeHtml(text)}</pre>`, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true, okButton: '关闭' });
 }
 
 async function previewStatusInstruction() {
@@ -1719,6 +1741,7 @@ export async function initSettingsUi() {
     $('#ctp_comfy_models').on('click', () => loadComfyLists());
     $('#ctp_workflow_validate').on('click', () => validateWorkflow());
     $('#ctp_status_preview').on('click', previewStatusInstruction);
+    $('#ctp_inreply_preview').on('click', previewReplyInstruction);
     $('#ctp_workflow_load_builtin').on('click', loadBuiltinIntoEditor);
     $('#ctp_reset_official').on('click', resetToOfficial);
     $('#ctp_anima_turbo').on('click', useAnimaTurbo);
