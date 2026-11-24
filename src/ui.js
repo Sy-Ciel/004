@@ -31,7 +31,7 @@ import { applyEnabled, updateQuickToggle } from './quickToggle.js';
 import { DISPLAY_KEYS, SHARED_COMFY_KEYS, SHARED_PARSER_KEYS, currentMode, modeLabel, adoptProfile, hasProfile, otherSlotKey, personaMode, releaseProfile, swapModeSettings, swapProfile } from './modes.js';
 import { resetPanelForMode, resetPanelGeometry } from './panel.js';
 import { bindPickers, getPath, readInput, registerPickerList, registerPickerOwner, renderPicker, renderPickers, setPath, writeInput } from './form.js';
-import { plugConnection, plugModel, plugModelList } from './plug.js';
+import { openRouterWebsite, plugConnection, plugModel, plugModelList } from './plug.js';
 import { initParserPresetUi, refreshParserPresetUi } from './ui-parser-presets.js';
 import { applyCardParamPreset, initParamPresetUi, refreshParamPresetUi } from './ui-param-presets.js';
 import { initRenderProfileUi, refreshRenderProfileUi, refreshRenderProfileUsage, resetRenderProfileSelection } from './ui-render-profiles.js';
@@ -295,6 +295,7 @@ registerPickerList('plugModels', {
     },
     empty() {
         const connection = plugConnection();
+        if (openRouterWebsite(connection)) return '和正文一样（OpenRouter 网站上设的模型）';
         return connection?.chatModel ? `和正文一样（现在是 ${connection.chatModel}）` : '和正文一样';
     },
 });
@@ -313,7 +314,8 @@ function updatePlugUi() {
         if (select) renderPicker(select);
         return;
     }
-    const parts = [`接口：${connection.label}`, connection.proxy ? `反向代理：${connection.proxy}` : '', `正文模型：${connection.chatModel || '（没选）'}`, `解析用：${plugModel(getSettings().parser, connection) || '（没选）'}`];
+    const website = openRouterWebsite(connection) ? 'OpenRouter 网站上设的模型' : '（没选）';
+    const parts = [`接口：${connection.label}`, connection.proxy ? `反向代理：${connection.proxy}` : '', `正文模型：${connection.chatModel || website}`, `解析用：${plugModel(getSettings().parser, connection) || website}`];
     $('#ctp_plug_state').removeClass('ctp-warn').text(parts.filter(Boolean).join(' · '));
     $(select).prop('disabled', false);
     if (select) {
@@ -1704,7 +1706,7 @@ export async function initSettingsUi() {
     });
     // The plug changed in SillyTavern's API panel (another API, model or connection profile): shown at once.
     const { eventSource, eventTypes } = ctx();
-    for (const name of ['MAIN_API_CHANGED', 'CHATCOMPLETION_SOURCE_CHANGED', 'CHATCOMPLETION_MODEL_CHANGED', 'CONNECTION_PROFILE_LOADED', 'OAI_PRESET_CHANGED_AFTER']) {
+    for (const name of ['MAIN_API_CHANGED', 'CHATCOMPLETION_SOURCE_CHANGED', 'CHATCOMPLETION_MODEL_CHANGED', 'CONNECTION_PROFILE_LOADED', 'OAI_PRESET_CHANGED_AFTER', 'CUSTOM_CONNECTION_CHANGED']) {
         if (eventTypes?.[name] && eventSource?.on) {
             eventSource.on(eventTypes[name], () => {
                 if (getSettings().parser.source === 'plug') updatePlugUi();

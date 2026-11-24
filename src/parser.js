@@ -7,7 +7,7 @@ import { CHINESE_PROMPT_RULE, NATURAL_STYLE_RULE } from './parserPresetDefaults.
 import { mossSkillBlock } from './mossSkill.js';
 import { TOOL_NAME, TOOL_REMINDER, TOOL_RULE, toolArguments, toolBody, toolDeclaration, usesTool } from './parserTool.js';
 import { PROVIDERS, nativeProvider, providerOf, providerUrl, usesFlex } from './providers.js';
-import { plugConnection, plugModel, plugRequest } from './plug.js';
+import { openRouterWebsite, plugConnection, plugModel, plugRequest } from './plug.js';
 import { callVertex } from './vertex.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
 import { ASPECT_RATIOS, baseSize, parseAspect, parserPicksAspect } from './resolution.js';
@@ -803,7 +803,7 @@ async function callPlug(system, user, signal, parser = getSettings().parser) {
     const connection = plugConnection();
     if (!connection) throw settingsError('酒馆插头里现在不是 Chat Completion（聊天补全）接口：「酒馆 API 连接」只支持这一类，请在插头里换成聊天补全接口，或改用别的来源');
     const model = plugModel(parser, connection);
-    if (!model) throw settingsError(`插头里的 ${connection.label} 还没有选模型，这里也没有选`);
+    if (!model && !openRouterWebsite(connection)) throw settingsError(`插头里的 ${connection.label} 还没有选模型，这里也没有选`);
     const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
     const json = await service.processRequest(await plugRequest(messages, parser, connection, model), {}, false, signal);
     return readCompletion(json);

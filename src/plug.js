@@ -34,15 +34,28 @@ export function plugConnection() {
     };
 }
 
-/** The model the chat uses (SillyTavern's own lookup when it has one, else its setting for the source). */
+/** OpenRouter's 「the model set on OpenRouter's website」: no model name is sent then. */
+const OPENROUTER_WEBSITE = 'OR_Website';
+
+/**
+ * The model the chat uses: SillyTavern's own lookup when it has one (its answer stands, none included: OpenRouter's
+ * website model is none), else its setting for the source.
+ */
 function chatModel(settings, source) {
-    let model = '';
-    try {
-        model = typeof ctx().getChatCompletionModel === 'function' ? ctx().getChatCompletionModel(settings) : '';
-    } catch {
-        model = '';
+    if (typeof ctx().getChatCompletionModel === 'function') {
+        try {
+            return String(ctx().getChatCompletionModel(settings) ?? '').trim();
+        } catch {
+            // fall back to the setting
+        }
     }
-    return String(model || settings[MODEL_KEYS[source] ?? `${source}_model`] || '').trim();
+    const model = String(settings[MODEL_KEYS[source] ?? `${source}_model`] ?? '').trim();
+    return model === OPENROUTER_WEBSITE ? '' : model;
+}
+
+/** Whether the plug is on OpenRouter with the model set on OpenRouter's website (the request then names none). */
+export function openRouterWebsite(connection) {
+    return connection?.source === 'openrouter' && ctx().chatCompletionSettings?.openrouter_model === OPENROUTER_WEBSITE;
 }
 
 /** oai_settings keys of the sources whose model setting is not named after them. */
@@ -101,7 +114,7 @@ function connectionFields(settings, source) {
 }
 
 /** Element ids of the model lists of the sources whose list is not model_<source>_select. */
-const MODEL_SELECTS = { makersuite: 'model_google_select' };
+const MODEL_SELECTS = { makersuite: 'model_google_select', azure_openai: 'azure_openai_model' };
 
 /**
  * The plug's models for a source, read from SillyTavern's API panel (its own list for that source: fixed for some,
@@ -110,7 +123,7 @@ const MODEL_SELECTS = { makersuite: 'model_google_select' };
 export function plugModelList(source) {
     const select = document.getElementById(MODEL_SELECTS[source] ?? `model_${source}_select`);
     if (!select) return [];
-    return [...new Set([...select.options].map(option => option.value.trim()).filter(Boolean))];
+    return [...new Set([...select.options].map(option => option.value.trim()).filter(value => value && value !== OPENROUTER_WEBSITE))];
 }
 
 /** The model the parser asks: its own choice for this source, else the chat's. */
@@ -195,7 +208,8 @@ export async function plugRequest(messages, parser, connection, model) {
     return {
         stream: false,
         messages,
-        model,
+        // OpenRouter's website model: none named, as SillyTavern's chat request does.
+        model: model || null,
         chat_completion_source: connection.source,
         max_tokens: plugMaxTokens(parser, connection, model),
         temperature: Number(parser.temperature),
