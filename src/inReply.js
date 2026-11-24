@@ -112,11 +112,23 @@ export function stripOldBlocksText(prompt) {
 let streaming = null;
 
 /**
+ * Whether SillyTavern is still streaming this message's reply — its own streaming processor says so. Nothing else
+ * does: a card's script or another extension may draw the floor again meanwhile, firing its "rendered" event.
+ */
+export function stillStreaming(message) {
+    const processor = ctx().streamingProcessor;
+    if (!message || !processor || processor.isFinished || processor.isStopped || processor.abortController?.signal?.aborted) return false;
+    return (ctx().chat ?? [])[processor.messageId] === message;
+}
+
+/**
  * A generation starts (its type: normal, swipe, regenerate, continue …): its reply may be followed. Quiet ones (other
  * extensions, summaries), impersonation and dry runs (prompt previews) leave a reply being followed alone.
  */
 export function replyStarted(type, dryRun = false) {
     if (dryRun || ['quiet', 'impersonate'].includes(type)) return;
+    // One started while the reply followed still streams in is someone else's (a card's script, an extension).
+    if (streaming?.message && stillStreaming(streaming.message)) return;
     streaming?.finish(true);
     streaming = null;
     // 「继续」 streams only the new part: its floor is drawn from the whole text once it is done.
@@ -146,7 +158,9 @@ export function replyStarted(type, dryRun = false) {
 export function replyToken(text) {
     if (!streaming) return null;
     const chat = ctx().chat ?? [];
-    const message = chat.at(-1);
+    // The message SillyTavern streams into: the newest one, unless something was added after it meanwhile.
+    const processor = ctx().streamingProcessor;
+    const message = processor && processor.messageId >= 0 && chat[processor.messageId] ? chat[processor.messageId] : chat.at(-1);
     if (!message || message.is_user) return null;
     streaming.message ??= message;
     if (streaming.message !== message) return null;
@@ -156,14 +170,28 @@ export function replyToken(text) {
 }
 
 /**
- * The reply is done (its floor rendered: `message`), or was stopped. Another floor rendered meanwhile (an extension
- * drawing an older one again) does not end it.
+ * The reply is done (its floor rendered: `message`), or was stopped. A floor rendered while the reply still streams in
+ * — another one, or this one drawn again by a card's script or an extension — does not end it.
  */
 export function replyEnded({ stopped = false, message = null } = {}) {
     if (!streaming) return;
-    if (!stopped && message && streaming.message && streaming.message !== message) return;
+    if (!stopped && message) {
+        if (streaming.message && streaming.message !== message) return;
+        if (stillStreaming(streaming.message ?? message)) return;
+    }
     streaming.finish(stopped);
     if (!stopped) streaming = null;
+}
+
+/**
+ * SillyTavern's generation ended (its stop button went away): the reply is complete — or was stopped: then
+ * GENERATION_STOPPED comes right after this event, so the end waits a moment for it.
+ */
+export function replyGenerationEnded() {
+    if (!streaming) return;
+    const processor = ctx().streamingProcessor;
+    const aborted = !!processor?.isStopped || !!processor?.abortController?.signal?.aborted;
+    setTimeout(() => replyEnded({ stopped: aborted }), 0);
 }
 
 /**

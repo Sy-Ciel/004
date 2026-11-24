@@ -1568,6 +1568,9 @@ async function readReply(message, job, data, parserPrompt, chosen, modelMode, { 
     }
     const stream = replyStream(message);
     if (!stream) setStage(job, message, 'parsing', '读取正文 AI 写的配图提示词…');
+    data.debug.notes.push(stream
+        ? '正文还在输出时就开始了：写完一个配图块就送去 ComfyUI'
+        : '正文写完后才读的配图提示词（这一楼没有跟着正文的流式输出：没有用流式，或者第一个块在最后才写完）');
     if (stream) {
         line.streaming = true;
         const several = comic ? comicPages(parserPrompt.preset) > 1 : sceneLimit(settings.parser) > 1;

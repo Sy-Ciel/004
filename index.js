@@ -11,7 +11,7 @@ import { updateRatingPrompt } from './src/rating.js';
 import { replyProblem } from './src/replyCheck.js';
 import { setEnabled, updateQuickToggle } from './src/quickToggle.js';
 import { updateStatusPrompt } from './src/statusBar.js';
-import { BLOCK_LABEL, findPromptBlocks, promptsInReply, replyEnded, replyStarted, replyToken, stripOldBlocks, stripOldBlocksText } from './src/inReply.js';
+import { BLOCK_LABEL, findPromptBlocks, promptsInReply, replyEnded, replyGenerationEnded, replyStarted, replyToken, stillStreaming, stripOldBlocks, stripOldBlocksText } from './src/inReply.js';
 import { REPLY_MACRO, dropAutomaticInstruction, dropAutomaticInstructionText, noteInstructionSent, replyInstructionMacro, updateReplyPrompt } from './src/parser.js';
 import { currentMode, imageMode, modeLabel } from './src/modes.js';
 import { findParserPreset } from './src/parserPresets.js';
@@ -71,6 +71,8 @@ function autoAllowed(mesId, type) {
 
 async function maybeAutoGenerate(mesId, type) {
     const settings = getSettings();
+    // Rendered again while its reply still streams in (a card's script, another extension): the end comes later.
+    if (stillStreaming(ctx().chat[mesId])) return;
     if (!autoAllowed(mesId, type)) return;
     const chat = ctx().chat;
     const message = chat[mesId];
@@ -387,6 +389,8 @@ function registerEvents() {
         lastStoppedAt = Date.now();
         replyEnded({ stopped: true });
     });
+    // 提示词和正文一起出: the reply followed is complete when SillyTavern's generation ends (or stopped, see above).
+    if (eventTypes.GENERATION_ENDED) eventSource.on(eventTypes.GENERATION_ENDED, replyGenerationEnded);
     // Status bar instruction for the main AI: refreshed per generation (who to describe can change, and quiet
     // generations must not get it).
     eventSource.on(eventTypes.GENERATION_STARTED, async (type, _options, dryRun) => {
