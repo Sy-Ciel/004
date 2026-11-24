@@ -128,7 +128,7 @@
                         <label class="ctp-inline">正文 AI 能看到最近 <input type="number" class="text_pole" min="0" max="50" step="1" data-ctp="parser.replyBlockDepth" data-type="int"> 楼的配图提示词块 <i class="ctp-q fa-solid fa-circle-question"></i></label>
                         <div class="ctp-help">更早楼层里的配图提示词块，发给正文 AI 时会去掉：省 token，也免得正文 AI 照抄旧的画面。留最近一两楼，正文 AI 能照着格式写，衣服也更连贯；0 = 全部去掉。聊天记录里保存的正文不变。</div>
                         <div class="ctp-buttons"><div class="menu_button" id="ctp_inreply_preview">预览发给正文 AI 的配图说明</div> <i class="ctp-q fa-solid fa-circle-question"></i></div>
-                        <div class="ctp-help">这份说明默认作为系统消息放在聊天记录的最后。想放在自己的预设里（比如酒馆「对话补全预设」的某一条提示词里、角色卡里），就在那个位置写宏 <code>{{comfyRules}}</code>，用法和 <code>{{user}}</code> 一样：发送时它会换成这份说明，扩展看到用了它就不再自动插入（不会发两遍）。开关关着时 <code>{{comfyRules}}</code> 是空的，可以一直留在预设里。</div>
+                        <div class="ctp-help">这份说明默认作为系统消息放在聊天记录的最后。想放在自己的预设里（比如酒馆「对话补全预设」的某一条提示词里、角色卡里），就在那个位置写宏 <code>{{comfyRules}}</code>，用法和 <code>{{user}}</code> 一样：发送时它会换成这份说明，扩展看到用了它就不再自动插入（不会发两遍）。开关关着时 <code>{{comfyRules}}</code> 是空的，可以一直留在预设里。<br>放哪里：建议放在「聊天记录」之后、预设最后那条指令（比如「开始思考 / 开始回复」这类）的前面，离正文 AI 开始写的地方越近，越容易照做；放在预设最前面，中间隔着几万字的聊天记录，容易被忘掉。不要放进助手预填（assistant 角色的预填）里，那里的字会变成回复本身。只放一处。</div>
                     </div>
 
                     <h4>自动配图</h4>
