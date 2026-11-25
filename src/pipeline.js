@@ -5,7 +5,7 @@ import { comicPages, comicPanelCount, fitLayout, isComicPreset } from './comic.j
 import { currentMode, floorMode, imageMode, modeLabel } from './modes.js';
 import { buildParserPrompt, floorParagraphs, lastInstructionSent, parserLabel, readPartialReply, readReplyPictures, replyParserPrompt, requestParse, storyParagraphs, usesStream } from './parser.js';
 import { ReplyScanner } from './partial.js';
-import { findPromptBlocks, promptsInReply, replyStream } from './inReply.js';
+import { findPromptBlocks, promptsInReply, replyStream, replyTrace } from './inReply.js';
 import { replyProblem } from './replyCheck.js';
 import { activeParserPreset, findParserPreset, parseFixedFields, presetResolution, sceneLimit } from './parserPresets.js';
 import { buildImagePrompt, buildNegativePrompt, finishPrompt } from './prompt.js';
@@ -24,6 +24,7 @@ import {
     resolveMacros,
     roundTo16,
     setMessageData,
+    sleep,
     toSrc,
     truncate,
     warn,
@@ -1567,10 +1568,11 @@ async function readReply(message, job, data, parserPrompt, chosen, modelMode, { 
             : '发给正文 AI 的请求里没有找到配图说明（可能被预设或别的扩展改掉了）');
     }
     const stream = replyStream(message);
+    // The reply's text when the message does not have all of it (see below).
+    let finalText = null;
     if (!stream) setStage(job, message, 'parsing', '读取正文 AI 写的配图提示词…');
-    data.debug.notes.push(stream
-        ? '正文还在输出时就开始了：写完一个配图块就送去 ComfyUI'
-        : '正文写完后才读的配图提示词（这一楼没有跟着正文的流式输出：没有用流式，或者第一个块在最后才写完）');
+    // Which way this floor went, with how its reply streamed in: what to look at when a floor did not draw early.
+    if (!stream) data.debug.notes.push(replyTrace(message));
     if (stream) {
         line.streaming = true;
         const several = comic ? comicPages(parserPrompt.preset) > 1 : sceneLimit(settings.parser) > 1;
@@ -1612,9 +1614,16 @@ async function readReply(message, job, data, parserPrompt, chosen, modelMode, { 
             job.parsing = false;
             line.streaming = false;
         }
+        data.debug.notes.push(replyTrace(message));
         // Stopped part way: no pictures, as for any reply that was stopped.
         if (ended.stopped) throw abortError();
         assertMode(modelMode);
+        // SillyTavern puts the whole text into the message when the stream is over: every block that streamed in is
+        // waited for there (a moment at most; the stream's own text is read otherwise).
+        const written = text => findPromptBlocks(text).filter(block => block.complete).length;
+        const streamed = written(ended.text);
+        for (let waited = 0; waited < 2000 && written(swipeText(message, job.swipeId)) < streamed; waited += 50) await sleep(50, signal);
+        if (written(swipeText(message, job.swipeId)) < streamed) finalText = ended.text;
         if (auto && !force && settings.skipBadReplies !== false) {
             const problem = await replyProblem(message);
             if (problem) {
@@ -1624,7 +1633,7 @@ async function readReply(message, job, data, parserPrompt, chosen, modelMode, { 
             }
         }
     }
-    const text = swipeText(message, job.swipeId);
+    const text = finalText ?? swipeText(message, job.swipeId);
     const blocks = findPromptBlocks(text).filter(block => block.complete);
     data.parserRaw = truncate(blocks.map(block => block.json).join('\n\n'), 6000);
     data.parserReasoning = '';

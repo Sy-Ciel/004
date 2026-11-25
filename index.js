@@ -11,7 +11,7 @@ import { updateRatingPrompt } from './src/rating.js';
 import { replyProblem } from './src/replyCheck.js';
 import { setEnabled, updateQuickToggle } from './src/quickToggle.js';
 import { updateStatusPrompt } from './src/statusBar.js';
-import { BLOCK_LABEL, findPromptBlocks, promptsInReply, replyEnded, replyGenerationEnded, replyStarted, replyToken, stillStreaming, stripOldBlocks, stripOldBlocksText } from './src/inReply.js';
+import { BLOCK_LABEL, findPromptBlocks, promptsInReply, replyBlockWritten, replyGenerationEnded, replyRendered, replyStarted, replyStopped, replyToken, stillStreaming, stripOldBlocks, stripOldBlocksText } from './src/inReply.js';
 import { REPLY_MACRO, dropAutomaticInstruction, dropAutomaticInstructionText, noteInstructionSent, replyInstructionMacro, updateReplyPrompt } from './src/parser.js';
 import { currentMode, imageMode, modeLabel } from './src/modes.js';
 import { findParserPreset } from './src/parserPresets.js';
@@ -42,38 +42,43 @@ function isGreetingFloor(mesId) {
     return true;
 }
 
-/** Whether 自动配图 draws this floor (a reply just done, or still streaming in): everything but how the reply came out. */
-function autoAllowed(mesId, type) {
+/**
+ * Why 自动配图 does not draw this floor (a reply just done, or still streaming in), '' when it does: everything but
+ * how the reply came out.
+ */
+function autoBlocked(mesId, type) {
     const settings = getSettings();
-    if (!settings.enabled || !settings.autoGenerate) return false;
+    if (!settings.enabled) return '配图是关着的';
+    if (!settings.autoGenerate) return '「自动配图」没有打开';
     const chat = ctx().chat;
     const message = chat[mesId];
-    if (!message || message.is_user || message.is_system || !String(message.mes || '').trim()) return false;
-    if (['impersonate', 'quiet'].includes(type)) return false;
+    if (!message || message.is_user || message.is_system) return '不是 AI 的楼层';
+    if (!String(message.mes || '').trim()) return '这一楼还没有内容';
+    if (['impersonate', 'quiet'].includes(type)) return '不是正文的生成';
     // A finished reply is always the newest floor. Other extensions / card scripts may re-emit the rendered
     // event for older floors (or rewrite the greeting); those must not start generations.
-    if (mesId !== chat.length - 1) return false;
-    if (!settings.includeFirstMessage && (type === 'first_message' || isGreetingFloor(mesId))) return false;
+    if (mesId !== chat.length - 1) return '不是最新的一楼';
+    if (!settings.includeFirstMessage && (type === 'first_message' || isGreetingFloor(mesId))) return '开场白不自动配图';
     // A stopped/aborted stream also emits the rendered event; don't draw half a message.
-    if (Date.now() - lastStoppedAt < 2000) return false;
-    if (getJob(message)) return false;
+    if (Date.now() - lastStoppedAt < 2000) return '刚刚停止过生成';
+    if (getJob(message)) return '这一楼已经在画了';
 
     // Any earlier result (image, error or skip) means this floor was already handled; only an explicit
     // "continue" with the regenerate option asks for a new version.
     const existing = getMessageData(message);
-    if (existing && !(type === 'continue' && settings.regenOnContinue)) return false;
+    if (existing && !(type === 'continue' && settings.regenOnContinue)) return '这一楼已经处理过（有图、报过错或跳过过）';
 
     // Drawing instructions always get a picture, even between "every N floors".
     const hasHints = pendingHints(mesId).length > 0;
     const everyN = Math.max(1, Number(settings.everyN) || 1);
-    return !(everyN > 1 && aiFloorNumber(mesId) % everyN !== 0 && !hasHints);
+    return everyN > 1 && aiFloorNumber(mesId) % everyN !== 0 && !hasHints ? `按「每隔 ${everyN} 楼生成一次」这一楼不画` : '';
 }
 
 async function maybeAutoGenerate(mesId, type) {
     const settings = getSettings();
     // Rendered again while its reply still streams in (a card's script, another extension): the end comes later.
     if (stillStreaming(ctx().chat[mesId])) return;
-    if (!autoAllowed(mesId, type)) return;
+    if (autoBlocked(mesId, type)) return;
     const chat = ctx().chat;
     const message = chat[mesId];
     const existing = getMessageData(message);
@@ -114,7 +119,10 @@ function onReplyToken(text) {
     if (!reply || getJob(reply.message) || !reply.text.includes(BLOCK_LABEL)) return;
     if (!findPromptBlocks(reply.text).some(block => block.complete)) return;
     const mesId = ctx().chat.indexOf(reply.message);
-    if (!autoAllowed(mesId, streamType)) return;
+    const blocked = autoBlocked(mesId, streamType);
+    // Kept for the floor's debug notes: when its first block was written, and why it did not start then.
+    replyBlockWritten(reply.message, blocked);
+    if (blocked) return;
     log(`自动配图 #${mesId}（正文还在写，第一张图的提示词已经写好）`);
     enqueue(mesId, { mode: 'reparse', auto: true });
 }
@@ -354,8 +362,8 @@ function renderAllSoon() {
 function registerEvents() {
     const { eventSource, eventTypes } = ctx();
     eventSource.on(eventTypes.CHARACTER_MESSAGE_RENDERED, (mesId, type) => {
-        // 提示词和正文一起出: a reply that was streaming in is done (a floor drawing from it reads it whole now).
-        replyEnded({ message: ctx().chat[Number(mesId)] });
+        // 提示词和正文一起出: a reason to look whether the reply followed is over (see inReply.js).
+        replyRendered(ctx().chat[Number(mesId)]);
         renderMessage(Number(mesId));
         maybeAutoGenerate(Number(mesId), type).catch(error => console.warn(LOG_PREFIX, error));
     });
@@ -388,7 +396,7 @@ function registerEvents() {
     eventSource.on(eventTypes.MORE_MESSAGES_LOADED, renderAllSoon);
     eventSource.on(eventTypes.GENERATION_STOPPED, () => {
         lastStoppedAt = Date.now();
-        replyEnded({ stopped: true });
+        replyStopped();
     });
     // 提示词和正文一起出: the reply followed is complete when SillyTavern's generation ends (or stopped, see above).
     if (eventTypes.GENERATION_ENDED) eventSource.on(eventTypes.GENERATION_ENDED, replyGenerationEnded);
@@ -403,7 +411,7 @@ function registerEvents() {
         await updateReplyPrompt(type);
     });
     eventSource.on(eventTypes.CHAT_CHANGED, () => {
-        replyEnded({ stopped: true });
+        replyStopped();
         updateStatusPrompt();
         updateRatingPrompt();
         updateReplyPrompt();
