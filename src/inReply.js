@@ -16,29 +16,82 @@ export function promptsInReply(settings = getSettings()) {
     return !!settings.parser?.inReply;
 }
 
-/** A block: <details …><summary>…配图提示词…</summary> … </details> (the closing tag may still be on its way). */
-const BLOCK = /<details\b[^>]*>\s*<summary\b[^>]*>[^<]*配图提示词[^<]*<\/summary>([\s\S]*?)(<\/details\s*>|$)/gi;
+/** Where a block begins: <details …><summary>…配图提示词…</summary>. */
+const BLOCK_START = /<details\b[^>]*>\s*<summary\b[^>]*>[^<]*配图提示词[^<]*<\/summary>/gi;
+/** The block's closing tag right after its JSON (a ``` closing a fence, or a few stray characters, in between). */
+const CLOSE_AFTER = /^[^<]{0,200}<\/details\s*>/i;
+const CLOSE = /<\/details\s*>/i;
+/** Without a closing tag: the ``` closing the fence the JSON was written in still belongs to the block. */
+const FENCE_AFTER = /^\s*```/;
 
 /**
- * The picture blocks of a reply, in order.
- * @returns {{ start: number, end: number, json: string, complete: boolean }[]} complete: its closing tag is there
- *   (a block still being written, at the end of a reply streaming in, is not)
+ * Where the JSON object that begins at the first { of `text` ends (the index after its }), or -1 while it is not
+ * closed. Strings are stepped over, so a brace inside a prompt does not count.
+ */
+function objectEnd(text) {
+    const open = text.indexOf('{');
+    if (open < 0) return -1;
+    let depth = 0;
+    let inString = false;
+    for (let index = open; index < text.length; index++) {
+        const char = text[index];
+        if (inString) {
+            if (char === '\\') index++;
+            else if (char === '"') inString = false;
+        } else if (char === '"') {
+            inString = true;
+        } else if (char === '{' || char === '[') {
+            depth++;
+        } else if ((char === '}' || char === ']') && --depth === 0) {
+            return index + 1;
+        }
+    }
+    return -1;
+}
+
+/**
+ * The picture blocks of a reply, in order. A block is written — complete — the moment its JSON object is closed: its
+ * picture can go to ComfyUI then, while the main AI writes on (the closing tag is not waited for, and a block whose
+ * closing tag the main AI forgot ends at its JSON, so the story after it stays story). A block whose JSON cannot be
+ * followed that way (a quote left unescaped) is complete with its closing tag.
+ * @returns {{ start: number, end: number, json: string, complete: boolean }[]} start / end: the block in the text;
+ *   json: what is in it; complete: false for the one still being written at the end of a reply streaming in
  */
 export function findPromptBlocks(text) {
     const source = String(text ?? '');
-    return [...source.matchAll(BLOCK)].map(match => ({
-        start: match.index,
-        end: match.index + match[0].length,
-        json: match[1].trim(),
-        complete: !!match[2],
-    }));
+    if (!source.includes(BLOCK_LABEL)) return [];
+    const starts = [...source.matchAll(BLOCK_START)];
+    return starts.map((match, index) => {
+        const start = match.index;
+        const from = start + match[0].length;
+        // The block's content is before the next block at the latest.
+        const region = source.slice(from, starts[index + 1]?.index ?? source.length);
+        const object = objectEnd(region);
+        if (object >= 0) {
+            const after = region.slice(object);
+            const close = after.match(CLOSE_AFTER) ?? after.match(FENCE_AFTER);
+            return { start, end: from + object + (close ? close[0].length : 0), json: region.slice(0, object).trim(), complete: true };
+        }
+        const close = region.match(CLOSE);
+        if (close) return { start, end: from + close.index + close[0].length, json: region.slice(0, close.index).trim(), complete: true };
+        // Still being written (the last one), or broken: what follows a broken one stays in the text.
+        const last = index === starts.length - 1;
+        return { start, end: last ? source.length : from, json: region.trim(), complete: false };
+    });
 }
 
 /** The text without its picture blocks (for the parser, and the main AI's view of older floors). */
 export function withoutPromptBlocks(text) {
     const source = String(text ?? '');
-    if (!source.includes(BLOCK_LABEL)) return source;
-    return source.replace(BLOCK, '').replace(/\n{3,}/g, '\n\n');
+    const blocks = findPromptBlocks(source);
+    if (!blocks.length) return source;
+    let result = '';
+    let at = 0;
+    for (const block of blocks) {
+        result += source.slice(at, block.start);
+        at = block.end;
+    }
+    return `${result}${source.slice(at)}`.replace(/\n{3,}/g, '\n\n');
 }
 
 /** Marks rendered picture blocks so the extension's styling hides them (one without the class too). */

@@ -105,12 +105,13 @@ async function maybeAutoGenerate(mesId, type) {
 let streamType = 'normal';
 
 /**
- * 提示词和正文一起出: a token of a reply streaming in. Once one of its picture blocks is complete, 自动配图 starts the
- * floor at once: that picture goes to ComfyUI while the main AI writes on (see readReply in pipeline.js).
+ * 提示词和正文一起出: a token of a reply streaming in. Once one of its picture blocks is written (its JSON closed),
+ * 自动配图 starts the floor at once: that picture goes to ComfyUI while the main AI writes on with the text after it
+ * (see readReply in pipeline.js).
  */
 function onReplyToken(text) {
     const reply = replyToken(text);
-    if (!reply || getJob(reply.message) || !reply.text.includes('</details')) return;
+    if (!reply || getJob(reply.message) || !reply.text.includes(BLOCK_LABEL)) return;
     if (!findPromptBlocks(reply.text).some(block => block.complete)) return;
     const mesId = ctx().chat.indexOf(reply.message);
     if (!autoAllowed(mesId, streamType)) return;

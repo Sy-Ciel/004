@@ -6,6 +6,7 @@
  * - blocked: an API's or proxy's notice (a safety block, a filtered prompt) instead of a reply, or a refusal when there
  *   is no story.
  */
+import { findPromptBlocks, withoutPromptBlocks } from './inReply.js';
 import { storyTagName } from './parser.js';
 import { ctx, log, plainText } from './utils.js';
 
@@ -44,15 +45,21 @@ function endsCleanly(text) {
 
 /** Why a reply was cut off, or ''. */
 async function truncation(message) {
-    const text = String(message?.mes ?? '');
+    const whole = String(message?.mes ?? '');
+    // 提示词和正文一起出: a picture block is whole once its JSON is closed — its closing tag may be missing (the main
+    // AI left it out, or SillyTavern's 「修剪不完整的句子」 cut it off the end) without the reply being cut off. One
+    // whose JSON stops half way is.
+    if (findPromptBlocks(whole).some(block => !block.complete)) return '正文被截断（配图提示词块没有写完）';
+    const text = withoutPromptBlocks(whole);
     const tag = storyTagName().toLowerCase();
     if (unclosed(text, tag)) return `正文被截断（<${tag}> 没有写完）`;
     if ((text.match(/```/g) ?? []).length % 2) return '正文被截断（代码块没有写完）';
     if (unclosed(text, 'details')) return '正文被截断（状态栏没有写完）';
     const max = maxResponseTokens();
-    if (max > 0 && !endsCleanly(text)) {
+    if (max > 0 && !endsCleanly(text) && !endsCleanly(whole)) {
         const reasoning = String(message?.extra?.reasoning ?? '');
-        const tokens = await tokenCount(text) + (reasoning ? await tokenCount(reasoning) : 0);
+        // The picture blocks count towards the response limit too.
+        const tokens = await tokenCount(whole) + (reasoning ? await tokenCount(reasoning) : 0);
         if (tokens >= max * 0.95) return `正文被截断（写到了最大回复长度 ${max} token，停在句子中间）`;
     }
     return '';
