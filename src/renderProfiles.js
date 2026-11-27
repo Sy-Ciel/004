@@ -3,7 +3,8 @@
  * so each character (and each user persona bound to a preset) is drawn with its own model and LoRA.
  * Every field is an override: empty (or 0) keeps the default from the ComfyUI section.
  */
-import { LORA_NONE, makeId } from './constants.js';
+import { LORA_NONE, makeId, modeDefaults } from './constants.js';
+import { currentMode } from './modes.js';
 import { getSettings } from './utils.js';
 
 /**
@@ -64,6 +65,23 @@ export function renderProfileFor(preset) {
 /** Character presets that use a render profile. */
 export function presetsUsing(profileId) {
     return getSettings().presets.filter(preset => preset.renderProfileId === profileId);
+}
+
+/**
+ * The CFG a character's pictures are drawn with: its render profile's when its preset has one, else the mode's own
+ * (the image model mode's default when the field is cleared), as the workflow gets it.
+ */
+export function effectiveCfg(preset = null) {
+    const comfy = effectiveComfy(renderProfileFor(preset));
+    return Number(comfy.cfg) || modeDefaults(currentMode()).comfy.cfg;
+}
+
+/**
+ * Whether a negative prompt does anything for this character's pictures: at CFG 1 the sampler leaves the negative
+ * prompt out altogether, so nobody is asked to write one (the parser model, or the main AI with 提示词和正文一起出).
+ */
+export function negativeCounts(preset = null) {
+    return Number(effectiveCfg(preset)) !== 1;
 }
 
 /** The ComfyUI settings with a render profile's overrides applied. */

@@ -422,7 +422,7 @@
                     <div class="ctp-help" id="ctp_negative_hint"></div>
                     <textarea class="text_pole" rows="2" data-ctp="negativePrompt" id="ctp_negative" aria-label="反向提示词"></textarea>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="parserNegative"><span>让解析模型按画面补充反向提示词 <i class="ctp-q fa-solid fa-circle-question"></i></span></label>
-                    <div class="ctp-help">加在上面的反向提示词后面。解析模型在同一次请求里多写一个 negative 字段：这张图不该出现、容易画错的东西（只有一个人时的多人标签、没穿戴的衣物配饰、还没发生的动作等）。和上面重复的、和正向提示词里一模一样的标签会自动去掉。Anima 和 MOSS-Image 模式默认打开<span class="ctp-mode-only" data-mode="krea2">；Krea 2 的内置工作流（CFG 1）不使用反向提示词，只对会用到反向提示词的自定义工作流有用</span>。</div>
+                    <div class="ctp-help">加在上面的反向提示词后面。解析模型在同一次请求里多写一个 negative 字段：这张图不该出现、容易画错的东西（只有一个人时的多人标签、没穿戴的衣物配饰、还没发生的动作等）。和上面重复的、和正向提示词里一模一样的标签会自动去掉。Anima 和 MOSS-Image 模式默认打开<span class="ctp-mode-only" data-mode="krea2">；Krea 2 的内置工作流（CFG 1）不使用反向提示词</span>。<br>CFG 是 1 时采样器根本不用反向提示词，所以这时即使开着这一项，也不会让解析模型写 negative（「提示词和正文一起出」时同样不让正文 AI 写），省掉这部分输出；CFG 改成 1 以外的值就照常写。按画这个角色实际用的 CFG 算：角色预设绑定的渲染配置自己设了 CFG 的，以它为准。</div>
                     <label class="checkbox_label"><input type="checkbox" data-ctp="noBorder"><span>防止白边 / 黑边 <i class="ctp-q fa-solid fa-circle-question"></i></span></label>
                     <div class="ctp-help">反向提示词自动加上 <code>letterboxed, pillarboxed, border, white border, black border</code>。动漫模型偶尔会把画面画窄，两边或上下留出白边 / 黑边（像把一张 9:16 的图放在 2:3 的画布中间）。这几个 Danbooru 标签就是描述这种图的，放进反向提示词，画面就会铺满整张图。Anima 模式默认打开；要用 CFG 大于 1 才起作用（Turbo LoRA 的 CFG 1 不行）；正向提示词里写了同样的标签时不加。</div>
 

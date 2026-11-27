@@ -12,6 +12,7 @@ import { ReplyScanner } from './partial.js';
 import { readStream, streamError } from './stream.js';
 import { callVertex } from './vertex.js';
 import { activeParserPreset, extraFieldRules, outputRules, parseFixedFields, presetResolution, promptMode, sceneLimit } from './parserPresets.js';
+import { negativeCounts } from './renderProfiles.js';
 import { ASPECT_RATIOS, baseSize, parseAspect, parserPicksAspect, sizeAspect } from './resolution.js';
 import { describeThinking, profileThinking, thinkingBody, thinkingMaxTokens, thinkingOmits } from './thinking.js';
 import { isTriggerTag, triggerWordList } from './prompt.js';
@@ -540,8 +541,9 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
     const comic = isComicPreset(preset) ? { panels: comicPanels(preset), pages: focus ? 1 : comicPages(preset), dialogue: preset.dialogue !== false } : null;
     const mode = comic ? 'ai' : promptMode();
     const allowOthers = !!preset.allowOthers;
-    // The parser writes the picture's negative prompt too (Anima: a real negative prompt at CFG 4).
-    const negative = !!settings.parserNegative;
+    // The parser writes the picture's negative prompt too (Anima: a real negative prompt at CFG 4) — not at CFG 1,
+    // where the sampler does not use a negative prompt (the target's render profile may set its own CFG).
+    const negative = !!settings.parserNegative && negativeCounts(target.preset);
     // 多张图: earlier parts of the floor (another time or place) get pictures of their own. One part written
     // again keeps its place and size, so neither the parts nor the place and aspect are asked for then.
     const scenes = focus || comic ? 0 : sceneLimit(settings.parser);
@@ -654,7 +656,7 @@ export async function buildParserPrompt(mesId, target, { focus = null } = {}) {
             settings.parser.storyTagOnly
                 ? hasStoryTag(chat[mesId].mes) ? `只读取 <${storyTagName()}> 标签里的正文` : `当前楼层没有 <${storyTagName()}> 标签，读取了全文（去掉了 \`\`\` 代码块）`
                 : '',
-            negative ? '解析模型补充反向提示词' : '',
+            negative ? '解析模型补充反向提示词' : settings.parserNegative ? 'CFG 是 1（采样时不使用反向提示词）：这次没有让解析模型写反向提示词' : '',
             aspect ? '解析模型选择宽高比' : '',
             scenes ? `多张图：正文换了时间或地点时最多画 ${scenes} 张` : '',
             comic?.pages > 1 ? `漫画：按内容画 1–${comic.pages} 页（「多张图」的设置对漫画不起作用）` : '',
@@ -1320,7 +1322,7 @@ export function readReplyPictures(message, text, { comic = false, done = true } 
  * 提示词和正文一起出: what a floor drawn from the main AI's blocks is read with, as buildParserPrompt's result without
  * a request to send: the parser preset, its prompt mode, 漫画模式, and whether someone else may be drawn.
  */
-export function replyParserPrompt() {
+export function replyParserPrompt(target = null) {
     const settings = getSettings();
     const preset = activeParserPreset();
     const comic = isComicPreset(preset);
@@ -1333,7 +1335,10 @@ export function replyParserPrompt() {
         comic,
         minTokens: 0,
         inReply: true,
-        notes: [`${modeLabel()} 模式 · 解析预设：${preset.name} · 提示词和正文一起出：用的是正文 AI 写在回复里的配图提示词，没有调用解析模型`],
+        notes: [
+            `${modeLabel()} 模式 · 解析预设：${preset.name} · 提示词和正文一起出：用的是正文 AI 写在回复里的配图提示词，没有调用解析模型`,
+            settings.parserNegative && !negativeCounts(target?.preset) ? 'CFG 是 1（采样时不使用反向提示词）：没有让正文 AI 写反向提示词' : '',
+        ].filter(Boolean),
     };
 }
 
@@ -1354,7 +1359,8 @@ export async function buildReplyInstruction() {
     const comic = comicPreset ? { panels: comicPanels(preset), pages: 1, dialogue: preset.dialogue !== false } : null;
     const mode = comic ? 'ai' : promptMode();
     const allowOthers = !!preset.allowOthers;
-    const negative = !!settings.parserNegative;
+    // Not at CFG 1: the sampler does not use a negative prompt then, so the main AI is not asked for one.
+    const negative = !!settings.parserNegative && negativeCounts(target.preset);
     const absent = settings.absentFallback !== false ? { auto: !!target.auto } : null;
     // 横 / 竖: the main AI picks each picture's ratio (the pixel count stays), unless the preset sets its own size.
     const aspect = presetResolution(preset) ? null : { ratios: ASPECT_RATIOS, fallback: sizeAspect(settings.comfy) };

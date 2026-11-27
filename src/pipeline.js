@@ -1738,7 +1738,7 @@ async function runJobInMode(message, job, options, ratingNote) {
             applyTarget(data, target);
             // 提示词和正文一起出: the main AI wrote the pictures into its reply; no parser model is asked.
             const inline = promptsInReply(settings);
-            const parserPrompt = inline ? replyParserPrompt() : await buildParserPrompt(mesId, target);
+            const parserPrompt = inline ? replyParserPrompt(target) : await buildParserPrompt(mesId, target);
             let parsed;
             if (inline) {
                 parsed = await readReply(message, job, data, parserPrompt, target, modelMode, { auto: !!options.auto, force, line, seedOf });
@@ -1944,7 +1944,7 @@ export async function dryRun(mesId, targetOverride) {
     let target = resolveTarget(message, targetOverride);
     // 提示词和正文一起出: what the main AI's blocks say (no parser model).
     const inline = promptsInReply();
-    const parserPrompt = inline ? replyParserPrompt() : await buildParserPrompt(mesId, target);
+    const parserPrompt = inline ? replyParserPrompt(target) : await buildParserPrompt(mesId, target);
     let reply;
     let raw;
     if (inline) {
