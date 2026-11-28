@@ -37,7 +37,7 @@ export function upscaleStatusHtml(status) {
 export function versionPictures(image) {
     const scenes = Array.isArray(image?.scenes) ? image.scenes : [];
     // 画好一张显示一张: a floor still being drawn (FloorLine.preview) says how far each picture is, and its size.
-    const live = picture => (image?.live ? { live: true, state: picture.state || '', width: picture.width, height: picture.height } : {});
+    const live = picture => (image?.live ? { live: true, state: picture.state || '', width: picture.width, height: picture.height, block: picture.block } : {});
     return [
         ...scenes.map((scene, index) => ({
             src: scene.src, label: scene.label || `第 ${index + 1} 段`, scene: index,
@@ -94,9 +94,9 @@ export function removePicture(image, scene) {
 /**
  * One picture of a version: its label and, when the version has several, its own buttons, then the image.
  * tools: 'all' = 🎲 🔄 ✏️ for this picture and 「全部重新解析」; 'link' = only 「全部重新解析」 (the toolbar under
- * it acts on this picture); 'none'.
+ * it acts on this picture); 'none'. lazy: loaded only once it is near the part of the page in view.
  */
-export function pictureHtml(picture, several, { imgClass = 'ctp-img', style = '', tools = 'all' } = {}) {
+export function pictureHtml(picture, several, { imgClass = 'ctp-img', style = '', tools = 'all', lazy = true } = {}) {
     // 画好一张显示一张: a picture of a floor still being drawn is in no version yet: no buttons of its own.
     if (picture.live) tools = 'none';
     const own = tools === 'all'
@@ -113,7 +113,7 @@ export function pictureHtml(picture, several, { imgClass = 'ctp-img', style = ''
         : '';
     const head = picture.label || buttons ? `<div class="ctp-scene-head"><span class="ctp-scene-label">${escapeHtml(picture.label)}</span>${buttons}</div>` : '';
     if (!picture.src) return `${head}${pendingHtml(picture, imgClass === 'ctp-panel-img', style)}`;
-    return `${head}<img class="${imgClass} ctp-act" data-act="zoom" data-scene="${picture.scene}"${picture.live ? ' data-live="1"' : ''} src="${escapeHtml(picture.src)}" alt="" loading="lazy"${style ? ` style="${style}"` : ''}>`;
+    return `${head}<img class="${imgClass} ctp-act" data-act="zoom" data-scene="${picture.scene}"${picture.live ? ' data-live="1"' : ''} src="${escapeHtml(picture.src)}" alt=""${lazy ? ' loading="lazy"' : ''}${style ? ` style="${style}"` : ''}>`;
 }
 
 /**

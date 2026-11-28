@@ -7,7 +7,7 @@ import { storyParagraphs } from './parser.js';
 import { getJob, upscaleStatus } from './pipeline.js';
 import { currentMode, floorMode } from './modes.js';
 import { decorateStatusBars } from './statusBar.js';
-import { decoratePromptBlocks } from './inReply.js';
+import { BLOCK_LABEL, decoratePromptBlocks } from './inReply.js';
 import { ctx, escapeHtml, getMessageData, getSettings } from './utils.js';
 
 export { onLayoutChange } from './layout.js';
@@ -63,7 +63,6 @@ function imageHtml(data, debug, pictures, several, panelButton) {
     ${toolbarHtml(data, debug, { panelButton, scene })}`;
 }
 
-/** Takes the pictures put into a message's text out again (the image block is moved by placeWrap). */
 /** Message blocks watched for their text being drawn again with the pictures gone (see watchText). */
 const watched = new WeakSet();
 
@@ -98,11 +97,169 @@ function placementIntact(text, wrap = text.querySelector('.ctp-wrap')) {
         && shownText(text) === state.shown;
 }
 
+/** Takes the pictures put into a message's text out again (the image block is moved by placeWrap). */
 function clearInserted(element) {
     const text = element.find('.mes_text').get(0);
     if (!text) return;
-    text.querySelectorAll('.ctp-inserted').forEach(node => node.remove());
+    // (The pictures of a reply still streaming in are kept at their blocks, see streamPictures.)
+    text.querySelectorAll('.ctp-inserted:not(.ctp-stream-figure)').forEach(node => node.remove());
     delete text.ctpPlacement;
+}
+
+/*
+ * 提示词和正文一起出, a reply still streaming in. SillyTavern draws the message's text again with every token (all of
+ * it, or patched node by node with its fade-in), which takes out whatever was put into it. So each picture — or the
+ * line saying it is on its way — is kept right after the block it was written in (the hidden <details> marks the
+ * spot) and put back every time the text was drawn again: the same node, so nothing flickers or loads twice.
+ *
+ * The chat keeps its place meanwhile. The text's height is held, so it is never shorter for the moment its pictures
+ * are out (a chat at its end would be moved up by as much). And SillyTavern before 1.14 goes to the end of the chat
+ * right after drawing the text, the pictures still out: what they add once they are back would look like the reader
+ * scrolling up, and it would stop following the reply. So a chat that was at its end is put there again whenever the
+ * pictures are put back or one of them is shown.
+ */
+
+/** Message texts with pictures kept at their blocks: { pictures, figures: block → node, observer, chat, … }. */
+const streamed = new WeakMap();
+
+/** The picture blocks of a message's text as shown, in order. */
+function blockElements(text) {
+    return [...text.querySelectorAll('details')].filter(details => details.querySelector(':scope > summary')?.textContent.includes(BLOCK_LABEL));
+}
+
+/** Whether the chat shows its end (as SillyTavern tells whether to follow a reply). */
+function atEnd(chat) {
+    return Math.abs(chat.scrollHeight - chat.clientHeight - chat.scrollTop) < 5;
+}
+
+/** Whether SillyTavern follows a reply at all (its 自动滚动 setting; the visual novel mode scrolls its own way). */
+function followsReplies() {
+    const power = ctx().powerUserSettings;
+    return power?.auto_scroll_chat_to_bottom !== false && !power?.waifuMode;
+}
+
+/** The pictures are in (again), or one is shown: the text's height is held, a chat that was at its end is there again. */
+function keepPlace(text, state) {
+    const height = text.offsetHeight;
+    const follow = !!state.chat && state.follows && followsReplies() && !atEnd(state.chat);
+    if (height > state.height) {
+        state.height = height;
+        text.style.minHeight = `${height}px`;
+    }
+    if (follow) state.chat.scrollTop = state.chat.scrollHeight;
+}
+
+/**
+ * Shows a picture, or the line for one on its way, in its figure. A picture only once it is loaded, the line staying
+ * until then: the text grows in one step, here, and the chat can be kept at its end in the same step.
+ */
+function fillFigure(figure, picture, text, state) {
+    const signature = `${picture.state}|${picture.src ?? ''}`;
+    if (figure.dataset.signature === signature) return;
+    figure.dataset.signature = signature;
+    const holder = document.createElement('div');
+    // (No label: which part of the floor a picture is, is only known once the reply is done. And loaded at once: a
+    // picture that waits to come into view never does, taken out and put back all the time.)
+    holder.innerHTML = pictureHtml({ ...picture, label: '' }, false, { style: imageStyle(), lazy: false });
+    const show = () => {
+        // (Unless something else is to be shown there by now.)
+        if (figure.dataset.signature !== signature) return;
+        figure.replaceChildren(...holder.childNodes);
+        if (!figure.isConnected) return;
+        state.observer.takeRecords();
+        keepPlace(text, state);
+    };
+    const image = holder.querySelector('img');
+    if (image && !image.complete && image.decode) image.decode().then(show, show);
+    else show();
+}
+
+/** Puts every picture after its block (those whose block is not shown yet wait for it); how many blocks are shown. */
+function putAtBlocks(text, state) {
+    const blocks = blockElements(text);
+    const shown = new Set();
+    for (const picture of state.pictures) {
+        const block = blocks[picture.block];
+        if (!block) continue;
+        const key = String(picture.block);
+        shown.add(key);
+        let figure = state.figures.get(key);
+        if (!figure) {
+            // An element of a kind of its own: SillyTavern's fade-in patches the text node by node, and would turn a
+            // <div> standing where its next element goes into that element instead of taking it out.
+            figure = document.createElement('ctp-figure');
+            figure.className = 'ctp-inserted ctp-figure ctp-stream-figure';
+            state.figures.set(key, figure);
+        }
+        fillFigure(figure, picture, text, state);
+        if (block.nextSibling !== figure) block.after(figure);
+    }
+    for (const [key, figure] of state.figures) {
+        if (shown.has(key)) continue;
+        figure.remove();
+        state.figures.delete(key);
+    }
+    // (What was changed just now is not a reason to look again.)
+    state.observer.takeRecords();
+    if (state.figures.size) keepPlace(text, state);
+    return blocks.length;
+}
+
+/**
+ * Keeps the pictures of a reply still streaming in at their blocks.
+ * @returns {object[]} the pictures left for the image block: all of them when the text shows no block at all (a
+ *   display rule took them out), else none
+ */
+function streamPictures(element, pictures) {
+    const text = element.find('.mes_text').get(0);
+    if (!text) return pictures;
+    let state = streamed.get(text);
+    if (!state) {
+        const chat = text.closest('#chat');
+        state = { pictures: [], figures: new Map(), observer: null, chat, follows: !!chat && atEnd(chat), height: 0, onScroll: null, inText: false };
+        state.observer = new MutationObserver(() => {
+            // The blocks are shown only now (the reply's text is read before it is drawn), or not any more: the
+            // image block gives up the pictures, or gets them.
+            const mes = text.closest('.mes')?.getAttribute('mesid');
+            const inText = putAtBlocks(text, state) > 0;
+            if (inText !== state.inText && mes) renderMessage(Number(mes));
+        });
+        state.observer.observe(text, { childList: true, subtree: true });
+        // Whether the reader is at the chat's end, as of the last time the chat moved.
+        state.onScroll = () => {
+            if (text.isConnected) state.follows = atEnd(chat);
+            else forgetStream(text, state);
+        };
+        chat?.addEventListener('scroll', state.onScroll, { passive: true });
+        streamed.set(text, state);
+    }
+    state.pictures = pictures.filter(picture => Number.isInteger(picture.block));
+    state.inText = putAtBlocks(text, state) > 0;
+    return state.inText ? pictures.filter(picture => !state.pictures.includes(picture)) : pictures;
+}
+
+/** Stops keeping a text's pictures at their blocks, and takes them out. */
+function forgetStream(text, state) {
+    state.observer.disconnect();
+    state.chat?.removeEventListener('scroll', state.onScroll);
+    for (const figure of state.figures.values()) figure.remove();
+    streamed.delete(text);
+}
+
+/**
+ * The reply is done (or the floor shows something else): the pictures kept at their blocks are taken out, for the
+ * version's to go where it has them.
+ * @returns {() => void} to call once those are in: lets go of the text's height, a chat that was at its end is there again
+ */
+function stopStreamPictures(element) {
+    const text = element.find('.mes_text').get(0);
+    const state = text && streamed.get(text);
+    if (!state) return () => {};
+    forgetStream(text, state);
+    return () => {
+        text.style.minHeight = '';
+        if (state.chat?.isConnected && state.follows && followsReplies()) state.chat.scrollTop = state.chat.scrollHeight;
+    };
 }
 
 function insertedFigure(picture) {
@@ -211,9 +368,11 @@ export function renderMessage(mesId) {
     const showError = data?.error && !live;
     const showSkip = data?.skipped && settings.debug && !live;
     if (!message || (!showJob && !hasImages && !showError && !showSkip)) {
+        const settle = stopStreamPictures(element);
         clearInserted(element);
         wrap.remove();
         element.find('.mes_block').removeClass('ctp-has-side ctp-text-wrap');
+        settle();
         schedulePanelRefresh();
         return;
     }
@@ -229,6 +388,8 @@ export function renderMessage(mesId) {
     let pictures = [];
     let several = false;
     let wrapInText = false;
+    // (A reply that was streaming in until now: see stopStreamPictures.)
+    let settle = () => {};
     const shown = live ?? (hasImages ? data.images[currentIndex(data)] : null);
     if (shown && kind !== 'panel') {
         const image = shown;
@@ -245,15 +406,16 @@ export function renderMessage(mesId) {
             paragraphs: several || inStory ? storyParagraphs(message) : [],
         };
         if (image.streaming) {
-            // The reply is still streaming in (SillyTavern draws its text again with every token): the pictures done
-            // so far wait under it, and go to their places once it is done.
+            // The reply is still streaming in: each picture at the block it was written in (see streamPictures).
             clearInserted(element);
-            pictures = all;
+            pictures = streamPictures(element, all);
         } else {
+            settle = stopStreamPictures(element);
             ({ kept: pictures, wrapInText } = placePictures(element, wrap[0], all, kind, inStory, bounds));
             if (several || inStory) watchText(element);
         }
     } else {
+        settle = stopStreamPictures(element);
         clearInserted(element);
     }
     if (!wrapInText) placeWrap(element, wrap, kind);
@@ -295,6 +457,7 @@ export function renderMessage(mesId) {
         wrap.html(html);
     }
     wrap.find('.ctp-chip').toggleClass('ctp-chip-active', getPanelMesId() === mesId);
+    settle();
     schedulePanelRefresh();
 }
 

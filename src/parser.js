@@ -1254,7 +1254,8 @@ const LASTING_FIELDS = ['outfit', 'scene', 'lighting', 'aspect', 'negative'];
 export function readReplyPictures(message, text, { comic = false, done = true } = {}) {
     const source = String(text ?? '');
     const found = findPromptBlocks(source);
-    const blocks = found.filter((block, index) => block.complete || (done && index === found.length - 1));
+    // (number: which of the reply's blocks it is, one not written out yet counted too.)
+    const blocks = found.map((block, number) => ({ ...block, number })).filter(block => block.complete || (done && block.number === found.length - 1));
     if (!blocks.length) return null;
     // The paragraph before each block: the blocks marked in the story as lines of their own, then counted.
     let marked = '';
@@ -1290,7 +1291,7 @@ export function readReplyPictures(message, text, { comic = false, done = true } 
             continue;
         }
         if (parsed.skip) continue;
-        pictures.push({ object, parsed, label: normalizeValue(object.label ?? object.title), place: placeOf(index) });
+        pictures.push({ object, parsed, label: normalizeValue(object.label ?? object.title), place: placeOf(index), block: block.number });
     }
     if (!pictures.length) return null;
     const number = value => (value > 0 ? String(value) : '');
@@ -1313,7 +1314,10 @@ export function readReplyPictures(message, text, { comic = false, done = true } 
             negative: picture.parsed.negative,
             aspect: picture.parsed.aspect,
             ...(picture.parsed.page ? { page: picture.parsed.page } : {}),
+            block: picture.block,
         })),
+        // Which of the reply's blocks each picture is (while the reply streams in, a picture is shown at its block).
+        block: last.block,
         fromReply: true,
     };
 }

@@ -765,7 +765,7 @@ function floorRating(message, swipeId) {
  * A floor's picture state: what 🔄 and ✏️ reuse and what continuity reads. All of it belongs to one image model
  * mode, data.modelMode (a Krea 2 sentence prompt or preset id means nothing to Anima, and the other way round).
  */
-const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'subject', 'parsed', 'prompt', 'canvas', 'negative', 'scenes', 'endStart', 'endStartAt', 'place', 'placeAt', 'storyStart', 'storyEnd', 'storyEnding', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited', 'fromReply'];
+const FLOOR_STATE_KEYS = ['modelMode', 'target', 'presetId', 'fixed', 'subject', 'parsed', 'prompt', 'canvas', 'negative', 'scenes', 'endStart', 'endStartAt', 'place', 'placeAt', 'storyStart', 'storyEnd', 'storyEnding', 'parserPresetId', 'parserPresetName', 'promptMode', 'editOverrides', 'promptEdited', 'fromReply', 'endBlock'];
 
 /** Whether a floor has picture state of its own (a parse or a prompt), as opposed to nothing or only an error. */
 function hasFloorState(data) {
@@ -1180,6 +1180,9 @@ function floorFromParse(message, data, parsed, parserPrompt, chosen) {
     const inStory = !!settings.placeInStory || !!parsed.fromReply;
     if (parsed.fromReply) data.fromReply = true;
     else delete data.fromReply;
+    // Which of the reply's blocks the end of the floor is (see FloorLine.preview).
+    if (Number.isInteger(parsed.block)) data.endBlock = parsed.block;
+    else delete data.endBlock;
     // Who is drawn: the target (auto: the one the parser picked), or, when the target is not in the scene, whoever
     // is (画谁不在画面里).
     const { subject: target, sceneSubject } = subjectsOf(chosen, parsed, parserPrompt, message, data.debug.notes);
@@ -1222,8 +1225,9 @@ function floorFromParse(message, data, parsed, parserPrompt, chosen) {
             parsed: sceneBuilt.parsed,
             prompt: sceneBuilt.prompt,
             negative: buildNegativePrompt(who.preset, sceneBuilt.parsed, sceneBuilt.prompt),
-            // 提示词和正文一起出: its own 横 / 竖.
+            // 提示词和正文一起出: its own 横 / 竖, and which of the reply's blocks it is.
             ...(scene.aspect ? { aspect: scene.aspect } : {}),
+            ...(Number.isInteger(scene.block) ? { block: scene.block } : {}),
         };
     });
     const story = comparable(paragraphs.join('\n'));
@@ -1350,8 +1354,12 @@ class FloorLine {
         this.state = null;
         /** The end of the floor's slot ('end'; with a reply's blocks, the last block's turn). */
         this.endSlot = 'end';
-        /** 提示词和正文一起出: the main AI's reply is still streaming in (its pictures are not put into the text yet). */
+        /**
+         * 提示词和正文一起出: the main AI's reply is still streaming in (its pictures are shown at their blocks, see the
+         * display's streamPictures), and whether it was followed while it did.
+         */
         this.streaming = false;
+        this.followed = false;
         this.chain = Promise.resolve();
         this.turn = null;
         /** Pictures begun and drawn so far, how many wait for ComfyUI, and how many the floor has (known once the whole reply is read). */
@@ -1412,6 +1420,8 @@ class FloorLine {
         // Which picture of how many (while the parser is still writing, how many is not known yet).
         const number = ++this.begun;
         const count = this.total > 1 ? `（${Math.min(number, this.total)}/${this.total}）` : !this.total && number > 1 ? `（第 ${number} 张）` : '';
+        // (Its turn at ComfyUI: shown as being drawn from here on.)
+        entry.started = true;
         setStage(this.job, this.message, 'drawing', drawing.label ? `ComfyUI 生成中：${drawing.label}${count}…` : `ComfyUI 生成中${count}…`);
         const template = await getWorkflowTemplate(drawing.plan.comfy, drawing.plan.profile, this.modelMode);
         if (entry.dropped) throw abortError();
@@ -1420,7 +1430,6 @@ class FloorLine {
         const { workflow, later } = buildWorkflow(template, values, drawing.plan, entry.notes);
         const started = performance.now();
         const status = drawing.role === 'end' ? '' : drawing.label;
-        entry.started = true;
         const image = await runWorkflow(workflow, entry.controller.signal, text => setStage(this.job, this.message, 'drawing', `${status}${text}`));
         assertMode(this.modelMode);
         this.drawn++;
@@ -1466,11 +1475,13 @@ class FloorLine {
     /**
      * 画好一张显示一张: the floor while its pictures are drawn, as a version (see addVersion) the display can show: the
      * pictures done so far, and a box for each one still on its way, at their places in the text. null until the
-     * first one is done.
+     * first one is done (a reply followed while it streams in: until its first block is read).
      */
     preview() {
         const floor = this.state;
-        if (!floor || ![...this.entries.values()].some(entry => entry.done)) return null;
+        // A reply followed while it streamed in shows a picture on its way too (a line at its block: it was sent), and
+        // keeps showing it once the reply is done.
+        if (!floor || !(this.followed || [...this.entries.values()].some(entry => entry.done))) return null;
         const picture = slot => {
             const entry = this.entries.get(slot);
             return {
@@ -1487,16 +1498,19 @@ class FloorLine {
             place: scene.place || '',
             startAt: scene.startAt,
             placeAt: scene.placeAt,
+            block: scene.block,
         }));
         return {
             ...picture(this.endSlot),
+            block: floor.endBlock,
             start: scenes.length ? floor.endStart || '' : undefined,
             startAt: scenes.length ? floor.endStartAt : undefined,
             place: floor.place || undefined,
             placeAt: floor.placeAt,
             ...(floor.storyStart ? { storyStart: floor.storyStart, storyEnd: floor.storyEnd, storyEnding: floor.storyEnding } : {}),
             scenes: scenes.length ? scenes : undefined,
-            // Drawn from the reply's blocks: in the story where the blocks are; while the reply still streams in, under it.
+            // Drawn from the reply's blocks: in the story where the blocks are (while the reply still streams in: right
+            // after each block as it is shown).
             ...(floor.fromReply ? { inStory: true } : {}),
             ...(this.streaming ? { streaming: true } : {}),
             live: true,
@@ -1575,6 +1589,7 @@ async function readReply(message, job, data, parserPrompt, chosen, modelMode, { 
     if (!stream) data.debug.notes.push(replyTrace(message));
     if (stream) {
         line.streaming = true;
+        line.followed = true;
         const several = comic ? comicPages(parserPrompt.preset) > 1 : sceneLimit(settings.parser) > 1;
         // Worked out again only when another block is complete (the text before a block does not change after it).
         let complete = -1;
@@ -1594,6 +1609,8 @@ async function readReply(message, job, data, parserPrompt, chosen, modelMode, { 
                 for (const drawing of [...drawings.scenes, drawings.end]) line.offer(drawing);
                 line.state = scratch;
                 line.endSlot = drawings.end.slot;
+                // (A block that waits for the picture before it is shown as waiting at once.)
+                render(message);
             } catch (error) {
                 log('提示词和正文一起出：这一块还不能画', error);
             }
